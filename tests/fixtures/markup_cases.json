@@ -1,0 +1,311 @@
+[
+  {
+    "input": "plain narration",
+    "runs": [
+      {
+        "text": "plain narration",
+        "styles": []
+      }
+    ]
+  },
+  {
+    "input": "\"Hello there,\" she said.",
+    "runs": [
+      {
+        "text": "\"Hello there,\"",
+        "styles": [
+          "dialogue"
+        ]
+      },
+      {
+        "text": " she said.",
+        "styles": []
+      }
+    ]
+  },
+  {
+    "input": "*He sighs.* \"Fine.\"",
+    "runs": [
+      {
+        "text": "He sighs.",
+        "styles": [
+          "action"
+        ]
+      },
+      {
+        "text": " ",
+        "styles": []
+      },
+      {
+        "text": "\"Fine.\"",
+        "styles": [
+          "dialogue"
+        ]
+      }
+    ]
+  },
+  {
+    "input": "*action \"quote\" more*",
+    "runs": [
+      {
+        "text": "action ",
+        "styles": [
+          "action"
+        ]
+      },
+      {
+        "text": "\"quote\"",
+        "styles": [
+          "dialogue",
+          "action"
+        ]
+      },
+      {
+        "text": " more",
+        "styles": [
+          "action"
+        ]
+      }
+    ]
+  },
+  {
+    "input": "\"speech *emphasis*\"",
+    "runs": [
+      {
+        "text": "\"speech ",
+        "styles": [
+          "dialogue"
+        ]
+      },
+      {
+        "text": "emphasis",
+        "styles": [
+          "dialogue",
+          "action"
+        ]
+      },
+      {
+        "text": "\"",
+        "styles": [
+          "dialogue"
+        ]
+      }
+    ]
+  },
+  {
+    "input": "**bold** and *action*",
+    "runs": [
+      {
+        "text": "bold",
+        "styles": [
+          "strong"
+        ]
+      },
+      {
+        "text": " and ",
+        "styles": []
+      },
+      {
+        "text": "action",
+        "styles": [
+          "action"
+        ]
+      }
+    ]
+  },
+  {
+    "input": "unbalanced *stray and more text",
+    "runs": [
+      {
+        "text": "unbalanced *stray and more text",
+        "styles": []
+      }
+    ]
+  },
+  {
+    "input": "unbalanced \"quote and more text",
+    "runs": [
+      {
+        "text": "unbalanced \"quote and more text",
+        "styles": []
+      }
+    ]
+  },
+  {
+    "input": "2 * 3 = 6",
+    "runs": [
+      {
+        "text": "2 * 3 = 6",
+        "styles": []
+      }
+    ]
+  },
+  {
+    "input": "a *b *c* d* e",
+    "runs": [
+      {
+        "text": "a ",
+        "styles": []
+      },
+      {
+        "text": "b c d",
+        "styles": [
+          "action"
+        ]
+      },
+      {
+        "text": " e",
+        "styles": []
+      }
+    ]
+  },
+  {
+    "input": "***all three***",
+    "runs": [
+      {
+        "text": "all three",
+        "styles": [
+          "action",
+          "strong"
+        ]
+      }
+    ]
+  },
+  {
+    "input": "",
+    "runs": []
+  },
+  {
+    "input": "*multi word action spanning\na newline* then plain",
+    "runs": [
+      {
+        "text": "multi word action spanning\na newline",
+        "styles": [
+          "action"
+        ]
+      },
+      {
+        "text": " then plain",
+        "styles": []
+      }
+    ]
+  },
+  {
+    "input": "para one *open\n\npara two* close",
+    "runs": [
+      {
+        "text": "para one *open\n\npara two* close",
+        "styles": []
+      }
+    ]
+  },
+  {
+    "input": "“curly quotes” work too",
+    "runs": [
+      {
+        "text": "“curly quotes”",
+        "styles": [
+          "dialogue"
+        ]
+      },
+      {
+        "text": " work too",
+        "styles": []
+      }
+    ]
+  },
+  {
+    "input": "*a \"b* c\"",
+    "runs": [
+      {
+        "text": "a ",
+        "styles": [
+          "action"
+        ]
+      },
+      {
+        "text": "\"b",
+        "styles": [
+          "dialogue",
+          "action"
+        ]
+      },
+      {
+        "text": " c\"",
+        "styles": [
+          "dialogue"
+        ]
+      }
+    ]
+  },
+  {
+    "input": "trailing asterisk*",
+    "runs": [
+      {
+        "text": "trailing asterisk*",
+        "styles": []
+      }
+    ]
+  },
+  {
+    "input": "*",
+    "runs": [
+      {
+        "text": "*",
+        "styles": []
+      }
+    ]
+  },
+  {
+    "input": "\"\"",
+    "runs": [
+      {
+        "text": "\"\"",
+        "styles": [
+          "dialogue"
+        ]
+      }
+    ]
+  },
+  {
+    "input": "**",
+    "runs": [
+      {
+        "text": "**",
+        "styles": []
+      }
+    ]
+  },
+  {
+    "input": "She said, \"*whispering* it is done,\" and left.",
+    "runs": [
+      {
+        "text": "She said, ",
+        "styles": []
+      },
+      {
+        "text": "\"",
+        "styles": [
+          "dialogue"
+        ]
+      },
+      {
+        "text": "whispering",
+        "styles": [
+          "dialogue",
+          "action"
+        ]
+      },
+      {
+        "text": " it is done,\"",
+        "styles": [
+          "dialogue"
+        ]
+      },
+      {
+        "text": " and left.",
+        "styles": []
+      }
+    ]
+  }
+]

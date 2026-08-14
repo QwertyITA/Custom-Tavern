@@ -1,0 +1,18 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# runtime data — chats are disposable by decision (§17)
+data/tavern.db
+data/tavern.db-wal
+data/tavern.db-shm
+data/music/
+data/backgrounds/
+data/models/
+*.gguf
+
+.DS_Store
+data/tavern.log

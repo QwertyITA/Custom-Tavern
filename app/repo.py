@@ -1,0 +1,335 @@
+"""Persistence helpers for characters, chats, messages and variants (§11).
+
+Messages store raw text only — dialogue/action is render-time markup (§8) — and
+every message owns a list of variants so a swipe is a branch rather than an
+overwrite (§9).
+"""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+import uuid
+from typing import Any
+
+from .db import Database, now
+from .models import Character
+
+
+def new_id() -> str:
+    return uuid.uuid4().hex
+
+
+# ------------------------------------------------------------- characters
+
+
+def save_character(db: Database, character: Character) -> Character:
+    payload = json.loads(character.model_dump_json())
+    timestamp = now()
+
+    def _save(conn: sqlite3.Connection) -> None:
+        conn.execute(
+            "INSERT INTO characters(id, name, version, data, created_at, updated_at) "
+            "VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, "
+            "version=excluded.version, data=excluded.data, updated_at=excluded.updated_at",
+            (
+                character.id,
+                character.name,
+                character.version,
+                json.dumps(payload),
+                timestamp,
+                timestamp,
+            ),
+        )
+
+    db.write_sync(_save)
+    return character
+
+
+def get_character(db: Database, character_id: str) -> Character | None:
+    row = db.query_one("SELECT data FROM characters WHERE id=?", (character_id,))
+    if row is None:
+        return None
+    return Character.model_validate_json(row["data"])
+
+
+def list_characters(db: Database) -> list[dict]:
+    return [
+        {"id": row["id"], "name": row["name"], "version": row["version"]}
+        for row in db.query("SELECT id, name, version FROM characters ORDER BY name")
+    ]
+
+
+def delete_character(db: Database, character_id: str) -> None:
+    db.write_sync(
+        lambda conn: conn.execute("DELETE FROM characters WHERE id=?", (character_id,))
+    )
+
+
+# -------------------------------------------------------------------- chats
+
+
+def create_chat(db: Database, character_id: str, title: str = "") -> dict:
+    chat_id = new_id()
+    timestamp = now()
+
+    def _create(conn: sqlite3.Connection) -> None:
+        conn.execute(
+            "INSERT INTO chats(id, character_id, title, version, settings, created_at, "
+            "updated_at) VALUES(?,?,?,1,'{}',?,?)",
+            (chat_id, character_id, title, timestamp, timestamp),
+        )
+        conn.execute(
+            "INSERT INTO chat_summaries(chat_id, text, covered_turn, updated_at) "
+            "VALUES(?,'',0,?)",
+            (chat_id, timestamp),
+        )
+
+    db.write_sync(_create)
+    return get_chat(db, chat_id)
+
+
+def get_chat(db: Database, chat_id: str) -> dict | None:
+    row = db.query_one("SELECT * FROM chats WHERE id=?", (chat_id,))
+    if row is None:
+        return None
+    chat = dict(row)
+    chat["settings"] = json.loads(chat["settings"] or "{}")
+    return chat
+
+
+def list_chats(db: Database, character_id: str | None = None) -> list[dict]:
+    if character_id:
+        rows = db.query(
+            "SELECT id, character_id, title, created_at, updated_at FROM chats "
+            "WHERE character_id=? ORDER BY updated_at DESC",
+            (character_id,),
+        )
+    else:
+        rows = db.query(
+            "SELECT id, character_id, title, created_at, updated_at FROM chats "
+            "ORDER BY updated_at DESC"
+        )
+    return [dict(row) for row in rows]
+
+
+def delete_chat(db: Database, chat_id: str) -> None:
+    db.write_sync(lambda conn: conn.execute("DELETE FROM chats WHERE id=?", (chat_id,)))
+
+
+def touch_chat(db: Database, chat_id: str) -> None:
+    db.write_sync(
+        lambda conn: conn.execute(
+            "UPDATE chats SET updated_at=? WHERE id=?", (now(), chat_id)
+        )
+    )
+
+
+def update_chat_settings(db: Database, chat_id: str, settings: dict[str, Any]) -> None:
+    db.write_sync(
+        lambda conn: conn.execute(
+            "UPDATE chats SET settings=?, updated_at=? WHERE id=?",
+            (json.dumps(settings), now(), chat_id),
+        )
+    )
+
+
+# ----------------------------------------------------------------- messages
+
+
+def next_turn(db: Database, chat_id: str) -> int:
+    row = db.query_one("SELECT MAX(turn) AS t FROM messages WHERE chat_id=?", (chat_id,))
+    return (row["t"] or 0) + 1
+
+
+def add_message(
+    db: Database,
+    chat_id: str,
+    role: str,
+    text: str,
+    *,
+    turn: int | None = None,
+    provider: str = "",
+    model: str = "",
+) -> dict:
+    message_id = new_id()
+    variant_id = new_id()
+    timestamp = now()
+    resolved_turn = turn if turn is not None else next_turn(db, chat_id)
+
+    def _add(conn: sqlite3.Connection) -> None:
+        conn.execute(
+            "INSERT INTO messages(id, chat_id, turn, role, active_variant, edited, stage, "
+            "created_at) VALUES(?,?,?,?,?,0,'verbatim',?)",
+            (message_id, chat_id, resolved_turn, role, variant_id, timestamp),
+        )
+        conn.execute(
+            "INSERT INTO message_variants(id, message_id, idx, text, provider, model, "
+            "created_at) VALUES(?,?,0,?,?,?,?)",
+            (variant_id, message_id, text, provider, model, timestamp),
+        )
+        conn.execute("UPDATE chats SET updated_at=? WHERE id=?", (timestamp, chat_id))
+
+    db.write_sync(_add)
+    return {
+        "id": message_id,
+        "chat_id": chat_id,
+        "turn": resolved_turn,
+        "role": role,
+        "text": text,
+        "variant_id": variant_id,
+        "variant_index": 0,
+        "variant_count": 1,
+        "edited": False,
+        "created_at": timestamp,
+    }
+
+
+def add_variant(
+    db: Database, message_id: str, text: str, *, provider: str = "", model: str = ""
+) -> dict:
+    """Add a swipe variant and make it active."""
+    variant_id = new_id()
+    timestamp = now()
+
+    def _add(conn: sqlite3.Connection) -> int:
+        row = conn.execute(
+            "SELECT COALESCE(MAX(idx), -1) + 1 AS idx FROM message_variants WHERE message_id=?",
+            (message_id,),
+        ).fetchone()
+        index = row["idx"]
+        conn.execute(
+            "INSERT INTO message_variants(id, message_id, idx, text, provider, model, "
+            "created_at) VALUES(?,?,?,?,?,?,?)",
+            (variant_id, message_id, index, text, provider, model, timestamp),
+        )
+        conn.execute(
+            "UPDATE messages SET active_variant=? WHERE id=?", (variant_id, message_id)
+        )
+        return index
+
+    index = db.write_sync(_add)
+    return {"id": variant_id, "idx": index, "text": text}
+
+
+def set_active_variant(db: Database, message_id: str, variant_id: str) -> bool:
+    row = db.query_one(
+        "SELECT id FROM message_variants WHERE id=? AND message_id=?",
+        (variant_id, message_id),
+    )
+    if row is None:
+        return False
+    db.write_sync(
+        lambda conn: conn.execute(
+            "UPDATE messages SET active_variant=? WHERE id=?", (variant_id, message_id)
+        )
+    )
+    return True
+
+
+def update_variant_text(db: Database, variant_id: str, text: str, *, edited: bool = True) -> None:
+    def _update(conn: sqlite3.Connection) -> None:
+        conn.execute("UPDATE message_variants SET text=? WHERE id=?", (text, variant_id))
+        if edited:
+            conn.execute(
+                "UPDATE messages SET edited=1 WHERE active_variant=?", (variant_id,)
+            )
+
+    db.write_sync(_update)
+
+
+def get_message(db: Database, message_id: str) -> dict | None:
+    row = db.query_one(
+        "SELECT m.*, v.text AS text, v.idx AS variant_index "
+        "FROM messages m LEFT JOIN message_variants v ON v.id = m.active_variant "
+        "WHERE m.id=?",
+        (message_id,),
+    )
+    if row is None:
+        return None
+    message = dict(row)
+    message["text"] = message["text"] or ""
+    message["edited"] = bool(message["edited"])
+    message["variant_id"] = message.pop("active_variant")
+    count = db.query_one(
+        "SELECT COUNT(*) AS c FROM message_variants WHERE message_id=?", (message_id,)
+    )
+    message["variant_count"] = count["c"] if count else 1
+    return message
+
+
+def list_variants(db: Database, message_id: str) -> list[dict]:
+    return [
+        dict(row)
+        for row in db.query(
+            "SELECT id, idx, text, provider, model FROM message_variants "
+            "WHERE message_id=? ORDER BY idx",
+            (message_id,),
+        )
+    ]
+
+
+def list_messages(db: Database, chat_id: str, include_dropped: bool = True) -> list[dict]:
+    sql = (
+        "SELECT m.id, m.turn, m.role, m.edited, m.stage, m.created_at, m.active_variant, "
+        "v.text AS text, v.idx AS variant_index, "
+        "(SELECT COUNT(*) FROM message_variants mv WHERE mv.message_id = m.id) AS variant_count "
+        "FROM messages m LEFT JOIN message_variants v ON v.id = m.active_variant "
+        "WHERE m.chat_id=?"
+    )
+    if not include_dropped:
+        sql += " AND m.stage != 'dropped'"
+    sql += " ORDER BY m.turn, m.created_at"
+    out = []
+    for row in db.query(sql, (chat_id,)):
+        message = dict(row)
+        message["text"] = message["text"] or ""
+        message["edited"] = bool(message["edited"])
+        message["variant_id"] = message.pop("active_variant")
+        out.append(message)
+    return out
+
+
+def delete_message(db: Database, message_id: str) -> None:
+    db.write_sync(lambda conn: conn.execute("DELETE FROM messages WHERE id=?", (message_id,)))
+
+
+# ---------------------------------------------------------------- summaries
+
+
+def get_summary(db: Database, chat_id: str) -> dict:
+    row = db.query_one(
+        "SELECT text, covered_turn FROM chat_summaries WHERE chat_id=?", (chat_id,)
+    )
+    if row is None:
+        return {"text": "", "covered_turn": 0}
+    return {"text": row["text"], "covered_turn": row["covered_turn"]}
+
+
+def set_summary(db: Database, chat_id: str, text: str, covered_turn: int) -> None:
+    db.write_sync(
+        lambda conn: conn.execute(
+            "INSERT INTO chat_summaries(chat_id, text, covered_turn, updated_at) "
+            "VALUES(?,?,?,?) ON CONFLICT(chat_id) DO UPDATE SET text=excluded.text, "
+            "covered_turn=excluded.covered_turn, updated_at=excluded.updated_at",
+            (chat_id, text, covered_turn, now()),
+        )
+    )
+
+
+# --------------------------------------------------------------------- meta
+
+
+def get_meta(db: Database, key: str, default: str = "") -> str:
+    row = db.query_one("SELECT value FROM meta WHERE key=?", (key,))
+    return row["value"] if row else default
+
+
+def set_meta(db: Database, key: str, value: str) -> None:
+    db.write_sync(
+        lambda conn: conn.execute(
+            "INSERT INTO meta(key, value) VALUES(?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )
+    )

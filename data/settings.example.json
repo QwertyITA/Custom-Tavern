@@ -1,0 +1,64 @@
+{
+  "_comment": "Copy to data/settings.json and edit. Defaults run on the built-in `echo` backend, so a fresh clone works with no network and no keys.",
+
+  "host": "127.0.0.1",
+  "port": 8787,
+
+  "_tiers": "Tier -> backend name. Assign by latency tolerance, not importance (§3). Never point `background` at an on-device model: those passes must survive the screen going off, and only a network backend can.",
+  "tiers": {
+    "blocking": "ollama",
+    "foreground": "ondevice",
+    "background": "horde"
+  },
+
+  "backends": [
+    {
+      "name": "ollama",
+      "kind": "ollama",
+      "base_url": "http://100.x.y.z:11434",
+      "model": "llama3.1:8b",
+      "template": "auto",
+      "timeout": 120
+    },
+    {
+      "name": "openai",
+      "kind": "openai",
+      "base_url": "https://api.openai.com/v1",
+      "api_key": "",
+      "model": "gpt-4o-mini",
+      "template": "auto"
+    },
+    {
+      "name": "ondevice",
+      "kind": "llamacpp",
+      "base_url": "http://127.0.0.1:8080",
+      "model": "qwen2.5-3b-instruct",
+      "template": "chatml"
+    },
+    {
+      "name": "horde",
+      "kind": "horde",
+      "base_url": "https://aihorde.net/api/v2",
+      "api_key": "0000000000",
+      "models": [],
+      "template": "chatml",
+      "timeout": 300
+    },
+    { "name": "echo", "kind": "echo", "model": "echo-1" }
+  ],
+
+  "_context": "Context management (§7).",
+  "token_budget": 4096,
+  "verbatim_window": 24,
+  "summary_budget": 700,
+  "lorebook_scan_depth": 6,
+  "lorebook_total_budget": 600,
+  "memory_max_injected": 6,
+
+  "_engine": "Pass engine (§5). blocking_await_ms is how long the next turn waits on a late pass before proceeding on provisional state.",
+  "background_retries": 2,
+  "blocking_await_ms": 1500,
+  "pass_timeout": 120,
+
+  "strip_user_turn_leakage": true
+}

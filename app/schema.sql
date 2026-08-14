@@ -1,0 +1,145 @@
+-- Personal Tavern schema (§11). SQLite, WAL mode, single write queue.
+
+CREATE TABLE IF NOT EXISTS characters (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    version     INTEGER NOT NULL DEFAULT 1,
+    data        TEXT NOT NULL,          -- json: persona, state_schema, pfp_set, backgrounds, ...
+    created_at  REAL NOT NULL,
+    updated_at  REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS chats (
+    id           TEXT PRIMARY KEY,
+    character_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    title        TEXT NOT NULL DEFAULT '',
+    version      INTEGER NOT NULL DEFAULT 1,
+    settings     TEXT NOT NULL DEFAULT '{}',   -- json: colours, toggle overrides
+    created_at   REAL NOT NULL,
+    updated_at   REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_chats_character ON chats(character_id);
+
+-- Message stores RAW text only; dialogue/action is render-time markup (§8).
+CREATE TABLE IF NOT EXISTS messages (
+    id             TEXT PRIMARY KEY,
+    chat_id        TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+    turn           INTEGER NOT NULL,
+    role           TEXT NOT NULL,               -- user | assistant | system
+    active_variant TEXT,                        -- -> message_variants.id
+    edited         INTEGER NOT NULL DEFAULT 0,
+    stage          TEXT NOT NULL DEFAULT 'verbatim',  -- verbatim | summarized | dropped (§7.2)
+    created_at     REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id, turn);
+
+CREATE TABLE IF NOT EXISTS message_variants (
+    id         TEXT PRIMARY KEY,
+    message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    idx        INTEGER NOT NULL,
+    text       TEXT NOT NULL,
+    provider   TEXT NOT NULL DEFAULT '',
+    model      TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_variants_message ON message_variants(message_id, idx);
+
+-- Current value per slice. `source_turn` powers stale-write rejection (§5.5).
+CREATE TABLE IF NOT EXISTS state_slices (
+    chat_id     TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+    slice_name  TEXT NOT NULL,
+    value       TEXT NOT NULL,          -- json
+    source_turn INTEGER NOT NULL,
+    source_pass TEXT NOT NULL DEFAULT '',
+    provisional INTEGER NOT NULL DEFAULT 0,
+    updated_at  REAL NOT NULL,
+    PRIMARY KEY (chat_id, slice_name)
+);
+
+-- Append-only write log. Carries prev_value so a discarded swipe can be rolled
+-- back exactly (§9), and doubles as the state audit trail.
+CREATE TABLE IF NOT EXISTS state_writes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id     TEXT NOT NULL,
+    slice_name  TEXT NOT NULL,
+    value       TEXT NOT NULL,
+    prev_value  TEXT,
+    source_turn INTEGER NOT NULL,
+    source_pass TEXT NOT NULL DEFAULT '',
+    variant_id  TEXT,
+    rolled_back INTEGER NOT NULL DEFAULT 0,
+    created_at  REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_state_writes_scope
+    ON state_writes(chat_id, source_turn, variant_id);
+
+CREATE TABLE IF NOT EXISTS memories (
+    id           TEXT PRIMARY KEY,
+    character_id TEXT NOT NULL,
+    chat_id      TEXT,
+    text         TEXT NOT NULL,
+    keys         TEXT NOT NULL DEFAULT '[]',   -- json array
+    created_turn INTEGER NOT NULL DEFAULT 0,
+    source       TEXT NOT NULL DEFAULT 'memory_pass',
+    created_at   REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_memories_character ON memories(character_id);
+
+CREATE TABLE IF NOT EXISTS chat_summaries (
+    chat_id        TEXT PRIMARY KEY REFERENCES chats(id) ON DELETE CASCADE,
+    text           TEXT NOT NULL DEFAULT '',
+    covered_turn   INTEGER NOT NULL DEFAULT 0,
+    updated_at     REAL NOT NULL
+);
+
+-- Powers the HUD and the cost dashboard (§12, §14).
+CREATE TABLE IF NOT EXISTS pass_runs (
+    id          TEXT PRIMARY KEY,
+    chat_id     TEXT NOT NULL,
+    turn        INTEGER NOT NULL,
+    pass_id     TEXT NOT NULL,
+    kind        TEXT NOT NULL DEFAULT 'custom',
+    tier        TEXT NOT NULL,
+    model       TEXT NOT NULL DEFAULT '',
+    status      TEXT NOT NULL,            -- pending|running|done|failed|stale|skipped
+    tokens_in   INTEGER NOT NULL DEFAULT 0,
+    tokens_out  INTEGER NOT NULL DEFAULT 0,
+    attempts    INTEGER NOT NULL DEFAULT 0,
+    error       TEXT,
+    variant_id  TEXT,
+    started_at  REAL,
+    finished_at REAL
+);
+CREATE INDEX IF NOT EXISTS idx_pass_runs_chat ON pass_runs(chat_id, turn);
+
+CREATE TABLE IF NOT EXISTS pass_defs (
+    id      TEXT PRIMARY KEY,
+    kind    TEXT NOT NULL DEFAULT 'custom',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    data    TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS toggles (
+    id   TEXT PRIMARY KEY,
+    data TEXT NOT NULL
+);
+
+-- Toggle on/off per scope: ('global',''), ('per_character',<id>), ('per_chat',<id>).
+CREATE TABLE IF NOT EXISTS toggle_state (
+    scope     TEXT NOT NULL,
+    scope_id  TEXT NOT NULL DEFAULT '',
+    toggle_id TEXT NOT NULL,
+    enabled   INTEGER NOT NULL,
+    PRIMARY KEY (scope, scope_id, toggle_id)
+);
+
+CREATE TABLE IF NOT EXISTS lorebooks (
+    id      TEXT PRIMARY KEY,
+    name    TEXT NOT NULL,
+    entries TEXT NOT NULL DEFAULT '[]'   -- json array of entries (§7.4)
+);
+
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);

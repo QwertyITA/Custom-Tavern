@@ -1,0 +1,5 @@
+# Termux-friendly: no compiled extras. Do NOT use uvicorn[standard] (§2).
+fastapi>=0.110
+uvicorn>=0.27
+httpx>=0.26
+pydantic>=2.6

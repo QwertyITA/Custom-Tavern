@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#0f1115">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Personal Tavern</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/static/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body x-data="tavern()" x-init="boot()" :class="{ 'drawer-open': drawer }">
+
+<!-- (1) pinned world-info bar: place · weather · time (§12) -->
+<header class="worldbar">
+  <button class="icon-btn" @click="drawer = !drawer" aria-label="Menu">☰</button>
+  <div class="world-fields">
+    <span class="field" :class="{ refreshing: refreshing.scene }">
+      <span class="field-label">place</span>
+      <span class="field-value" x-text="scene.place || '—'"></span>
+    </span>
+    <span class="sep">·</span>
+    <span class="field" :class="{ refreshing: refreshing.scene }">
+      <span class="field-label">weather</span>
+      <span class="field-value" x-text="scene.weather || '—'"></span>
+    </span>
+    <span class="sep">·</span>
+    <span class="field" :class="{ refreshing: refreshing.scene }">
+      <span class="field-label">time</span>
+      <span class="field-value" x-text="scene.time || '—'"></span>
+    </span>
+  </div>
+  <button class="icon-btn" :class="{ active: hud }" @click="hud = !hud" aria-label="Pass HUD">⚙</button>
+</header>
+
+<!-- pass-status HUD (debug, toggleable) (§12) -->
+<section class="hud" x-show="hud" x-cloak>
+  <div class="hud-head">
+    <span>turn <b x-text="turn"></b></span>
+    <span x-text="`${totals.tokens_in + totals.tokens_out} tok this chat`"></span>
+    <button class="link" @click="loadCost()">cost ▾</button>
+  </div>
+  <template x-for="run in hudRuns" :key="run.id">
+    <div class="hud-row" :class="'status-' + run.status">
+      <span class="anim" :class="'anim-' + run.animation + ' status-' + run.status"></span>
+      <span class="hud-pass" x-text="run.label"></span>
+      <span class="hud-tier" x-text="run.tier"></span>
+      <span class="hud-model" x-text="run.model || '—'"></span>
+      <span class="hud-status" x-text="run.status"></span>
+      <span class="hud-tok" x-text="`${run.tokens_in || 0}/${run.tokens_out || 0}`"></span>
+      <span class="hud-err" x-show="run.error" x-text="run.error"></span>
+    </div>
+  </template>
+  <div class="hud-empty" x-show="hudRuns.length === 0">no passes yet this turn</div>
+
+  <div class="cost" x-show="cost.per_pass.length" x-cloak>
+    <div class="cost-head">spend per pass — proves the gating works</div>
+    <template x-for="row in cost.per_pass" :key="row.pass_id">
+      <div class="cost-row">
+        <span x-text="row.pass_id"></span>
+        <span class="bar"><i :style="`width:${costWidth(row)}%`"></i></span>
+        <span class="cost-num" x-text="`${(row.tokens_in||0)+(row.tokens_out||0)} tok / ${row.runs} runs`"></span>
+      </div>
+    </template>
+  </div>
+</section>
+
+<!-- (2) chat area (§12) -->
+<main class="chat" x-ref="chat">
+  <template x-for="m in messages" :key="m.id">
+    <article class="msg" :class="m.role">
+      <img class="pfp" x-show="m.role === 'assistant' && portrait" :src="portrait" alt=""
+           @error="$el.style.visibility = 'hidden'">
+      <div class="bubble">
+        <div class="body" x-effect="Markup.render($el, m.text)" x-show="editing !== m.id"></div>
+        <textarea class="edit-box" x-show="editing === m.id" x-model="editText" x-cloak></textarea>
+
+        <div class="msg-tools" x-show="m.role === 'assistant' && !streaming">
+          <template x-if="editing !== m.id">
+            <div class="tools-row">
+              <button class="link" @click="startEdit(m)">edit</button>
+              <button class="link" @click="swipe(m)" :disabled="streaming">swipe ⟳</button>
+              <span class="variants" x-show="m.variant_count > 1">
+                <button class="link" @click="cycleVariant(m, -1)">‹</button>
+                <span x-text="`${(m.variant_index||0)+1}/${m.variant_count}`"></span>
+                <button class="link" @click="cycleVariant(m, 1)">›</button>
+              </span>
+              <span class="edited" x-show="m.edited">edited</span>
+            </div>
+          </template>
+          <template x-if="editing === m.id">
+            <div class="tools-row">
+              <button class="link" @click="saveEdit(m, false)">save</button>
+              <button class="link" @click="saveEdit(m, true)">save + re-audit</button>
+              <button class="link" @click="editing = null">cancel</button>
+            </div>
+          </template>
+        </div>
+      </div>
+    </article>
+  </template>
+
+  <!-- composing animation: "typing…" for pass 1, cogs for other blocking passes -->
+  <article class="msg assistant" x-show="composing" x-cloak>
+    <img class="pfp" x-show="portrait" :src="portrait" alt="">
+    <div class="bubble composing">
+      <span class="anim anim-typing" x-show="composingKind === 'typing'"><i></i><i></i><i></i></span>
+      <span class="anim anim-cogs" x-show="composingKind !== 'typing'"></span>
+      <span class="composing-label" x-text="composingLabel"></span>
+    </div>
+  </article>
+
+  <div class="banner error" x-show="error" x-cloak>
+    <span x-text="error"></span>
+    <button class="link" @click="error = ''">dismiss</button>
+  </div>
+</main>
+
+<!-- ambient indicator: a background pass is working, no character-thinking cue -->
+<div class="ambient" x-show="ambient.length" x-cloak>
+  <template x-for="a in ambient" :key="a">
+    <span class="ambient-chip" x-text="a"></span>
+  </template>
+</div>
+
+<!-- (4) composer -->
+<footer class="composer">
+  <textarea x-model="draft" rows="1" placeholder="say something…"
+            @keydown.enter.prevent="if (!$event.shiftKey) send()"
+            @input="autosize($event.target)" x-ref="input"></textarea>
+  <button class="send" @click="send()" :disabled="streaming || !draft.trim()">↑</button>
+</footer>
+
+<!-- drawer: characters, chats, toggles, state -->
+<aside class="drawer" x-show="drawer" x-cloak @click.outside="drawer = false">
+  <h2>Chats</h2>
+  <select x-model="characterId" @change="newChat()">
+    <template x-for="c in characters" :key="c.id">
+      <option :value="c.id" x-text="c.name"></option>
+    </template>
+  </select>
+  <button class="wide" @click="newChat()">new chat</button>
+  <ul class="chat-list">
+    <template x-for="c in chats" :key="c.id">
+      <li :class="{ active: c.id === chatId }" @click="openChat(c.id)">
+        <span x-text="c.title || 'untitled'"></span>
+      </li>
+    </template>
+  </ul>
+
+  <h2>State</h2>
+  <div class="bands">
+    <template x-for="b in bands" :key="b.variable">
+      <div class="band">
+        <span class="band-var" x-text="b.variable"></span>
+        <span class="band-label" x-text="b.band"></span>
+        <span class="band-guide" x-text="b.guidance"></span>
+      </div>
+    </template>
+    <div class="provisional" x-show="stateProvisional">provisional — auditor pending</div>
+  </div>
+
+  <h2>Toggles</h2>
+  <template x-for="t in toggles" :key="t.id">
+    <label class="toggle">
+      <input type="checkbox" :checked="toggleStates[t.id]" @change="setToggle(t.id, $event.target.checked)">
+      <span x-text="t.label"></span>
+    </label>
+  </template>
+
+  <h2>Summary</h2>
+  <p class="summary" x-text="summary.text || 'nothing summarised yet'"></p>
+</aside>
+
+<script src="/static/markup.js"></script>
+<script src="/static/app.js"></script>
+<script defer src="/static/vendor/alpine.min.js"></script>
+</body>
+</html>

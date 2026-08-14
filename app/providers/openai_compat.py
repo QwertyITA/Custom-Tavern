@@ -1,0 +1,130 @@
+"""OpenAI-compatible chat completions — the blocking-fast fallback (§18.2).
+
+Covers anything speaking /v1/chat/completions: hosted APIs, LM Studio,
+text-generation-webui's OpenAI extension, vLLM.
+"""
+
+from __future__ import annotations
+
+import json
+from collections.abc import AsyncIterator
+
+import httpx
+
+from .base import GenRequest, GenResult, Provider, ProviderError, _copy_into, estimate_tokens
+
+
+class OpenAICompatProvider(Provider):
+    kind = "openai"
+    native_chat = True
+
+    def __init__(self, config) -> None:
+        super().__init__(config)
+        self._client: httpx.AsyncClient | None = None
+
+    def client(self) -> httpx.AsyncClient:
+        if self._client is None:
+            base = self.config.base_url or "https://api.openai.com/v1"
+            headers = {"Content-Type": "application/json"}
+            if self.config.api_key:
+                headers["Authorization"] = f"Bearer {self.config.api_key}"
+            self._client = httpx.AsyncClient(
+                base_url=base.rstrip("/"), headers=headers, timeout=self.config.timeout
+            )
+        return self._client
+
+    def _payload(self, request: GenRequest, stream: bool) -> dict:
+        messages = []
+        if request.system:
+            messages.append({"role": "system", "content": request.system})
+        messages.extend(request.messages)
+        if request.prefill:
+            messages.append({"role": "assistant", "content": request.prefill})
+        sampling = request.sampling
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": sampling.temp,
+            "top_p": sampling.top_p,
+            "max_tokens": sampling.max_tokens,
+            "stream": stream,
+        }
+        stop = self.stop_strings(sampling)
+        if stop:
+            payload["stop"] = stop[:4]  # the API caps stop sequences at four
+        if request.expects_json:
+            payload["response_format"] = {"type": "json_object"}
+        return payload
+
+    async def generate(self, request: GenRequest) -> GenResult:
+        try:
+            response = await self.client().post(
+                "/chat/completions", json=self._payload(request, stream=False)
+            )
+            response.raise_for_status()
+            data = response.json()
+        except httpx.HTTPError as exc:
+            raise ProviderError(f"openai: {exc}") from exc
+        try:
+            text = data["choices"][0]["message"]["content"] or ""
+        except (KeyError, IndexError, TypeError) as exc:
+            raise ProviderError(f"openai: unexpected response shape: {data}") from exc
+        usage = data.get("usage") or {}
+        return GenResult(
+            text=text,
+            tokens_in=usage.get("prompt_tokens") or request.estimated_input_tokens(),
+            tokens_out=usage.get("completion_tokens") or estimate_tokens(text),
+            model=data.get("model", self.model),
+            provider=self.name,
+            raw=data,
+        )
+
+    async def stream(
+        self, request: GenRequest, sink: GenResult | None = None
+    ) -> AsyncIterator[str]:
+        collected: list[str] = []
+        usage: dict = {}
+        try:
+            async with self.client().stream(
+                "POST", "/chat/completions", json=self._payload(request, stream=True)
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    body = line[5:].strip()
+                    if body == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(body)
+                    except json.JSONDecodeError:
+                        continue
+                    if chunk.get("usage"):
+                        usage = chunk["usage"]
+                    choices = chunk.get("choices") or []
+                    if not choices:
+                        continue
+                    delta = (choices[0].get("delta") or {}).get("content") or ""
+                    if delta:
+                        collected.append(delta)
+                        yield delta
+        except httpx.HTTPError as exc:
+            raise ProviderError(f"openai: {exc}") from exc
+
+        if sink is not None:
+            text = "".join(collected)
+            _copy_into(
+                GenResult(
+                    text=text,
+                    tokens_in=usage.get("prompt_tokens") or request.estimated_input_tokens(),
+                    tokens_out=usage.get("completion_tokens") or estimate_tokens(text),
+                    model=self.model,
+                    provider=self.name,
+                ),
+                sink,
+            )
+
+    async def aclose(self) -> None:
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None

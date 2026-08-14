@@ -1,0 +1,17 @@
+# Keep future work sessions out of bulk assets (§17)
+data/tavern.db
+data/tavern.db-wal
+data/tavern.db-shm
+data/music/
+data/backgrounds/
+data/models/
+*.gguf
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.mp3
+*.ogg
+.venv/
+venv/
+__pycache__/
