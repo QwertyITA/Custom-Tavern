@@ -11,12 +11,97 @@ own trigger, model tier and sampling profile, and expensive passes gate on cheap
 signals emitted by the reply pass. That gating is the cost lever, and the cost
 dashboard exists to prove it works.
 
-## Quick start
+## Install on Termux
+
+Install Termux **from F-Droid or GitHub, not the Play Store** — the Play Store
+build is years stale and its package repo is dead. Then:
+
+```bash
+pkg update && pkg upgrade -y
+pkg install -y python git tmux termux-api
+```
+
+`termux-api` is what lets the launcher take a wake lock and post the foreground
+notification. Also install the **Termux:API** app itself (same source as
+Termux) — the `termux-api` package alone is only the CLI half.
+
+Now get the code and start it:
+
+```bash
+git clone https://github.com/QwertyITA/Custom-Tavern
+cd Custom-Tavern
+./start.sh
+```
+
+`start.sh` installs the Python dependencies on first run, then starts the
+server and prints `http://localhost:8787`. Open that in Chrome.
+
+**If pip stalls building `pydantic-core`:** it is a Rust extension and there is
+no prebuilt Android wheel, so it compiles from source. Install a toolchain
+first and let it run — expect ten minutes or so on a phone, once:
+
+```bash
+pkg install -y rust binutils
+./start.sh
+```
+
+### Keep it alive
+
+Android will kill a long-running server unless you tell it not to. The launcher
+takes a wake lock, posts a foreground notification and runs under tmux, but two
+things need doing by hand, once:
+
+1. **Battery: Unrestricted.** Android Settings → Apps → Termux → Battery →
+   Unrestricted. Without this nothing else matters.
+2. **Phantom process killer** (Android 12+). Android reaps background child
+   processes after a while, which kills the server out from under tmux. Turn it
+   off over ADB from a computer, once:
+   ```
+   adb shell settings put global settings_enable_monitor_phantom_procs false
+   ```
+
+### Install as an app
+
+In Chrome, open `http://localhost:8787` → menu → **Install app**. It installs
+as a fullscreen PWA with its own icon and no browser chrome.
+
+Reach it at **`localhost:PORT` on the phone itself** — not `IP:port`. Only
+localhost counts as a secure origin for PWA install over plain http, and there
+is deliberately no auth layer, so the port is not meant to be exposed.
+
+### Home-screen button
+
+Install the **Termux:Widget** app, then:
+
+```bash
+./start.sh --widget
+```
+
+That puts "Personal Tavern" and "Personal Tavern (stop)" in `~/.shortcuts`.
+Add the Termux:Widget widget to your home screen and the app is one tap away —
+it updates and starts.
+
+## Everyday use
+
+```bash
+./start.sh              # update, then start   ← the one to tap
+./start.sh --no-update  # start without pulling (offline, or pinning this code)
+./start.sh stop         # stop
+./start.sh logs         # follow the log
+```
+
+`start.sh` pulls the latest version before starting, and reinstalls
+dependencies only when `requirements.txt` actually changed. Three things it
+will not do: touch your data (`data/tavern.db` and `data/settings.json` are
+gitignored, so a pull cannot overwrite chats, characters or settings), stop the
+app because an update failed (no signal still starts what you have), or discard
+local edits silently (a dirty worktree skips the pull and tells you).
+
+## Quick start (desktop, for development)
 
 ```bash
 pip install -r requirements.txt
 python3 -m uvicorn app.main:app --port 8787
-# open http://localhost:8787
 ```
 
 A fresh clone runs end to end with **no network, no keys and no Ollama**: the
@@ -27,17 +112,6 @@ tier at a real backend when you have one:
 ```bash
 cp data/settings.example.json data/settings.json   # then edit
 ```
-
-On the phone, use the launcher — it applies the Termux hardening from DESIGN §2
-(wake lock, foreground notification, tmux):
-
-```bash
-./run.sh          # start      ./run.sh logs   # follow      ./run.sh stop
-```
-
-Install as a fullscreen PWA from Chrome's menu ("Install app"). Reach it at
-`localhost:PORT` on-device only — `IP:port` is not an installable origin, and
-there is deliberately no auth layer.
 
 ## Tests
 
