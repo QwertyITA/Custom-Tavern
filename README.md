@@ -95,11 +95,19 @@ it updates and starts.
 ## Everyday use
 
 ```bash
-./start.sh              # update, then start   ← the one to tap
+./start.sh              # update, then start in the background   ← the one to tap
+./start.sh -f           # same, but run in this console (Ctrl+C to stop)
 ./start.sh --no-update  # start without pulling (offline, or pinning this code)
 ./start.sh stop         # stop
 ./start.sh logs         # follow the log
 ```
+
+By default the server runs detached inside tmux, so closing Termux does not
+take it down. `-f` runs it in the console instead, with the request log in
+front of you — better when you are changing code and want to see tracebacks
+immediately. It stops any background instance first so the two cannot fight
+over the port, and Ctrl+C shuts the server down cleanly and releases the wake
+lock.
 
 `start.sh` pulls the latest version before starting, and reinstalls
 dependencies only when `requirements.txt` actually changed. Three things it

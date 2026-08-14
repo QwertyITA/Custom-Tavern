@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Update, then start. This is the one to tap.
 #
-#   ./start.sh              pull the latest version, then start the server
+#   ./start.sh              pull the latest version, then start in the background
+#   ./start.sh -f           same, but run in this console (Ctrl+C to stop)
 #   ./start.sh --no-update  skip the pull (offline, or you want this exact code)
 #   ./start.sh stop         stop the server
 #   ./start.sh logs         follow the log
@@ -199,6 +200,8 @@ check_deps() {
 
 # -------------------------------------------------------------------- main
 
+MODE=start  # how run.sh is invoked: background (start) or in this console
+
 case "${1:-start}" in
   stop|logs)
     exec bash "$HERE/run.sh" "$1"
@@ -209,15 +212,23 @@ case "${1:-start}" in
     ;;
   --no-update)
     ;;
+  -f|--foreground|foreground)
+    MODE=foreground
+    enable_hooks
+    update
+    ;;
+  --no-update-foreground)
+    MODE=foreground
+    ;;
   start|"")
     enable_hooks
     update
     ;;
   *)
-    echo "usage: $0 [start|--no-update|stop|logs|--widget]" >&2
+    echo "usage: $0 [start|-f|--no-update|stop|logs|--widget]" >&2
     exit 2
     ;;
 esac
 
 check_deps
-exec bash "$HERE/run.sh" start
+exec bash "$HERE/run.sh" "$MODE"
