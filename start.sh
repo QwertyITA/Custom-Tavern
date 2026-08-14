@@ -127,13 +127,53 @@ checksum() {
   else wc -c < "$1"; fi
 }
 
+is_termux() {
+  case "${PREFIX:-}" in *com.termux*) return 0 ;; esac
+  [ -d /data/data/com.termux/files/usr ]
+}
+
+termux_rust_target() {
+  # PyPI ships no Android wheel for pydantic-core, so it compiles from source.
+  # maturin derives the target triple from Python's SOABI and gets
+  # aarch64-unknown-linux-android, which rustup does not know; Termux's Rust
+  # uses aarch64-linux-android. Setting it explicitly is the whole fix.
+  case "$(uname -m)" in
+    aarch64|arm64) echo "aarch64-linux-android" ;;
+    armv7l|armv8l|arm) echo "armv7-linux-androideabi" ;;
+    x86_64) echo "x86_64-linux-android" ;;
+    i686|i386) echo "i686-linux-android" ;;
+    *) echo "" ;;
+  esac
+}
+
 install_deps() {
-  if ! "$PYTHON" -m pip install --quiet -r requirements.txt; then
-    fail "pip install failed."
-    echo "  On Termux, pydantic-core is built from source and needs Rust:"
-    echo "      pkg install rust binutils && pip install -r requirements.txt"
-    echo "  Starting anyway with whatever is already installed."
+  if is_termux; then
+    local target
+    target="$(termux_rust_target)"
+    if [ -n "$target" ] && [ -z "${CARGO_BUILD_TARGET:-}" ]; then
+      export CARGO_BUILD_TARGET="$target"
+      echo "     building native extensions for $target"
+    fi
+    if ! have cargo; then
+      warn "Rust is not installed — pydantic-core cannot be built without it."
+      echo "     run:  pkg install -y rust binutils"
+      echo "     then: ./start.sh"
+    fi
   fi
+
+  if "$PYTHON" -m pip install --quiet -r requirements.txt; then
+    return 0
+  fi
+
+  fail "pip install failed."
+  if is_termux; then
+    echo "  pydantic-core has no prebuilt Android wheel, so it compiles from source."
+    echo "  Install the toolchain and run this script again:"
+    echo "      pkg install -y rust binutils"
+    echo "      ./start.sh"
+    echo "  The build takes roughly ten minutes on a phone, once."
+  fi
+  echo "  Starting anyway with whatever is already installed."
 }
 
 # -------------------------------------------------------------------- deps

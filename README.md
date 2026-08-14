@@ -36,14 +36,25 @@ cd Custom-Tavern
 `start.sh` installs the Python dependencies on first run, then starts the
 server and prints `http://localhost:8787`. Open that in Chrome.
 
-**If pip stalls building `pydantic-core`:** it is a Rust extension and there is
-no prebuilt Android wheel, so it compiles from source. Install a toolchain
-first and let it run — expect ten minutes or so on a phone, once:
+**If pip fails on `pydantic-core`:** PyPI ships no Android wheel for it, so it
+compiles from Rust source. Install the toolchain and run the script again —
+expect ten minutes or so, once:
 
 ```bash
 pkg install -y rust binutils
 ./start.sh
 ```
+
+Two Termux-specific things `start.sh` handles for you, so install Rust through
+`pkg` rather than rustup:
+
+- maturin derives the Rust target triple from Python's SOABI and gets
+  `aarch64-unknown-linux-android`, which rustup does not recognise. Termux uses
+  `aarch64-linux-android`. `start.sh` exports `CARGO_BUILD_TARGET` to match your
+  architecture before calling pip.
+- If Rust is missing entirely, maturin tries to bootstrap rustup into a temp
+  directory and fails on that same unsupported triple, which is why the error
+  says "Rust not found" even though installing rustup would not have helped.
 
 ### Keep it alive
 

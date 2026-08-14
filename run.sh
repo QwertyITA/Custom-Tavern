@@ -28,6 +28,14 @@ PYTHON="${PYTHON:-python3}"
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+server_alive() {
+  if have pgrep; then
+    pgrep -f "uvicorn app.main:app" >/dev/null 2>&1
+  else
+    ps aux 2>/dev/null | grep -q "[u]vicorn app.main:app"
+  fi
+}
+
 start_server() {
   mkdir -p "$HERE/data"
   have termux-wake-lock && termux-wake-lock || true
@@ -55,8 +63,19 @@ case "${1:-start}" in
       start_server
     else
       # Re-exec inside tmux so closing the terminal does not take the server.
-      tmux has-session -t "$SESSION" 2>/dev/null && {
-        echo "already running — attach with: tmux attach -t $SESSION"; exit 0; }
+      #
+      # A tmux session outlives the process inside it, so "session exists" is
+      # not the same as "server running" — a crashed start (missing deps, say)
+      # leaves a live session with a dead server, and checking only the session
+      # would refuse to ever start again.
+      if tmux has-session -t "$SESSION" 2>/dev/null; then
+        if server_alive; then
+          echo "already running — attach with: tmux attach -t $SESSION"
+          exit 0
+        fi
+        echo "found a stale '$SESSION' session with no server in it — restarting"
+        tmux kill-session -t "$SESSION" 2>/dev/null || true
+      fi
       # Invoke through bash explicitly rather than relying on the shebang
       # resolving the same way inside tmux.
       tmux new-session -d -s "$SESSION" "TAVERN_INNER=1 bash '$HERE/run.sh' start"
