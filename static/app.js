@@ -438,11 +438,37 @@ function tavern() {
     },
 
     addBackend() {
-      this.settings.backends.push({
+      const backend = {
         name: `backend-${this.settings.backends.length + 1}`,
         kind: "ollama", model: "", base_url: "", api_key: "",
         template: "auto", timeout: 120, models: [],
-      });
+      };
+      this.applyKindDefaults(backend);
+      this.settings.backends.push(backend);
+    },
+
+    // Reset every connection field to what this kind needs. All of them are
+    // kind-specific — an Ollama model name means nothing to Horde, and Horde's
+    // anonymous key is not an OpenAI key — so carrying values across a kind
+    // change produces a config that looks filled in and is quietly wrong.
+    applyKindDefaults(backend) {
+      const defaults = (this.settings.kind_defaults || {})[backend.kind];
+      if (!defaults) return;
+      backend.base_url = defaults.base_url ?? "";
+      backend.template = defaults.template ?? "auto";
+      backend.timeout = defaults.timeout ?? 120;
+      backend.model = defaults.model ?? "";
+      backend.api_key = defaults.api_key ?? "";
+      backend.models = [];
+    },
+
+    onKindChange(backend) {
+      this.applyKindDefaults(backend);
+      delete this.tests[backend.name];
+    },
+
+    kindNote(kind) {
+      return ((this.settings.kind_defaults || {})[kind] || {}).note || "";
     },
 
     removeBackend(index) {

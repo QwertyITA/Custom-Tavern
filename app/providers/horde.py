@@ -19,6 +19,42 @@ from .base import GenRequest, GenResult, Provider, ProviderError, estimate_token
 ANON_KEY = "0000000000"
 POLL_INTERVAL = 4.0
 
+# Ranges the AI Horde API enforces. Anything outside them is a 400, not a
+# clamped value, so we clamp before sending.
+LIMITS = {
+    "temperature": (0.01, 5.0),
+    "top_p": (0.001, 1.0),
+    "top_k": (0, 100),
+    "rep_pen": (1.0, 3.0),
+    "max_length": (16, 512),
+    "max_context_length": (80, 32000),
+    "stop_sequences": 8,
+}
+
+DEFAULT_CONTEXT = 4096
+
+
+def _clamp(value: float, low: float, high: float) -> float:
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return low
+    return max(low, min(high, value))
+
+
+def _reason(response: httpx.Response) -> str:
+    """Pull Horde's own explanation out of an error response."""
+    try:
+        body = response.json()
+    except ValueError:
+        return f"{response.status_code} {response.text[:200]}"
+    message = body.get("message") or body.get("error") or ""
+    errors = body.get("errors")
+    if isinstance(errors, dict) and errors:
+        detail = "; ".join(f"{k}: {v}" for k, v in errors.items())
+        message = f"{message} ({detail})" if message else detail
+    return f"{response.status_code} {message or response.text[:200]}"
+
 
 class HordeProvider(Provider):
     kind = "horde"
@@ -27,6 +63,7 @@ class HordeProvider(Provider):
     def __init__(self, config) -> None:
         super().__init__(config)
         self._client: httpx.AsyncClient | None = None
+        self.context_length = DEFAULT_CONTEXT
 
     def client(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -41,32 +78,48 @@ class HordeProvider(Provider):
             )
         return self._client
 
-    async def generate(self, request: GenRequest) -> GenResult:
+    def build_payload(self, request: GenRequest) -> dict:
+        """Horde validates every sampler field and 400s on anything outside its
+        range, so per-pass sampling has to be clamped rather than passed through.
+
+        A cheap pass asking for 8 tokens at temperature 0 is perfectly
+        reasonable for Ollama and simply rejected here — that is provider
+        knowledge, so it belongs in the provider.
+        """
         template = self.template()
         if template == "messages":
             template = "chatml"
         sampling = request.sampling
-        payload = {
-            "prompt": request.prompt_text(template),
-            "params": {
-                "temperature": sampling.temp,
-                "top_p": sampling.top_p,
-                "top_k": sampling.top_k,
-                "rep_pen": sampling.rep_penalty,
-                "max_length": min(sampling.max_tokens, 512),
-                "max_context_length": 4096,
-                "stop_sequence": self.stop_strings(sampling),
-            },
-            "trusted_workers": False,
-        }
-        if self.config.models:
-            payload["models"] = self.config.models
 
+        stops = [s for s in self.stop_strings(sampling) if s][:LIMITS["stop_sequences"]]
+        params = {
+            "temperature": _clamp(sampling.temp, *LIMITS["temperature"]),
+            "top_p": _clamp(sampling.top_p, *LIMITS["top_p"]),
+            "top_k": int(_clamp(sampling.top_k, *LIMITS["top_k"])),
+            "rep_pen": _clamp(sampling.rep_penalty, *LIMITS["rep_pen"]),
+            "max_length": int(_clamp(sampling.max_tokens, *LIMITS["max_length"])),
+            "max_context_length": int(_clamp(self.context_length, *LIMITS["max_context_length"])),
+            "n": 1,
+        }
+        if stops:
+            params["stop_sequence"] = stops
+
+        payload = {"prompt": request.prompt_text(template), "params": params}
+        if self.config.models:
+            payload["models"] = [m for m in self.config.models if m]
+        return payload
+
+    async def generate(self, request: GenRequest) -> GenResult:
+        payload = self.build_payload(request)
         client = self.client()
         try:
             submit = await client.post("/generate/text/async", json=payload)
             submit.raise_for_status()
             job_id = submit.json()["id"]
+        except httpx.HTTPStatusError as exc:
+            # Horde says exactly which field it rejected, in the body. Without
+            # it the error is just "400 Bad Request", which is unactionable.
+            raise ProviderError(f"horde: submit rejected: {_reason(exc.response)}") from exc
         except (httpx.HTTPError, KeyError) as exc:
             raise ProviderError(f"horde: submit failed: {exc}") from exc
 

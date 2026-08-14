@@ -26,6 +26,47 @@ VALID_KINDS = ("echo", "ollama", "llamacpp", "openai", "horde")
 VALID_TEMPLATES = ("auto", "messages", "chatml", "llama3", "mistral", "plain")
 TIERS = ("blocking", "foreground", "background")
 
+# Sensible starting values per backend kind. The settings screen fills these in
+# when you pick a kind, so a new backend is one field away from working instead
+# of a blank form you have to know the answers for. Single source of truth: the
+# GUI reads these from /api/settings rather than hardcoding its own copy.
+KIND_DEFAULTS: dict[str, dict[str, Any]] = {
+    "echo": {
+        "model": "echo-1", "base_url": "", "template": "auto", "timeout": 120,
+        "note": "Built-in fake model. No network, no key — use it to test the UI.",
+    },
+    "ollama": {
+        "model": "llama3.1:8b", "base_url": "http://127.0.0.1:11434",
+        "template": "auto", "timeout": 120,
+        "note": "Your PC over Tailscale. Use its tailnet IP, not localhost, "
+                "unless Ollama runs on the phone.",
+    },
+    "llamacpp": {
+        "model": "qwen2.5-3b-instruct", "base_url": "http://127.0.0.1:8080",
+        "template": "chatml", "timeout": 300,
+        "note": "llama.cpp server on the phone. Foreground only — it throttles "
+                "hard when backgrounded.",
+    },
+    "openai": {
+        "model": "gpt-4o-mini", "base_url": "https://api.openai.com/v1",
+        "template": "auto", "timeout": 120,
+        "note": "Any OpenAI-compatible /v1 endpoint: hosted APIs, LM Studio, "
+                "vLLM, text-generation-webui.",
+    },
+    "horde": {
+        "model": "", "base_url": "https://aihorde.net/api/v2",
+        "api_key": "0000000000", "template": "chatml", "timeout": 300,
+        "note": "Free and network-only, so it is the safest background tier. "
+                "Slow and queue-bound: never use it for the reply. "
+                "0000000000 is the anonymous key — a real key gets priority.",
+    },
+}
+
+
+def kind_defaults() -> dict[str, dict[str, Any]]:
+    """Defaults minus the prose, plus the prose under its own key."""
+    return {kind: dict(values) for kind, values in KIND_DEFAULTS.items()}
+
 
 @dataclass
 class BackendConfig:

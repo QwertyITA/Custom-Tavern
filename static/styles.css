@@ -447,3 +447,9 @@ body {
         border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
 .save-msg { font-size: 12px; color: var(--ok); }
 .save-msg.bad { color: var(--error); }
+.kind-note {
+  color: var(--muted);
+  font-size: 11px;
+  margin: -3px 0 9px;
+  line-height: 1.45;
+}

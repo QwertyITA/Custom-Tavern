@@ -212,7 +212,7 @@
       <div class="backend">
         <div class="backend-head">
           <input class="grow" x-model="b.name" placeholder="name" aria-label="Backend name">
-          <select x-model="b.kind">
+          <select x-model="b.kind" @change="onKindChange(b)">
             <template x-for="k in settings.kinds" :key="k">
               <option :value="k" x-text="k"></option>
             </template>
@@ -220,6 +220,8 @@
           <button class="link danger" @click="removeBackend(i)"
                   :disabled="settings.backends.length < 2">remove</button>
         </div>
+
+        <p class="kind-note" x-show="kindNote(b.kind)" x-text="kindNote(b.kind)"></p>
 
         <label class="row"><span class="row-label">model</span>
           <input x-model="b.model" placeholder="llama3.1:8b"></label>

@@ -111,6 +111,7 @@ async def get_settings() -> dict:
         "kinds": list(config.VALID_KINDS),
         "templates": list(config.VALID_TEMPLATES),
         "tier_names": list(config.TIERS),
+        "kind_defaults": config.kind_defaults(),
         "path": str(config.settings_path()),
     }
 
@@ -154,7 +155,9 @@ async def test_backend(payload: dict = Body(...)) -> dict:
     request = providers.GenRequest(
         system="Reply with the single word: ok",
         messages=[{"role": "user", "content": "ping"}],
-        sampling=Sampling(max_tokens=8, temp=0),
+        # Horde rejects max_length < 16 and temperature 0; the provider clamps
+        # anyway, but asking for something valid keeps the probe honest.
+        sampling=Sampling(max_tokens=16, temp=0.1),
         pass_id="connection_test",
     )
     started = time.monotonic()
