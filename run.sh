@@ -60,12 +60,29 @@ server_alive() {
   fi
 }
 
+# The termux-* helpers talk to the Termux:API *app*. If the app is not
+# installed — easy to miss, since `pkg install termux-api` only provides the
+# CLI half — they block forever instead of failing. That hangs startup before
+# uvicorn is ever reached, and the symptom is a server that never comes up and
+# writes no log at all. Never call one of them unbounded.
+termux_try() {
+  have "$1" || return 0
+  if have timeout; then
+    timeout 5 "$@" >/dev/null 2>&1 || return 0
+  else
+    "$@" >/dev/null 2>&1 || return 0
+  fi
+}
+
 start_server() {
   mkdir -p "$HERE/data"
-  have termux-wake-lock && termux-wake-lock || true
-  have termux-notification && termux-notification \
-    --id tavern --title "Personal Tavern" \
-    --content "serving on localhost:$PORT" --ongoing || true
+  # Write to the log before anything that could block, so a hang is diagnosable
+  # rather than showing up as a missing file.
+  echo "=== $(date '+%Y-%m-%d %H:%M:%S') starting on $HOST:$PORT ===" >> "$LOG"
+
+  termux_try termux-wake-lock
+  termux_try termux-notification --id tavern --title "Personal Tavern" \
+    --content "serving on localhost:$PORT" --ongoing
 
   echo "Personal Tavern → http://localhost:$PORT"
   # No [standard] extras: uvloop and httptools do not build cleanly on Termux.
@@ -76,8 +93,8 @@ start_server() {
 stop_server() {
   have tmux && tmux kill-session -t "$SESSION" 2>/dev/null || true
   pkill -f "uvicorn app.main:app" 2>/dev/null || true
-  have termux-notification-remove && termux-notification-remove tavern || true
-  have termux-wake-unlock && termux-wake-unlock || true
+  termux_try termux-notification-remove tavern
+  termux_try termux-wake-unlock
   echo "stopped"
 }
 
