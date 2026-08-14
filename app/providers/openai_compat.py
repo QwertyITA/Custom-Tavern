@@ -124,6 +124,20 @@ class OpenAICompatProvider(Provider):
                 sink,
             )
 
+    @staticmethod
+    def parse_models(data) -> list[str]:
+        rows = (data.get("data") if isinstance(data, dict) else None) or []
+        out = [str(m["id"]) for m in rows if isinstance(m, dict) and m.get("id")]
+        return sorted(set(out))
+
+    async def list_models(self) -> list[str]:
+        try:
+            response = await self.client().get("/models")
+            response.raise_for_status()
+            return self.parse_models(response.json())
+        except (httpx.HTTPError, ValueError) as exc:
+            raise ProviderError(f"openai: could not list models: {exc}") from exc
+
     async def aclose(self) -> None:
         if self._client is not None:
             await self._client.aclose()

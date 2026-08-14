@@ -221,3 +221,18 @@ def test_invalid_settings_are_rejected(payload, message):
     payload.setdefault("tiers", {"blocking": "x", "foreground": "x", "background": "x"})
     with pytest.raises(config.SettingsError, match=message):
         config.build_settings(payload, a_settings())
+
+
+def test_error_text_never_carries_the_key():
+    """A base_url can embed a token, and httpx puts the URL in the message."""
+    from app.main import _safe_error
+
+    exc = RuntimeError("connect failed: https://host/v1/example-token-abc123/models")
+    assert "example-token-abc123" not in _safe_error(exc, "example-token-abc123")
+    assert config.MASK in _safe_error(exc, "example-token-abc123")
+
+
+def test_error_text_is_unchanged_when_there_is_no_key():
+    from app.main import _safe_error
+
+    assert _safe_error(RuntimeError("plain failure"), "") == "plain failure"

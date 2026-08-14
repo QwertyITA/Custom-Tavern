@@ -343,3 +343,22 @@ class _fake_request:
 
     async def is_disconnected(self) -> bool:
         return self.disconnected
+
+
+def test_model_discovery_lists_what_a_backend_serves(client):
+    body = client.post("/api/settings/models", json={"name": "echo", "kind": "echo"}).json()
+    assert body["ok"] is True
+    assert body["models"] == ["echo-1"]
+
+
+def test_model_discovery_fails_softly_on_an_unreachable_backend(client):
+    body = client.post("/api/settings/models", json={
+        "name": "dead", "kind": "ollama", "base_url": "http://127.0.0.1:1", "timeout": 2,
+    }).json()
+    assert body["ok"] is False
+    assert body["models"] == []
+    assert body["error"]
+
+
+def test_model_discovery_rejects_an_invalid_backend(client):
+    assert client.post("/api/settings/models", json={"name": "x", "kind": "bogus"}).status_code == 400

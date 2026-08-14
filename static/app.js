@@ -409,11 +409,16 @@ function tavern() {
     saveError: "",
     testing: "",
     tests: {},
+    models: {},
+    modelErrors: {},
+    loadingModels: "",
 
     async openSettings() {
       this.saveMsg = "";
       this.saveError = "";
       this.tests = {};
+      this.models = {};
+      this.modelErrors = {};
       try {
         const loaded = await api.get("/api/settings");
         // Show a dot placeholder rather than the literal mask, so it reads as
@@ -465,6 +470,48 @@ function tavern() {
     onKindChange(backend) {
       this.applyKindDefaults(backend);
       delete this.tests[backend.name];
+      delete this.models[backend.name];
+      delete this.modelErrors[backend.name];
+    },
+
+    // Ask the backend what it can serve. Typing a model name from memory is
+    // the easiest way to misconfigure a backend, and the mistake only surfaces
+    // later as a confusing provider error.
+    async loadModels(backend) {
+      this.loadingModels = backend.name;
+      delete this.modelErrors[backend.name];
+      try {
+        const payload = {
+          ...backend,
+          api_key: backend.api_key === MASK_DISPLAY ? "***" : backend.api_key,
+        };
+        const response = await fetch("/api/settings/models", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const result = await response.json();
+        if (!response.ok || !result.ok) {
+          this.modelErrors[backend.name] = result.error || result.detail || response.statusText;
+          this.models[backend.name] = [];
+        } else {
+          this.models[backend.name] = result.models;
+          if (!result.models.length) {
+            this.modelErrors[backend.name] = "this backend reported no models";
+          }
+        }
+      } catch (e) {
+        this.modelErrors[backend.name] = String(e.message || e);
+      } finally {
+        this.loadingModels = "";
+      }
+    },
+
+    modelHint(name) {
+      if (this.modelErrors[name]) return `couldn't list models — ${this.modelErrors[name]}`;
+      const found = this.models[name];
+      if (!found) return "";
+      return `${found.length} model${found.length === 1 ? "" : "s"} available — tap the field to pick one`;
     },
 
     kindNote(kind) {

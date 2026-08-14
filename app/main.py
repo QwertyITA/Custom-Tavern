@@ -116,6 +116,17 @@ async def get_settings() -> dict:
     }
 
 
+def _safe_error(exc: Exception, api_key: str) -> str:
+    """Error text with the key removed.
+
+    A base_url can carry a token in its path or query, and httpx puts the URL
+    in the exception message — so a failed probe is a plausible way for a key
+    to end up on screen, in a screenshot, or in a bug report.
+    """
+    text = str(exc) or exc.__class__.__name__
+    return text.replace(api_key, config.MASK) if api_key else text
+
+
 def _adopt(settings) -> None:
     config.apply_settings(settings)
     if SCHEDULER is not None:
@@ -164,9 +175,7 @@ async def test_backend(payload: dict = Body(...)) -> dict:
     try:
         result = await asyncio.wait_for(provider.generate(request), timeout=45)
     except (providers.ProviderError, asyncio.TimeoutError, OSError) as exc:
-        # str(exc) can carry a base_url with an embedded token; mask it.
-        return {"ok": False, "error": config.MASK.join(str(exc).split(backend.api_key))
-                if backend.api_key else str(exc)}
+        return {"ok": False, "error": _safe_error(exc, backend.api_key)}
     finally:
         await provider.aclose()
 
@@ -176,6 +185,28 @@ async def test_backend(payload: dict = Body(...)) -> dict:
         "latency_ms": round((time.monotonic() - started) * 1000),
         "sample": result.text[:120],
     }
+
+
+@app.post("/api/settings/models")
+async def discover_models(payload: dict = Body(...)) -> dict:
+    """Ask a backend which models it can actually serve.
+
+    Same body shape and masked-key handling as the connection test, so the
+    model list can be pulled for a stored backend without retyping its key.
+    """
+    try:
+        backend = config.merge_backend(payload, config.SETTINGS.backends)
+    except config.SettingsError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    provider = providers.build(backend)
+    try:
+        models = await asyncio.wait_for(provider.list_models(), timeout=30)
+    except (providers.ProviderError, asyncio.TimeoutError, OSError) as exc:
+        return {"ok": False, "models": [], "error": _safe_error(exc, backend.api_key)}
+    finally:
+        await provider.aclose()
+    return {"ok": True, "models": models}
 
 
 @app.post("/api/settings/reload")

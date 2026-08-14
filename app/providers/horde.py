@@ -105,9 +105,46 @@ class HordeProvider(Provider):
             params["stop_sequence"] = stops
 
         payload = {"prompt": request.prompt_text(template), "params": params}
-        if self.config.models:
-            payload["models"] = [m for m in self.config.models if m]
+        # Horde selects by a models *list*; `model` is the single-model field
+        # every other backend uses. Treat one as shorthand for the other so the
+        # settings screen behaves the same way for every kind.
+        wanted = [m for m in (self.config.models or []) if m] or (
+            [self.model] if self.model else []
+        )
+        if wanted:
+            payload["models"] = wanted
         return payload
+
+    @staticmethod
+    def parse_models(data) -> list[str]:
+        """Active text models, busiest first — worker count is availability.
+
+        A model with no workers will sit in the queue indefinitely, so ordering
+        by worker count is the difference between a reply and a timeout.
+        """
+        if isinstance(data, list):
+            items = data
+        elif isinstance(data, dict):
+            items = data.get("models") or []
+        else:
+            items = []
+        ranked = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            name = item.get("name")
+            if name:
+                ranked.append((int(item.get("count") or 0), str(name)))
+        ranked.sort(key=lambda pair: (-pair[0], pair[1]))
+        return [name for _count, name in ranked]
+
+    async def list_models(self) -> list[str]:
+        try:
+            response = await self.client().get("/status/models", params={"type": "text"})
+            response.raise_for_status()
+            return self.parse_models(response.json())
+        except (httpx.HTTPError, ValueError) as exc:
+            raise ProviderError(f"horde: could not list models: {exc}") from exc
 
     async def generate(self, request: GenRequest) -> GenResult:
         payload = self.build_payload(request)

@@ -141,6 +141,29 @@ class OllamaProvider(Provider):
                 sink,
             )
 
+    @staticmethod
+    def parse_models(data) -> list[str]:
+        """/api/tags → the models actually pulled on that machine.
+
+        Defensive about shape: a base_url pointing at something that is not
+        Ollama still returns *some* JSON, and that should read as "no models",
+        not as a crash.
+        """
+        out = []
+        for item in (data.get("models") if isinstance(data, dict) else None) or []:
+            name = item.get("name") or item.get("model") if isinstance(item, dict) else item
+            if name:
+                out.append(str(name))
+        return sorted(set(out))
+
+    async def list_models(self) -> list[str]:
+        try:
+            response = await self.client().get("/api/tags")
+            response.raise_for_status()
+            return self.parse_models(response.json())
+        except (httpx.HTTPError, ValueError) as exc:
+            raise ProviderError(f"ollama: could not list models: {exc}") from exc
+
     async def aclose(self) -> None:
         if self._client is not None:
             await self._client.aclose()
@@ -185,6 +208,21 @@ class LlamaCppProvider(OllamaProvider):
     @staticmethod
     def _delta(chunk: dict) -> str:
         return chunk.get("content", "")
+
+    @staticmethod
+    def parse_models(data) -> list[str]:
+        """llama.cpp serves one model at a time, via the OpenAI-shaped route."""
+        rows = (data.get("data") if isinstance(data, dict) else None) or []
+        out = [str(m["id"]) for m in rows if isinstance(m, dict) and m.get("id")]
+        return sorted(set(out))
+
+    async def list_models(self) -> list[str]:
+        try:
+            response = await self.client().get("/v1/models")
+            response.raise_for_status()
+            return self.parse_models(response.json())
+        except (httpx.HTTPError, ValueError) as exc:
+            raise ProviderError(f"llamacpp: could not list models: {exc}") from exc
 
     async def stream(
         self, request: GenRequest, sink: GenResult | None = None

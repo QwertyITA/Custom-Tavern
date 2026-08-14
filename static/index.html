@@ -224,7 +224,20 @@
         <p class="kind-note" x-show="kindNote(b.kind)" x-text="kindNote(b.kind)"></p>
 
         <label class="row"><span class="row-label">model</span>
-          <input x-model="b.model" placeholder="llama3.1:8b"></label>
+          <!-- datalist, not select: the options are what the backend reports,
+               but a model you are about to pull must still be typeable. -->
+          <input x-model="b.model" :list="`models-${i}`" placeholder="llama3.1:8b"
+                 autocomplete="off" spellcheck="false">
+          <datalist :id="`models-${i}`">
+            <template x-for="m in (models[b.name] || [])" :key="m">
+              <option :value="m"></option>
+            </template>
+          </datalist>
+          <button class="link" @click.prevent="loadModels(b)" :disabled="loadingModels === b.name">
+            <span x-text="loadingModels === b.name ? '…' : 'load'"></span>
+          </button>
+        </label>
+        <p class="kind-note" x-show="modelHint(b.name)" x-text="modelHint(b.name)"></p>
         <label class="row" x-show="b.kind !== 'echo'"><span class="row-label">url</span>
           <input x-model="b.base_url" placeholder="http://100.x.y.z:11434" inputmode="url"></label>
         <label class="row" x-show="b.kind === 'openai' || b.kind === 'horde'">

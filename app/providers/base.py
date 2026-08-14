@@ -106,6 +106,16 @@ class Provider:
     async def generate(self, request: GenRequest) -> GenResult:
         raise NotImplementedError
 
+    async def list_models(self) -> list[str]:
+        """Models this backend can actually serve right now.
+
+        Typing a model name from memory is the easiest way to misconfigure a
+        backend, and the failure surfaces much later as a confusing error from
+        the provider. Every backend that can enumerate its models does.
+        Returns [] when the backend has no way to say.
+        """
+        return []
+
     async def stream(
         self, request: GenRequest, sink: GenResult | None = None
     ) -> AsyncIterator[str]:

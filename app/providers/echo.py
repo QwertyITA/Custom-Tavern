@@ -121,6 +121,9 @@ class EchoProvider(Provider):
 
     # --------------------------------------------------------------- provider
 
+    async def list_models(self) -> list[str]:
+        return ["echo-1"]
+
     async def generate(self, request: GenRequest) -> GenResult:
         if self.delay:
             await asyncio.sleep(self.delay)

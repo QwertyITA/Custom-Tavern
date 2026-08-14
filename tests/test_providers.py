@@ -143,3 +143,58 @@ def test_template_guessing_matches_model_families():
 def test_every_named_template_renders():
     for name in TEMPLATES:
         assert render(name, "s", [{"role": "user", "content": "u"}])
+
+
+# ------------------------------------------------------- model discovery
+
+
+def test_ollama_parses_its_tag_list():
+    data = {"models": [{"name": "llama3.1:8b"}, {"name": "qwen2.5:3b"}, {"name": "llama3.1:8b"}]}
+    from app.providers.ollama import OllamaProvider
+
+    assert OllamaProvider.parse_models(data) == ["llama3.1:8b", "qwen2.5:3b"]
+
+
+def test_openai_parses_its_model_list():
+    from app.providers.openai_compat import OpenAICompatProvider
+
+    data = {"data": [{"id": "gpt-4o-mini"}, {"id": "gpt-4o"}]}
+    assert OpenAICompatProvider.parse_models(data) == ["gpt-4o", "gpt-4o-mini"]
+
+
+def test_horde_ranks_models_by_worker_count():
+    """A model with no workers queues forever, so availability is the order."""
+    data = [
+        {"name": "quiet/model", "count": 0},
+        {"name": "busy/model", "count": 12},
+        {"name": "some/model", "count": 3},
+    ]
+    assert HordeProvider.parse_models(data) == ["busy/model", "some/model", "quiet/model"]
+
+
+@pytest.mark.parametrize("junk", [None, {}, {"models": None}, {"data": None}, [], "nonsense"])
+def test_model_parsers_survive_junk(junk):
+    from app.providers.ollama import LlamaCppProvider, OllamaProvider
+    from app.providers.openai_compat import OpenAICompatProvider
+
+    for parser in (
+        OllamaProvider.parse_models,
+        LlamaCppProvider.parse_models,
+        OpenAICompatProvider.parse_models,
+        HordeProvider.parse_models,
+    ):
+        try:
+            assert isinstance(parser(junk), list)
+        except (AttributeError, TypeError):
+            pytest.fail(f"{parser.__qualname__} crashed on {junk!r}")
+
+
+def test_horde_uses_the_model_field_when_no_models_list_is_set():
+    """`model` and `models` are the same choice; the GUI only edits one."""
+    provider = horde_provider(model="koboldcpp/Mistral-7B")
+    assert provider.build_payload(GenRequest())["models"] == ["koboldcpp/Mistral-7B"]
+
+
+def test_an_explicit_models_list_wins_over_the_model_field():
+    provider = horde_provider(model="ignored", models=["a", "b"])
+    assert provider.build_payload(GenRequest())["models"] == ["a", "b"]

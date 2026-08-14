@@ -141,6 +141,14 @@ each tier a backend, fill in the URL/model/key, and use *test connection* to
 check one before relying on it. Everything is written to `data/settings.json`
 on the device.
 
+Nothing has to be typed from memory. Picking a **kind** fills in the URL,
+template, timeout and a sensible model, with a note on what that backend is
+for. **load** next to the model field asks the backend what it can actually
+serve — pulled models from Ollama, `/v1/models` from an OpenAI-compatible
+endpoint, active text models from Horde ordered by worker count, since a model
+with no workers queues forever. The field stays typeable, so a model you are
+about to pull still works.
+
 The key handling is deliberate:
 
 - Saved keys are **never sent back to the browser**. A read returns `***`, and
