@@ -13,9 +13,10 @@
 # system reaps background children after a while:
 #   adb shell settings put global settings_enable_monitor_phantom_procs false
 #
-# Usage:  ./run.sh          start (inside tmux if available)
-#         ./run.sh stop     stop it
-#         ./run.sh logs     follow the log
+# Usage:  ./run.sh              start in this console (Ctrl+C to stop)
+#         ./run.sh background   detach into tmux instead
+#         ./run.sh stop         stop it
+#         ./run.sh logs         follow the log
 
 set -euo pipefail
 
@@ -124,11 +125,13 @@ stop_server() {
 }
 
 case "${1:-start}" in
-  start|foreground|--foreground|-f)
-    # Foreground: run in this console, Ctrl+C to stop. Chosen explicitly, when
-    # re-exec'd inside tmux, or when there is no tmux to detach into.
-    foreground=0
-    case "${1:-start}" in foreground|--foreground|-f) foreground=1 ;; esac
+  start|foreground|--foreground|-f|background|--background|-b|detach)
+    # Foreground is the default: the server runs in this console and Ctrl+C
+    # stops it. Detaching into tmux is opt-in, because a server you cannot see
+    # is a server whose errors you find out about much later.
+    foreground=1
+    case "${1:-start}" in background|--background|-b|detach) foreground=0 ;; esac
+    # Inside tmux we *are* the detached server, so run directly.
     [ "${TAVERN_INNER:-}" = "1" ] && foreground=1
     have tmux || foreground=1
 
@@ -159,7 +162,7 @@ case "${1:-start}" in
       fi
       # Invoke through bash explicitly rather than relying on the shebang
       # resolving the same way inside tmux.
-      tmux new-session -d -s "$SESSION" "TAVERN_INNER=1 bash '$HERE/run.sh' start"
+      tmux new-session -d -s "$SESSION" "TAVERN_INNER=1 bash '$HERE/run.sh' foreground"
 
       # Don't claim success just because tmux accepted the command. Wait for
       # the port to actually answer, and show the log if it never does —
@@ -180,5 +183,5 @@ case "${1:-start}" in
     ;;
   stop) stop_server ;;
   logs) tail -f "$LOG" ;;
-  *) echo "usage: $0 {start|foreground|stop|logs}" >&2; exit 2 ;;
+  *) echo "usage: $0 {start|background|stop|logs}" >&2; exit 2 ;;
 esac

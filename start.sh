@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Update, then start. This is the one to tap.
 #
-#   ./start.sh              pull the latest version, then start in the background
-#   ./start.sh -f           same, but run in this console (Ctrl+C to stop)
+#   ./start.sh              pull the latest version, then run in this console
+#   ./start.sh -b           same, but detach into tmux and return the prompt
 #   ./start.sh --no-update  skip the pull (offline, or you want this exact code)
 #   ./start.sh stop         stop the server
 #   ./start.sh logs         follow the log
@@ -36,9 +36,12 @@ install_widget() {
   # home screen. Needs the Termux:Widget app installed separately.
   local dir="$HOME/.shortcuts"
   mkdir -p "$dir"
+  # The widget's terminal closes when you leave it, which would take a
+  # foreground server with it — so the shortcut detaches even though the
+  # command line default is the console.
   cat > "$dir/Personal Tavern" <<EOF
 #!/usr/bin/env bash
-bash "$HERE/start.sh"
+bash "$HERE/start.sh" -b
 EOF
   chmod +x "$dir/Personal Tavern"
   cat > "$dir/Personal Tavern (stop)" <<EOF
@@ -200,7 +203,9 @@ check_deps() {
 
 # -------------------------------------------------------------------- main
 
-MODE=start  # how run.sh is invoked: background (start) or in this console
+# How run.sh is invoked. Foreground by default: a server you cannot see is one
+# whose errors you only discover much later.
+MODE=foreground
 
 case "${1:-start}" in
   stop|logs)
@@ -212,20 +217,20 @@ case "${1:-start}" in
     ;;
   --no-update)
     ;;
-  -f|--foreground|foreground)
-    MODE=foreground
+  --no-update-background)
+    MODE=background
+    ;;
+  -b|--background|background|detach)
+    MODE=background
     enable_hooks
     update
     ;;
-  --no-update-foreground)
-    MODE=foreground
-    ;;
-  start|"")
+  -f|--foreground|foreground|start|"")
     enable_hooks
     update
     ;;
   *)
-    echo "usage: $0 [start|-f|--no-update|stop|logs|--widget]" >&2
+    echo "usage: $0 [start|-b|--no-update|stop|logs|--widget]" >&2
     exit 2
     ;;
 esac
