@@ -408,46 +408,49 @@ function tavern() {
       return document.querySelector(`.bubble[data-mid="${CSS.escape(id)}"]`);
     },
 
-    // The bubble holds its size while regenerating rather than collapsing to
-    // the cue and springing back. Pinning min-height is both simpler and
-    // steadier than measuring and animating height: the message stays where it
-    // is, nothing below it jumps, and only the content cross-fades.
+    // Hold the bubble at an exact size. Both bounds, always set together: a
+    // maximum on its own cannot keep the box open once the text is cleared out
+    // from under it — the bubble collapses onto the cue in a single frame and
+    // the shrink never animates — and a minimum on its own stops binding the
+    // moment the new reply arrives, so the grow snaps instead. Pinned to the
+    // same number they pin the box outright, which is what animates.
+    setPin(el, width, height) {
+      el.style.minWidth = width;
+      el.style.maxWidth = width;
+      el.style.minHeight = height;
+      el.style.maxHeight = height;
+    },
+
     // Commit a size without animating to it. A transition always runs from the
     // element's *current* value, so setting a start value while the transition
     // is live animates towards it — and the intended animation then starts
     // from a value that has not moved yet and does nothing.
-    // max-* rather than min-*: a minimum can only push a box out past its
-    // content, so once real text returns it stops binding and the bubble jumps
-    // straight to full size. A maximum constrains in both directions, which is
-    // what lets the same pair of values animate the shrink and the grow.
     pinInstant(el, width, height) {
       el.classList.add("no-anim");
-      el.style.maxWidth = width;
-      el.style.maxHeight = height;
+      this.setPin(el, width, height);
       void el.offsetWidth;              // commit before re-enabling transitions
       el.classList.remove("no-anim");
     },
 
     pinTo(el, width, height) {
-      el.style.maxWidth = width;
-      el.style.maxHeight = height;
+      this.setPin(el, width, height);
     },
 
-    // Size the element would take with no caps on it. Every read happens while
+    // Size the element would take unpinned. Every read happens while
     // transitions are off: re-arming them before measuring means the browser
-    // has already started animating back towards the uncapped size, and the
+    // has already started animating back towards the free size, and the
     // measurement catches a box mid-flight — a tall thin column that then gets
     // animated to.
     measureNatural(el) {
-      const previousWidth = el.style.maxWidth;
-      const previousHeight = el.style.maxHeight;
+      const previous = {
+        minWidth: el.style.minWidth, maxWidth: el.style.maxWidth,
+        minHeight: el.style.minHeight, maxHeight: el.style.maxHeight,
+      };
       el.classList.add("no-anim");
-      el.style.maxWidth = "";
-      el.style.maxHeight = "";
+      this.setPin(el, "", "");
       void el.offsetWidth;
       const size = { width: el.offsetWidth, height: el.offsetHeight };
-      el.style.maxWidth = previousWidth;
-      el.style.maxHeight = previousHeight;
+      Object.assign(el.style, previous);
       void el.offsetWidth;
       el.classList.remove("no-anim");
       return size;
@@ -504,8 +507,7 @@ function tavern() {
     releaseRegenPin(messageId) {
       const bubble = this.bubbleFor(messageId);
       if (!bubble) return;
-      bubble.style.maxWidth = "";
-      bubble.style.maxHeight = "";
+      this.setPin(bubble, "", "");
       bubble.classList.remove("clipping");
     },
 

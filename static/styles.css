@@ -534,11 +534,18 @@ body {
 }
 /* No transition while the finger is down — the bubble must track it exactly.
    The snap back only animates on release.
-   The max-* pair animates a regenerating bubble down to the cue pill and back
-   out again, in both axes. 300ms matches BUBBLE_RESIZE_MS. */
+   The min/max pairs animate a regenerating bubble down to the cue pill and
+   back out again, in both axes. Both bounds are needed, and they are always
+   set to the same value: a maximum alone cannot hold the box open when the
+   text is cleared out from under it (it collapses onto the cue in one frame),
+   and a minimum alone cannot hold it in once the new reply arrives. Pinned to
+   the same number they fix the box at an exact size, which is what actually
+   animates. 300ms matches BUBBLE_RESIZE_MS. */
 .bubble {
   transition: transform .18s ease-out,
+              min-width 300ms cubic-bezier(.4, 0, .2, 1),
               max-width 300ms cubic-bezier(.4, 0, .2, 1),
+              min-height 300ms cubic-bezier(.4, 0, .2, 1),
               max-height 300ms cubic-bezier(.4, 0, .2, 1);
 }
 /* Used to commit a start size before arming the transition (pinInstant). */
