@@ -161,7 +161,17 @@ install_deps() {
     fi
   fi
 
-  if "$PYTHON" -m pip install --quiet -r requirements.txt; then
+  # Deliberately not --quiet. On Termux this compiles pydantic-core from Rust
+  # source and sits silent for ten minutes; a progress-free wait on a phone
+  # looks like a hang, and the natural response is Ctrl+C — which throws the
+  # work away and leaves you exactly where you started.
+  if is_termux && ! "$PYTHON" -c "import pydantic" 2>/dev/null; then
+    warn "First run: pydantic-core compiles from Rust source."
+    echo "     This takes about ten minutes on a phone and prints almost nothing."
+    echo "     Leave it alone — Ctrl+C here means starting over."
+  fi
+
+  if "$PYTHON" -m pip install -r requirements.txt; then
     return 0
   fi
 
