@@ -1,5 +1,7 @@
-#!/data/data/com.termux/files/usr/bin/bash
+#!/usr/bin/env bash
 # Termux launcher with the hardening from §2.
+#
+# Most people should run ./start.sh instead — it updates first, then calls this.
 #
 # Android will happily kill a long-running server. The four things that matter:
 #   * termux-wake-lock            — keeps the CPU alive
@@ -55,7 +57,9 @@ case "${1:-start}" in
       # Re-exec inside tmux so closing the terminal does not take the server.
       tmux has-session -t "$SESSION" 2>/dev/null && {
         echo "already running — attach with: tmux attach -t $SESSION"; exit 0; }
-      tmux new-session -d -s "$SESSION" "TAVERN_INNER=1 '$HERE/run.sh' start"
+      # Invoke through bash explicitly rather than relying on the shebang
+      # resolving the same way inside tmux.
+      tmux new-session -d -s "$SESSION" "TAVERN_INNER=1 bash '$HERE/run.sh' start"
       echo "started in tmux session '$SESSION' → http://localhost:$PORT"
       echo "attach: tmux attach -t $SESSION   stop: $0 stop"
     fi
