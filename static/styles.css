@@ -260,7 +260,23 @@ body {
 }
 .msg.user .bubble { background: var(--user-bubble); }
 
-.body { white-space: pre-wrap; color: var(--c-default); }
+.body {
+  white-space: pre-wrap;
+  color: var(--c-default);
+  /* Must match TEXT_FADE_MS in app.js — the regen sequence waits for it. */
+  transition: opacity 170ms ease;
+}
+.body.fade-out { opacity: 0; }
+.body.regen {
+  animation: cue-in 220ms ease both;
+  /* Sit the dots in the middle of whatever room the pin leaves, rather than
+     stranded in the top-left corner of an otherwise empty bubble. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.2em;
+}
+@keyframes cue-in { from { opacity: 0; } to { opacity: 1; } }
 
 /* markup runs — styles stack, so nested markup keeps both colours (§8) */
 .mk-dialogue { color: var(--c-dialogue); }
@@ -513,8 +529,12 @@ body {
   cursor: grab;
 }
 /* No transition while the finger is down — the bubble must track it exactly.
-   The snap back only animates on release. */
-.bubble { transition: transform .18s ease-out; }
+   The snap back only animates on release.
+   min-height eases the bubble back down after a regeneration, once the pin set
+   while it was regenerating is released. 300ms matches BUBBLE_RESIZE_MS. */
+.bubble {
+  transition: transform .18s ease-out, min-height 300ms cubic-bezier(.4, 0, .2, 1);
+}
 .bubble.dragging { transition: none; cursor: grabbing; user-select: none; }
 
 .swipe-hint {

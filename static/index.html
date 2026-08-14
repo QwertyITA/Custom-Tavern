@@ -76,7 +76,7 @@
            @error="$el.style.visibility = 'hidden'">
       <!-- Swipe the message itself to change variant: left forward, right back
            (§9). touch-action: pan-y leaves vertical scrolling to the chat. -->
-      <div class="bubble"
+      <div class="bubble" :data-mid="m.id"
            :class="{ swipeable: swipeable(m), dragging: dragId === m.id }"
            :style="dragId === m.id ? `transform: translateX(${dragDx}px)` : ''"
            @pointerdown="onSwipeStart($event, m)"
@@ -90,7 +90,8 @@
         <div class="body regen" x-show="isRegenerating(m)" x-cloak>
           <span class="anim anim-typing"><i></i><i></i><i></i></span>
         </div>
-        <div class="body" x-effect="Markup.render($el, m.text)"
+        <div class="body" :class="{ 'fade-out': fadingId === m.id }"
+             x-effect="Markup.render($el, m.text)"
              x-show="editing !== m.id && !isRegenerating(m)"></div>
         <textarea class="edit-box" x-show="editing === m.id" x-model="editText"
                   :style="editHeight ? `min-height:${editHeight}px` : ''"

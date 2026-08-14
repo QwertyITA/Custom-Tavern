@@ -20,6 +20,16 @@ function luminance(hex) {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
+// Transition timings. Kept in JS as well as CSS because the sequence has to
+// wait for each step; they must stay in step with styles.css.
+const TEXT_FADE_MS = 170;
+const BUBBLE_RESIZE_MS = 300;
+// Tallest a bubble stays while regenerating, so a long reply does not leave a
+// screenful of empty bubble around three dots.
+const REGEN_MAX_PIN = 88;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 // Swipe thresholds, in CSS pixels.
 const SWIPE_CLAIM = 12;   // movement before a drag counts as horizontal at all
 const SWIPE_COMMIT = 64;  // release past this and the variant changes
@@ -103,6 +113,7 @@ function tavern() {
     regenId: null,
     regenPrevious: "",
     sceneBackgroundFile: "",
+    fadingId: null,
     drawer: false,
     hud: false,
     error: "",
@@ -384,13 +395,68 @@ function tavern() {
     async swipe(message) {
       if (this.streaming) return;
       this.error = "";
-      // Blank the message and mark it regenerating so the bubble itself shows
-      // the typing cue. Keep the old text so a failure can put it back rather
-      // than leaving an empty bubble.
-      this.regenId = message.id;
-      this.regenPrevious = message.text;
-      message.text = "";
+      // Hand over to the typing cue gradually: fade the old text, shrink the
+      // bubble to the cue's size, fade the cue in. Swapping the two outright
+      // reads as a glitch — the text vanishes and the bubble collapses in the
+      // same frame, then snaps back open when the first token lands.
+      await this.beginRegen(message);
       await this.runStream(`/api/messages/${message.id}/swipe`, {}, message.id);
+    },
+
+    bubbleFor(id) {
+      return document.querySelector(`.bubble[data-mid="${CSS.escape(id)}"]`);
+    },
+
+    // The bubble holds its size while regenerating rather than collapsing to
+    // the cue and springing back. Pinning min-height is both simpler and
+    // steadier than measuring and animating height: the message stays where it
+    // is, nothing below it jumps, and only the content cross-fades.
+    async beginRegen(message) {
+      const bubble = this.bubbleFor(message.id);
+      this.regenPrevious = message.text;
+      if (bubble) {
+        // Width as well as height. A bubble is sized by its content, so with
+        // only three dots in it it would otherwise snap to a narrow sliver —
+        // a sideways jump every bit as jarring as the vertical one.
+        bubble.style.minWidth = `${bubble.offsetWidth}px`;
+        bubble.style.minHeight = `${bubble.offsetHeight}px`;
+      }
+
+      this.fadingId = message.id;
+      await sleep(TEXT_FADE_MS);
+
+      this.regenId = message.id;
+      message.text = "";
+      this.fadingId = null;
+
+      // A long reply would leave a tall empty card with the dots stranded at
+      // the top, so the height pin eases down to a compact cap. min-height
+      // transitions, so this is a glide rather than the collapse it replaced.
+      if (bubble) {
+        const capped = Math.min(bubble.offsetHeight, REGEN_MAX_PIN);
+        requestAnimationFrame(() => { bubble.style.minHeight = `${capped}px`; });
+      }
+    },
+
+    // First tokens: drop the pin so the bubble eases to whatever the new reply
+    // needs — down if it is shorter, straight into growing if longer.
+    endRegen(message, applyText) {
+      const bubble = this.bubbleFor(message.id);
+      applyText();
+      this.regenId = null;
+      if (!bubble) return;
+      requestAnimationFrame(() => { bubble.style.minHeight = "0px"; });
+      setTimeout(() => {
+        bubble.style.minHeight = "";
+        bubble.style.minWidth = "";
+      }, BUBBLE_RESIZE_MS);
+    },
+
+    releaseRegenPin(messageId) {
+      const bubble = this.bubbleFor(messageId);
+      if (!bubble) return;
+      bubble.style.minHeight = "";
+      bubble.style.minWidth = "";
     },
 
     isRegenerating(message) {
@@ -429,7 +495,6 @@ function tavern() {
                 // markup colouring applied on every frame (§8).
                 if (swipeMessageId) {
                   target = this.messages.find((m) => m.id === swipeMessageId);
-                  if (target) target.text = "";
                 } else {
                   target = {
                     id: "streaming",
@@ -443,6 +508,16 @@ function tavern() {
                   this.messages.push(target);
                 }
                 this.composing = false;
+
+                if (target && this.regenId === target.id) {
+                  // First token of a regeneration: grow out of the typing cue
+                  // instead of snapping open. The callback writes the buffer as
+                  // it stands when the animation measures, so it cannot undo a
+                  // later delta the way a captured copy would.
+                  this.endRegen(target, () => { target.text = buffer; });
+                  this.scrollDown();
+                  break;
+                }
               }
               if (target) target.text = buffer;
               this.scrollDown();
@@ -490,6 +565,9 @@ function tavern() {
       } finally {
         this.streaming = false;
         this.composing = false;
+        // However the turn ended, the bubble must not stay pinned to the size
+        // it happened to be when regeneration started.
+        if (swipeMessageId) this.releaseRegenPin(swipeMessageId);
         this.regenId = null;
         this.regenPrevious = "";
         this.scrollDown();
