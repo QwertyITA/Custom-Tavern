@@ -28,6 +28,30 @@ PYTHON="${PYTHON:-python3}"
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+STARTUP_TIMEOUT="${TAVERN_STARTUP_TIMEOUT:-25}"
+
+wait_for_port() {
+  # Python rather than curl or nc: python is guaranteed present here, those are not.
+  local waited=0
+  while [ "$waited" -lt "$STARTUP_TIMEOUT" ]; do
+    if "$PYTHON" - "$HOST" "$PORT" <<'PY' 2>/dev/null
+import socket, sys
+host, port = sys.argv[1], int(sys.argv[2])
+with socket.socket() as s:
+    s.settimeout(1.5)
+    sys.exit(0 if s.connect_ex((host, port)) == 0 else 1)
+PY
+    then
+      return 0
+    fi
+    # A session that has already gone means the server died; stop waiting.
+    tmux has-session -t "$SESSION" 2>/dev/null || return 1
+    sleep 1
+    waited=$((waited + 1))
+  done
+  return 1
+}
+
 server_alive() {
   if have pgrep; then
     pgrep -f "uvicorn app.main:app" >/dev/null 2>&1
@@ -79,8 +103,22 @@ case "${1:-start}" in
       # Invoke through bash explicitly rather than relying on the shebang
       # resolving the same way inside tmux.
       tmux new-session -d -s "$SESSION" "TAVERN_INNER=1 bash '$HERE/run.sh' start"
-      echo "started in tmux session '$SESSION' → http://localhost:$PORT"
-      echo "attach: tmux attach -t $SESSION   stop: $0 stop"
+
+      # Don't claim success just because tmux accepted the command. Wait for
+      # the port to actually answer, and show the log if it never does —
+      # "started" printed over a server that died on import is worse than
+      # useless, because it sends you looking in the wrong place.
+      if wait_for_port; then
+        echo "running → http://localhost:$PORT"
+        echo "attach: tmux attach -t $SESSION   stop: $0 stop"
+      else
+        echo "the server did not come up within ${STARTUP_TIMEOUT}s. Last output:"
+        echo "---"
+        tail -n 25 "$LOG" 2>/dev/null || echo "(no log at $LOG)"
+        echo "---"
+        echo "full log: $0 logs"
+        exit 1
+      fi
     fi
     ;;
   stop) stop_server ;;
