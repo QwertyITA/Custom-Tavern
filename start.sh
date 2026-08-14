@@ -49,6 +49,20 @@ EOF
   echo "Add the Termux:Widget widget to your home screen to see them."
 }
 
+# ------------------------------------------------------------------- hooks
+
+enable_hooks() {
+  # Hooks are not carried by clone, so every checkout has to opt in. Doing it
+  # here means the credential guard is live from the first launch rather than
+  # from whenever someone remembers to run a setup step. The repository is
+  # public: a leaked key is public the moment it is pushed.
+  [ -d "$HERE/.git" ] && [ -d "$HERE/.githooks" ] || return 0
+  chmod +x "$HERE/.githooks/"* 2>/dev/null
+  if [ "$(git config --get core.hooksPath 2>/dev/null)" != ".githooks" ]; then
+    git config core.hooksPath .githooks && bold "Enabled the credential pre-commit guard."
+  fi
+}
+
 # ------------------------------------------------------------------ update
 
 update() {
@@ -146,6 +160,7 @@ case "${1:-start}" in
   --no-update)
     ;;
   start|"")
+    enable_hooks
     update
     ;;
   *)

@@ -5,6 +5,21 @@ venv/
 .pytest_cache/
 *.egg-info/
 
+# SECRETS — this repository is public. Nothing below may ever be committed.
+# data/settings.json holds backend api_key values; settings.example.json is the
+# placeholder-only version that is safe to track.
+data/settings.json
+.env
+.env.*
+*.pem
+*.key
+*.p12
+id_rsa*
+id_ed25519*
+.git-credentials
+secrets.json
+**/credentials.json
+
 # runtime data — chats are disposable by decision (§17)
 data/tavern.db
 data/tavern.db-wal

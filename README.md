@@ -113,6 +113,25 @@ tier at a real backend when you have one:
 cp data/settings.example.json data/settings.json   # then edit
 ```
 
+## Credentials
+
+**This repository is public.** Real API keys go in `data/settings.json`, which
+is gitignored; `data/settings.example.json` is the tracked template and holds
+only placeholders. Anything committed here is world-readable the moment it is
+pushed, and stays in the history and in forks afterwards — removing it later
+does not un-leak it, only rotating the key does.
+
+Two things enforce this rather than relying on memory:
+
+- `.githooks/pre-commit` blocks commits containing credential-shaped content —
+  tokens, private keys, `user:pass@host` URLs, and non-placeholder `api_key`
+  assignments — as well as paths like `data/settings.json` and `.env` even when
+  forced past `.gitignore` with `git add -f`. `start.sh` enables it on first
+  launch; by hand it is `git config core.hooksPath .githooks`.
+- `tests/test_secrets.py` checks the ignore rules, the key masking on
+  `/api/settings`, and the hook's own verdicts, so none of it can regress
+  quietly.
+
 ## Tests
 
 ```bash

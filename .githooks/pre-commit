@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# Refuse to commit credentials. This repository is public.
+#
+# .gitignore is the first line of defence, but it only helps for paths someone
+# thought of in advance, and `git add -f` walks straight past it. This hook
+# reads what is actually staged and blocks on content, so a key pasted into a
+# brand-new file is still caught.
+#
+# Enabled automatically by start.sh via core.hooksPath, or by hand:
+#     git config core.hooksPath .githooks
+#
+# To override on a false positive (think first):
+#     git commit --no-verify
+
+set -uo pipefail
+
+RED=$'\033[31m'; YELLOW=$'\033[33m'; RESET=$'\033[0m'
+fail=0
+
+report() {
+  [ "$fail" -eq 0 ] && printf '%s\n' "${RED}Commit blocked: possible credential.${RESET}"
+  fail=1
+  printf '  %s\n' "$1"
+}
+
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+
+# ---- 1. paths that must never be tracked, whatever they contain -----------
+
+while IFS= read -r path; do
+  case "$path" in
+    data/settings.json|.env|.env.*|*.pem|*.key|*.p12|id_rsa*|id_ed25519*|\
+    .git-credentials|secrets.json|*/credentials.json)
+      report "$path — this path is for local secrets and must stay untracked."
+      ;;
+  esac
+done <<< "$staged"
+
+# ---- 2. secret-shaped content, in the staged diff only --------------------
+
+# These two files exist in order to contain credential-shaped strings — the
+# detector's own patterns and the fixtures that prove it works. Scanning them
+# would make the guard unable to protect itself. Nothing else is exempt: docs
+# are still scanned, so a key pasted into the README is still caught.
+is_exempt() {
+  case "$1" in
+    .githooks/pre-commit|tests/test_secrets.py) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Placeholders that are meant to be in the repo: empty values, all-zeros (the
+# AI Horde anonymous key), and obvious fill-me-in text.
+placeholder='^(|0+|x+|X+|<[^>]*>|\.\.\.|(?i:(your|example|placeholder|changeme|redacted|todo|dummy|fake)).*)$'
+
+PATTERNS=(
+  "GitHub token|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}"
+  "OpenAI-style key|sk-[A-Za-z0-9_-]{20,}"
+  "AWS access key|AKIA[0-9A-Z]{16}"
+  "Slack token|xox[abprs]-[A-Za-z0-9-]{10,}"
+  "private key|-----BEGIN [A-Z ]*PRIVATE KEY-----"
+  "credentials in URL|https?://[^/[:space:]:@]+:[^/[:space:]@]+@"
+)
+
+while IFS= read -r path; do
+  [ -z "$path" ] && continue
+  is_exempt "$path" && continue
+
+  # Added lines only — the rest of the file is already in history.
+  added=$(git diff --cached --unified=0 -- "$path" \
+          | grep -E '^\+' | grep -vE '^\+\+\+' || true)
+  [ -z "$added" ] && continue
+
+  for entry in "${PATTERNS[@]}"; do
+    label="${entry%%|*}"
+    pattern="${entry#*|}"
+    # -e matters: a pattern starting with a dash is otherwise read as a flag.
+    while IFS= read -r line; do
+      [ -n "$line" ] && report "$path — $label → $(printf '%s' "${line#+}" | cut -c1-90)"
+    done <<< "$(printf '%s\n' "$added" | grep -PI -e "$pattern" || true)"
+  done
+
+  # api_key / password / token / secret assigned a real-looking value.
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    value=$(printf '%s' "$line" \
+      | grep -Poi '(api_?key|password|secret|access_token|auth_token)"?\s*[:=]\s*"\K[^"]*' | head -1)
+    [ -z "$value" ] && continue
+    [ "${#value}" -lt 8 ] && continue
+    printf '%s' "$value" | grep -qP "$placeholder" && continue
+    report "$path — assigned secret → $(printf '%s' "${line#+}" | cut -c1-90)"
+  done <<< "$(printf '%s\n' "$added" \
+    | grep -PIi '(api_?key|password|secret|access_token|auth_token)"?\s*[:=]\s*"[^"]+"' || true)"
+done <<< "$staged"
+
+if [ "$fail" -ne 0 ]; then
+  printf '\n%s\n' "${YELLOW}Put real credentials in data/settings.json (gitignored), never in a tracked file.${RESET}"
+  printf '%s\n' "${YELLOW}If this is genuinely a false positive: git commit --no-verify${RESET}"
+  exit 1
+fi
+exit 0
