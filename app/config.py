@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -68,6 +69,67 @@ def kind_defaults() -> dict[str, dict[str, Any]]:
     return {kind: dict(values) for kind, values in KIND_DEFAULTS.items()}
 
 
+# Every appearance value the settings screen can edit (§12: "custom colours for
+# every element"). Declared here rather than in the frontend so the editor is
+# generated from one list — adding a token here makes it editable, with no
+# matching change in the GUI, and nothing is customisable only by editing JSON.
+THEME_TOKENS: list[dict[str, str]] = [
+    {"var": "--bg", "label": "Background", "group": "Surfaces", "type": "color", "default": "#0f1115"},
+    {"var": "--panel", "label": "Bars", "group": "Surfaces", "type": "color", "default": "#161a21"},
+    {"var": "--panel-2", "label": "Inputs", "group": "Surfaces", "type": "color", "default": "#1d222b"},
+    {"var": "--line", "label": "Borders", "group": "Surfaces", "type": "color", "default": "#262c37"},
+
+    {"var": "--text", "label": "Text", "group": "Text", "type": "color", "default": "#e6e9ef"},
+    {"var": "--muted", "label": "Muted text", "group": "Text", "type": "color", "default": "#8a93a5"},
+    {"var": "--accent", "label": "Accent", "group": "Text", "type": "color", "default": "#7aa2f7"},
+
+    {"var": "--c-default", "label": "Narration", "group": "Message markup", "type": "color", "default": "#cfd6e4"},
+    {"var": "--c-dialogue", "label": "Dialogue", "group": "Message markup", "type": "color", "default": "#9ece6a"},
+    {"var": "--c-action", "label": "Action", "group": "Message markup", "type": "color", "default": "#a9a1e8"},
+    {"var": "--c-strong", "label": "Emphasis", "group": "Message markup", "type": "color", "default": "#e0af68"},
+
+    {"var": "--ai-bubble", "label": "Character bubble", "group": "Bubbles", "type": "color", "default": "#171b23"},
+    {"var": "--user-bubble", "label": "Your bubble", "group": "Bubbles", "type": "color", "default": "#1f2733"},
+    {"var": "--ok", "label": "Success", "group": "Bubbles", "type": "color", "default": "#9ece6a"},
+    {"var": "--error", "label": "Error", "group": "Bubbles", "type": "color", "default": "#f7768e"},
+
+    {"var": "--radius", "label": "Corner rounding", "group": "Layout", "type": "px", "default": "10px"},
+    {"var": "--font-size", "label": "Text size", "group": "Layout", "type": "px", "default": "15px"},
+    {"var": "--bubble-max", "label": "Bubble width", "group": "Layout", "type": "pct", "default": "86%"},
+]
+
+THEME_VARS = {token["var"]: token for token in THEME_TOKENS}
+
+# Values are written straight into style.setProperty, so they are restricted to
+# shapes that cannot carry anything else — no url(), no expression, no escape
+# out of the declaration.
+_COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
+_PX_RE = re.compile(r"^\d{1,3}px$")
+_PCT_RE = re.compile(r"^\d{1,3}%$")
+
+
+def validate_theme(raw: Any) -> dict[str, str]:
+    """Keep only known tokens whose values match their declared shape."""
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, str] = {}
+    for name, value in raw.items():
+        token = THEME_VARS.get(str(name))
+        if token is None:
+            continue
+        text = str(value).strip()
+        pattern = {"color": _COLOR_RE, "px": _PX_RE, "pct": _PCT_RE}[token["type"]]
+        if not pattern.match(text):
+            raise SettingsError(f"{token['label']}: {text!r} is not a valid {token['type']} value")
+        if text != token["default"]:  # only store what differs from the default
+            out[str(name)] = text
+    return out
+
+
+def theme_tokens() -> list[dict[str, str]]:
+    return [dict(token) for token in THEME_TOKENS]
+
+
 @dataclass
 class BackendConfig:
     """One inference endpoint. `kind` selects the provider implementation."""
@@ -115,6 +177,10 @@ class Settings:
 
     # Rendering / hygiene.
     strip_user_turn_leakage: bool = True
+
+    # Appearance overrides: CSS variable -> value. Only keys in THEME_TOKENS,
+    # only values matching that token's shape (§12, §18.4).
+    theme: dict[str, str] = field(default_factory=dict)
 
     @property
     def data_dir(self) -> Path:
@@ -279,6 +345,9 @@ def build_settings(payload: dict[str, Any], current: Settings) -> Settings:
     settings.host = str(payload.get("host", current.host)) or current.host
     settings.strip_user_turn_leakage = bool(
         payload.get("strip_user_turn_leakage", current.strip_user_turn_leakage)
+    )
+    settings.theme = (
+        validate_theme(payload["theme"]) if "theme" in payload else dict(current.theme)
     )
     return settings
 

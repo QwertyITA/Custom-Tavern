@@ -112,6 +112,7 @@ async def get_settings() -> dict:
         "templates": list(config.VALID_TEMPLATES),
         "tier_names": list(config.TIERS),
         "kind_defaults": config.kind_defaults(),
+        "theme_tokens": config.theme_tokens(),
         "path": str(config.settings_path()),
     }
 

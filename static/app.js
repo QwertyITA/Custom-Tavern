@@ -9,6 +9,11 @@
 
 const MASK_DISPLAY = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
 
+// Swipe thresholds, in CSS pixels.
+const SWIPE_CLAIM = 12;   // movement before a drag counts as horizontal at all
+const SWIPE_COMMIT = 64;  // release past this and the variant changes
+const SWIPE_MAX = 130;    // furthest the bubble travels
+
 const api = {
   async get(path) {
     const r = await fetch(path);
@@ -82,6 +87,10 @@ function tavern() {
     draft: "",
     editing: null,
     editText: "",
+    editHeight: 0,
+    editingEl: null,
+    regenId: null,
+    regenPrevious: "",
     drawer: false,
     hud: false,
     error: "",
@@ -103,6 +112,12 @@ function tavern() {
 
     async boot() {
       window.Markup = window.Markup || {};
+      // Load settings first: the saved palette should be on screen before the
+      // first paint of any message, not applied a beat later.
+      try {
+        this.settings = await api.get("/api/settings");
+        this.applyTheme();
+      } catch (_) { /* defaults are already in the stylesheet */ }
       try {
         this.characters = await api.get("/api/characters");
         if (!this.characters.length) {
@@ -147,7 +162,7 @@ function tavern() {
       this.summary = data.summary;
       this.toggleStates = data.toggles || {};
       this.turn = this.messages.length ? this.messages[this.messages.length - 1].turn : 0;
-      this.applyColours(this.character);
+      this.applyTheme();
 
       const sceneSlice = (data.slices || {})["state.scene"];
       if (sceneSlice) this.scene = { ...this.scene, ...sceneSlice.value };
@@ -165,15 +180,53 @@ function tavern() {
       this.drawer = false;
     },
 
-    // Per-character colour overrides on top of the global palette (§18.4).
+    // Two layers, applied in order: the saved theme is the global palette, and
+    // a character card may override individual tokens on top of it (§18.4).
+    applyTheme() {
+      const root = document.documentElement;
+      for (const token of this.settings.theme_tokens || []) {
+        root.style.removeProperty(token.var);
+      }
+      for (const [name, value] of Object.entries(this.settings.theme || {})) {
+        root.style.setProperty(name, value);
+      }
+      this.applyColours(this.character);
+    },
+
     applyColours(character) {
       const root = document.documentElement;
-      for (const key of ["dialogue", "action", "strong", "default"]) {
-        root.style.removeProperty(`--c-${key}`);
-      }
       for (const [key, value] of Object.entries((character && character.colours) || {})) {
         root.style.setProperty(key.startsWith("--") ? key : `--${key}`, value);
       }
+    },
+
+    // ---- appearance editor ----
+
+    themeGroups() {
+      return [...new Set((this.settings.theme_tokens || []).map((t) => t.group))];
+    },
+
+    themeIn(group) {
+      return (this.settings.theme_tokens || []).filter((t) => t.group === group);
+    },
+
+    themeValue(token) {
+      return (this.settings.theme || {})[token.var] || token.default;
+    },
+
+    setTheme(token, value) {
+      // Stored only when it differs from the default, so a reset is just an
+      // empty map and the palette can be changed later without stale overrides.
+      const theme = { ...(this.settings.theme || {}) };
+      if (value === token.default) delete theme[token.var];
+      else theme[token.var] = value;
+      this.settings.theme = theme;
+      this.applyTheme();
+    },
+
+    resetTheme() {
+      this.settings.theme = {};
+      this.applyTheme();
     },
 
     // ---- ambient stream ----
@@ -267,12 +320,22 @@ function tavern() {
     async swipe(message) {
       if (this.streaming) return;
       this.error = "";
+      // Blank the message and mark it regenerating so the bubble itself shows
+      // the typing cue. Keep the old text so a failure can put it back rather
+      // than leaving an empty bubble.
+      this.regenId = message.id;
+      this.regenPrevious = message.text;
+      message.text = "";
       await this.runStream(`/api/messages/${message.id}/swipe`, {}, message.id);
+    },
+
+    isRegenerating(message) {
+      return this.regenId === message.id && !message.text;
     },
 
     async runStream(url, body, swipeMessageId) {
       this.streaming = true;
-      this.composing = true;
+      this.composing = !swipeMessageId;
       this.composingKind = "typing";
       this.composingLabel = "typing…";
       this.hudRuns = [];
@@ -355,9 +418,16 @@ function tavern() {
       } catch (e) {
         this.error = String(e.message || e);
         this.messages = this.messages.filter((m) => m.id !== "streaming");
+        // A failed regeneration must not leave the message blank.
+        if (swipeMessageId && this.regenPrevious) {
+          const original = this.messages.find((m) => m.id === swipeMessageId);
+          if (original && !original.text) original.text = this.regenPrevious;
+        }
       } finally {
         this.streaming = false;
         this.composing = false;
+        this.regenId = null;
+        this.regenPrevious = "";
         this.scrollDown();
         this.loadCost();
       }
@@ -365,9 +435,30 @@ function tavern() {
 
     // ---- editing & variants ----
 
-    startEdit(message) {
+    // Editing must not make the bubble jump: it keeps the width and height the
+    // rendered text had, and only grows from there.
+    startEdit(message, fromEl) {
+      const bubble = fromEl && fromEl.closest(".bubble");
+      const body = bubble && bubble.querySelector(".body");
+      if (bubble && body) {
+        const rect = body.getBoundingClientRect();
+        bubble.style.minWidth = `${Math.ceil(bubble.getBoundingClientRect().width)}px`;
+        this.editHeight = Math.ceil(rect.height);
+      }
+      this.editingEl = bubble || null;
       this.editing = message.id;
       this.editText = message.text;
+    },
+
+    endEdit() {
+      if (this.editingEl) this.editingEl.style.minWidth = "";
+      this.editingEl = null;
+      this.editHeight = 0;
+      this.editing = null;
+    },
+
+    cancelEdit() {
+      this.endEdit();
     },
 
     async saveEdit(message, reaudit) {
@@ -377,18 +468,92 @@ function tavern() {
       });
       message.text = updated.text;
       message.edited = true;
-      this.editing = null;
+      this.endEdit();
     },
 
-    async cycleVariant(message, direction) {
+    // direction: +1 forward (generate a new variant past the end), -1 back.
+    async goToVariant(message, direction) {
+      if (this.streaming) return;
+      const next = (message.variant_index || 0) + direction;
+      if (next < 0) return;
+
       const variants = await api.get(`/api/messages/${message.id}/variants`);
-      if (variants.length < 2) return;
-      const current = variants.findIndex((v) => v.text === message.text);
-      const next = (((current === -1 ? 0 : current) + direction) % variants.length + variants.length) % variants.length;
-      const updated = await api.post(`/api/messages/${message.id}/variants/${variants[next].id}`);
+      if (next >= variants.length) {
+        // Past the last variant means "give me another one", the same as the
+        // swipe button.
+        await this.swipe(message);
+        return;
+      }
+      const updated = await api.post(
+        `/api/messages/${message.id}/variants/${variants[next].id}`
+      );
       message.text = updated.text;
       message.variant_index = updated.variant_index;
       message.variant_count = updated.variant_count;
+    },
+
+    // ---- swipe gestures (§9) ----
+    //
+    // Swipe the message itself: left goes forward (and generates a new variant
+    // once you are past the last one), right goes back. Pointer events rather
+    // than touch events so a mouse behaves identically on the desktop.
+    //
+    // The chat is a vertical scroller, so a horizontal gesture has to be
+    // claimed carefully: nothing happens until the drag is clearly sideways,
+    // and once it is, the scroller must not also act on it.
+
+    dragId: null,
+    dragDx: 0,
+    dragStart: null,
+
+    swipeable(message) {
+      return message.role === "assistant" && this.editing !== message.id && !this.streaming;
+    },
+
+    onSwipeStart(event, message) {
+      if (!this.swipeable(message) || !event.isPrimary) return;
+      this.dragStart = { x: event.clientX, y: event.clientY, id: message.id, claimed: false };
+      this.dragDx = 0;
+    },
+
+    onSwipeMove(event, message) {
+      const start = this.dragStart;
+      if (!start || start.id !== message.id) return;
+      const dx = event.clientX - start.x;
+      const dy = event.clientY - start.y;
+
+      if (!start.claimed) {
+        // Undecided: let small movements and anything vertical belong to the
+        // scroller. Requiring horizontal dominance stops a slightly-diagonal
+        // scroll from being read as a swipe.
+        if (Math.abs(dy) > Math.abs(dx)) { this.dragStart = null; return; }
+        if (Math.abs(dx) < SWIPE_CLAIM) return;
+        start.claimed = true;
+        this.dragId = message.id;
+      }
+      // Resist dragging right at the first variant — there is nothing there,
+      // and the rubber-band says so without an error.
+      const atStart = (message.variant_index || 0) === 0;
+      this.dragDx = Math.max(-SWIPE_MAX, Math.min(SWIPE_MAX, atStart && dx > 0 ? dx / 3 : dx));
+    },
+
+    onSwipeEnd(event, message) {
+      const start = this.dragStart;
+      const dx = this.dragDx;
+      this.dragStart = null;
+      this.dragId = null;
+      this.dragDx = 0;
+      if (!start || !start.claimed || Math.abs(dx) < SWIPE_COMMIT) return;
+      this.goToVariant(message, dx < 0 ? 1 : -1);
+    },
+
+    swipeHint(message) {
+      if (this.dragId !== message.id || Math.abs(this.dragDx) < SWIPE_COMMIT) return "";
+      if (this.dragDx < 0) {
+        const last = (message.variant_index || 0) >= (message.variant_count || 1) - 1;
+        return last ? "new reply" : "next";
+      }
+      return (message.variant_index || 0) > 0 ? "previous" : "";
     },
 
     async setToggle(id, enabled) {
@@ -402,7 +567,8 @@ function tavern() {
     // Sending "***" back means "keep it", so an untouched key survives a save
     // without the browser ever having seen it.
 
-    settings: { backends: [], tiers: {}, tier_names: [], kinds: [], templates: [], path: "" },
+    settings: { backends: [], tiers: {}, tier_names: [], kinds: [], templates: [],
+                kind_defaults: {}, theme_tokens: [], theme: {}, path: "" },
     settingsOpen: false,
     saving: false,
     saveMsg: "",
@@ -425,6 +591,7 @@ function tavern() {
         // "a key is set" instead of looking like a corrupted value.
         loaded.backends.forEach((b) => { if (b.api_key === "***") b.api_key = MASK_DISPLAY; });
         this.settings = loaded;
+        this.applyTheme();
         this.settingsOpen = true;
       } catch (e) {
         this.error = `could not load settings: ${e.message || e}`;
@@ -542,6 +709,7 @@ function tavern() {
         if (!body.ok) throw new Error(result.detail || result.error || body.statusText);
         result.settings.backends.forEach((b) => { if (b.api_key === "***") b.api_key = MASK_DISPLAY; });
         this.settings = { ...this.settings, ...result.settings };
+        this.applyTheme();
         this.saveMsg = "saved";
       } catch (e) {
         this.saveError = String(e.message || e);

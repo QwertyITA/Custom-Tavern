@@ -24,6 +24,8 @@
   --pending: #565f73;
 
   --radius: 10px;
+  --font-size: 15px;
+  --bubble-max: 86%;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
@@ -40,7 +42,7 @@ html, body {
 body {
   background: var(--bg);
   color: var(--text);
-  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font: var(--font-size)/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   display: grid;
   grid-template-rows: auto auto 1fr auto auto;
   /* minmax(0,·) stops a wide child — the nowrap world bar, a long code run —
@@ -232,7 +234,7 @@ body {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 9px 11px;
-  max-width: 86%;
+  max-width: var(--bubble-max);
   word-wrap: break-word;
   overflow-wrap: anywhere;
 }
@@ -248,18 +250,46 @@ body {
 .mk-dialogue.mk-strong { color: var(--c-dialogue); font-weight: 700; }
 
 .msg-tools { margin-top: 6px; }
-.tools-row { display: flex; gap: 10px; align-items: center; font-size: 12px; color: var(--muted); }
+.tools-row { display: flex; gap: 4px; align-items: center; font-size: 12px; color: var(--muted); }
+
+/* Message controls are symbols, never words or emoji. The U+FE0E variation
+   selector in the markup forces text presentation, so these stay monochrome
+   and inherit colour instead of turning into coloured emoji glyphs. */
+.glyph, .glyph-btn {
+  font-family: "Segoe UI Symbol", "Noto Sans Symbols 2", "DejaVu Sans", system-ui, sans-serif;
+  font-variant-emoji: text;
+}
+.glyph-btn {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  padding: 5px 8px;
+  min-width: 32px;      /* a comfortable tap target on a phone */
+  min-height: 30px;
+}
+.glyph-btn:active { background: var(--panel-2); }
+.glyph-btn:disabled { opacity: .3; }
+.glyph-btn.ok { color: var(--ok); }
+.glyph-btn.danger { color: var(--error); }
+.variant-count { font-size: 11px; opacity: .75; padding: 0 2px; }
 .link {
   background: none; border: none; padding: 0;
   color: var(--muted); font-size: 12px; text-decoration: underline;
 }
 .link:disabled { opacity: .4; text-decoration: none; }
 .variants { display: inline-flex; gap: 6px; align-items: center; }
-.edited { opacity: .6; font-style: italic; }
+.edited { opacity: .45; font-size: 12px; padding-left: 4px; }
 
 .edit-box {
   width: 100%;
-  min-height: 90px;
+  /* min-height comes from the rendered text, so entering edit mode never
+     shrinks the bubble — it only ever grows downward as you type. */
+  min-height: 2.5em;
+  resize: none;
+  overflow: hidden;
   background: var(--panel);
   color: var(--text);
   border: 1px solid var(--line);
@@ -452,4 +482,59 @@ body {
   font-size: 11px;
   margin: -3px 0 9px;
   line-height: 1.45;
+}
+
+/* --------------------------------------------------- swipe gesture (§9) */
+
+.bubble.swipeable {
+  /* Vertical panning stays with the chat scroller; horizontal is ours. */
+  touch-action: pan-y;
+  position: relative;
+  cursor: grab;
+}
+/* No transition while the finger is down — the bubble must track it exactly.
+   The snap back only animates on release. */
+.bubble { transition: transform .18s ease-out; }
+.bubble.dragging { transition: none; cursor: grabbing; user-select: none; }
+
+.swipe-hint {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--accent);
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------ appearance editor */
+
+.theme-group { margin-bottom: 12px; }
+.theme-group-name {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 10px 0 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+.theme-row { gap: 10px; }
+.wide-label { width: 128px; font-size: 12px; text-transform: none; }
+.theme-row input[type="color"] {
+  width: 46px;
+  height: 30px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-2);
+  flex: none;
+}
+.theme-row input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); }
+.theme-value {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  width: 62px;
+  text-align: right;
+  flex: none;
 }

@@ -236,3 +236,42 @@ def test_error_text_is_unchanged_when_there_is_no_key():
     from app.main import _safe_error
 
     assert _safe_error(RuntimeError("plain failure"), "") == "plain failure"
+
+
+# ------------------------------------------------------ appearance (§12)
+
+
+def test_theme_keeps_only_known_tokens():
+    theme = config.validate_theme({"--accent": "#ff0000", "--not-a-token": "#000000"})
+    assert theme == {"--accent": "#ff0000"}
+
+
+def test_theme_omits_values_equal_to_the_default():
+    """An empty map means "all defaults", so the palette can change later."""
+    default = config.THEME_VARS["--accent"]["default"]
+    assert config.validate_theme({"--accent": default}) == {}
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["red", "url(javascript:alert(1))", "#12", "#gggggg", "10px; background:url(x)", ""],
+)
+def test_theme_rejects_anything_that_is_not_a_plain_colour(value):
+    """Values go straight into style.setProperty — nothing may escape it."""
+    with pytest.raises(config.SettingsError):
+        config.validate_theme({"--accent": value})
+
+
+@pytest.mark.parametrize("value", ["100vw", "-5px", "10em", "999999px", "10"])
+def test_theme_rejects_out_of_shape_sizes(value):
+    with pytest.raises(config.SettingsError):
+        config.validate_theme({"--radius": value})
+
+
+def test_every_theme_token_is_declared_completely():
+    for token in config.THEME_TOKENS:
+        assert token["var"].startswith("--")
+        assert token["label"] and token["group"]
+        assert token["type"] in ("color", "px", "pct")
+        # A token whose own default is invalid could never be reset to it.
+        assert config.validate_theme({token["var"]: token["default"]}) == {}

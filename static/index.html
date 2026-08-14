@@ -16,7 +16,7 @@
 
 <!-- (1) pinned world-info bar: place · weather · time (§12) -->
 <header class="worldbar">
-  <button class="icon-btn" @click="drawer = !drawer" aria-label="Menu">☰</button>
+  <button class="icon-btn glyph" @click="drawer = !drawer" aria-label="Chats and state" title="Chats">☰&#xFE0E;</button>
   <div class="world-fields">
     <span class="field" :class="{ refreshing: refreshing.scene }">
       <span class="field-label">place</span>
@@ -33,7 +33,7 @@
       <span class="field-value" x-text="scene.time || '—'"></span>
     </span>
   </div>
-  <button class="icon-btn" :class="{ active: hud }" @click="hud = !hud" aria-label="Pass HUD">⚙</button>
+  <button class="icon-btn glyph" @click="openSettings()" aria-label="Settings" title="Settings">⚙&#xFE0E;</button>
 </header>
 
 <!-- pass-status HUD (debug, toggleable) (§12) -->
@@ -74,28 +74,53 @@
     <article class="msg" :class="m.role">
       <img class="pfp" x-show="m.role === 'assistant' && portrait" :src="portrait" alt=""
            @error="$el.style.visibility = 'hidden'">
-      <div class="bubble">
-        <div class="body" x-effect="Markup.render($el, m.text)" x-show="editing !== m.id"></div>
-        <textarea class="edit-box" x-show="editing === m.id" x-model="editText" x-cloak></textarea>
+      <!-- Swipe the message itself to change variant: left forward, right back
+           (§9). touch-action: pan-y leaves vertical scrolling to the chat. -->
+      <div class="bubble"
+           :class="{ swipeable: swipeable(m), dragging: dragId === m.id }"
+           :style="dragId === m.id ? `transform: translateX(${dragDx}px)` : ''"
+           @pointerdown="onSwipeStart($event, m)"
+           @pointermove="onSwipeMove($event, m)"
+           @pointerup="onSwipeEnd($event, m)"
+           @pointercancel="dragStart = null; dragId = null; dragDx = 0">
+        <span class="swipe-hint" x-show="swipeHint(m)" x-text="swipeHint(m)" x-cloak></span>
+
+        <!-- Regenerating replaces this message in place: the bubble becomes the
+             typing cue rather than a second bubble appearing underneath. -->
+        <div class="body regen" x-show="isRegenerating(m)" x-cloak>
+          <span class="anim anim-typing"><i></i><i></i><i></i></span>
+        </div>
+        <div class="body" x-effect="Markup.render($el, m.text)"
+             x-show="editing !== m.id && !isRegenerating(m)"></div>
+        <textarea class="edit-box" x-show="editing === m.id" x-model="editText"
+                  :style="editHeight ? `min-height:${editHeight}px` : ''"
+                  @input="autosize($event.target)" x-cloak></textarea>
 
         <div class="msg-tools" x-show="m.role === 'assistant' && !streaming">
           <template x-if="editing !== m.id">
             <div class="tools-row">
-              <button class="link" @click="startEdit(m)">edit</button>
-              <button class="link" @click="swipe(m)" :disabled="streaming">swipe ⟳</button>
+              <button class="glyph-btn" @click="startEdit(m, $el)" title="Edit" aria-label="Edit">✎&#xFE0E;</button>
+              <button class="glyph-btn" @click="swipe(m)" :disabled="streaming"
+                      title="Regenerate" aria-label="Regenerate">⟳&#xFE0E;</button>
               <span class="variants" x-show="m.variant_count > 1">
-                <button class="link" @click="cycleVariant(m, -1)">‹</button>
-                <span x-text="`${(m.variant_index||0)+1}/${m.variant_count}`"></span>
-                <button class="link" @click="cycleVariant(m, 1)">›</button>
+                <button class="glyph-btn" @click="goToVariant(m, -1)"
+                        :disabled="(m.variant_index || 0) === 0"
+                        title="Previous variant" aria-label="Previous variant">‹</button>
+                <span class="variant-count" x-text="`${(m.variant_index||0)+1}/${m.variant_count}`"></span>
+                <button class="glyph-btn" @click="goToVariant(m, 1)"
+                        title="Next variant" aria-label="Next variant">›</button>
               </span>
-              <span class="edited" x-show="m.edited">edited</span>
+              <span class="edited" x-show="m.edited" title="Edited">✎&#xFE0E;</span>
             </div>
           </template>
           <template x-if="editing === m.id">
             <div class="tools-row">
-              <button class="link" @click="saveEdit(m, false)">save</button>
-              <button class="link" @click="saveEdit(m, true)">save + re-audit</button>
-              <button class="link" @click="editing = null">cancel</button>
+              <button class="glyph-btn ok" @click="saveEdit(m, false)"
+                      title="Save" aria-label="Save">✓&#xFE0E;</button>
+              <button class="glyph-btn" @click="saveEdit(m, true)"
+                      title="Save and re-run the state auditor" aria-label="Save and re-audit">⚖&#xFE0E;</button>
+              <button class="glyph-btn danger" @click="cancelEdit()"
+                      title="Discard changes" aria-label="Discard changes">✕&#xFE0E;</button>
             </div>
           </template>
         </div>
@@ -104,7 +129,9 @@
   </template>
 
   <!-- composing animation: "typing…" for pass 1, cogs for other blocking passes -->
-  <article class="msg assistant" x-show="composing" x-cloak>
+  <!-- Only for a brand-new reply. Regenerating shows the cue inside the
+       existing bubble instead, so nothing appears underneath it. -->
+  <article class="msg assistant" x-show="composing && !regenId" x-cloak>
     <img class="pfp" x-show="portrait" :src="portrait" alt="">
     <div class="bubble composing">
       <span class="anim anim-typing" x-show="composingKind === 'typing'"><i></i><i></i><i></i></span>
@@ -174,8 +201,11 @@
   <h2>Summary</h2>
   <p class="summary" x-text="summary.text || 'nothing summarised yet'"></p>
 
-  <h2>Backends</h2>
-  <button class="wide" @click="openSettings()">settings &amp; API keys</button>
+  <h2>Debug</h2>
+  <label class="toggle">
+    <input type="checkbox" x-model="hud">
+    <span>Pass HUD &amp; cost</span>
+  </label>
 </aside>
 
 <!-- Settings: backends, keys, tier assignment (§3, §13) -->
@@ -264,6 +294,31 @@
     </template>
 
     <button class="wide" @click="addBackend()">+ add backend</button>
+
+    <h3>Appearance</h3>
+    <p class="note">Changes preview live. Nothing here needs a file edited by hand.</p>
+    <template x-for="group in themeGroups()" :key="group">
+      <div class="theme-group">
+        <div class="theme-group-name" x-text="group"></div>
+        <template x-for="token in themeIn(group)" :key="token.var">
+          <label class="row theme-row">
+            <span class="row-label wide-label" x-text="token.label"></span>
+            <template x-if="token.type === 'color'">
+              <input type="color" :value="themeValue(token)"
+                     @input="setTheme(token, $event.target.value)">
+            </template>
+            <template x-if="token.type !== 'color'">
+              <input type="range" :min="token.type === 'pct' ? 40 : 0"
+                     :max="token.type === 'pct' ? 100 : 30"
+                     :value="parseInt(themeValue(token))"
+                     @input="setTheme(token, $event.target.value + (token.type === 'pct' ? '%' : 'px'))">
+            </template>
+            <span class="theme-value" x-text="themeValue(token)"></span>
+          </label>
+        </template>
+      </div>
+    </template>
+    <button class="wide" @click="resetTheme()">reset appearance to defaults</button>
 
     <div class="sheet-actions">
       <button class="wide primary" @click="saveSettings()" :disabled="saving">

@@ -362,3 +362,32 @@ def test_model_discovery_fails_softly_on_an_unreachable_backend(client):
 
 def test_model_discovery_rejects_an_invalid_backend(client):
     assert client.post("/api/settings/models", json={"name": "x", "kind": "bogus"}).status_code == 400
+
+
+def test_theme_saves_and_is_served_back(client, isolated_settings):
+    import json as _json
+
+    client.put("/api/settings", json={
+        "backends": [{"name": "echo", "kind": "echo"}],
+        "tiers": {"blocking": "echo", "foreground": "echo", "background": "echo"},
+        "theme": {"--accent": "#ff3366", "--radius": "4px"},
+    })
+    assert _json.loads(isolated_settings.read_text())["theme"] == {
+        "--accent": "#ff3366", "--radius": "4px"
+    }
+    assert client.get("/api/settings").json()["theme"]["--accent"] == "#ff3366"
+
+
+def test_settings_expose_the_theme_token_list(client):
+    """The editor is generated from this, so it must always be present."""
+    tokens = client.get("/api/settings").json()["theme_tokens"]
+    assert tokens and all({"var", "label", "group", "type", "default"} <= set(t) for t in tokens)
+
+
+def test_an_invalid_theme_value_is_rejected(client, isolated_settings):
+    response = client.put("/api/settings", json={
+        "backends": [{"name": "echo", "kind": "echo"}],
+        "tiers": {"blocking": "echo", "foreground": "echo", "background": "echo"},
+        "theme": {"--accent": "url(javascript:1)"},
+    })
+    assert response.status_code == 400
