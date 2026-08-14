@@ -274,7 +274,11 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 2.2em;
+  min-height: 1.6em;
+  /* Keeps the contracted pill a tidy shape rather than a sliver around the
+     dots; the bubble shrinks to fit this. */
+  min-width: 42px;
+  white-space: nowrap;
 }
 @keyframes cue-in { from { opacity: 0; } to { opacity: 1; } }
 
@@ -530,11 +534,18 @@ body {
 }
 /* No transition while the finger is down — the bubble must track it exactly.
    The snap back only animates on release.
-   min-height eases the bubble back down after a regeneration, once the pin set
-   while it was regenerating is released. 300ms matches BUBBLE_RESIZE_MS. */
+   The max-* pair animates a regenerating bubble down to the cue pill and back
+   out again, in both axes. 300ms matches BUBBLE_RESIZE_MS. */
 .bubble {
-  transition: transform .18s ease-out, min-height 300ms cubic-bezier(.4, 0, .2, 1);
+  transition: transform .18s ease-out,
+              max-width 300ms cubic-bezier(.4, 0, .2, 1),
+              max-height 300ms cubic-bezier(.4, 0, .2, 1);
 }
+/* Used to commit a start size before arming the transition (pinInstant). */
+.bubble.no-anim { transition: none !important; }
+/* Only while the box is animating: text that no longer fits must be clipped
+   rather than spilling out of the bubble mid-contract. */
+.bubble.clipping { overflow: hidden; }
 .bubble.dragging { transition: none; cursor: grabbing; user-select: none; }
 
 .swipe-hint {

@@ -24,9 +24,10 @@ function luminance(hex) {
 // wait for each step; they must stay in step with styles.css.
 const TEXT_FADE_MS = 170;
 const BUBBLE_RESIZE_MS = 300;
-// Tallest a bubble stays while regenerating, so a long reply does not leave a
-// screenful of empty bubble around three dots.
-const REGEN_MAX_PIN = 88;
+// Size the bubble draws in to while the cue is showing, so a long reply does
+// not leave a screenful of empty card around three dots.
+const REGEN_PILL_WIDTH = 84;
+const REGEN_PILL_HEIGHT = 46;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -411,15 +412,56 @@ function tavern() {
     // the cue and springing back. Pinning min-height is both simpler and
     // steadier than measuring and animating height: the message stays where it
     // is, nothing below it jumps, and only the content cross-fades.
+    // Commit a size without animating to it. A transition always runs from the
+    // element's *current* value, so setting a start value while the transition
+    // is live animates towards it — and the intended animation then starts
+    // from a value that has not moved yet and does nothing.
+    // max-* rather than min-*: a minimum can only push a box out past its
+    // content, so once real text returns it stops binding and the bubble jumps
+    // straight to full size. A maximum constrains in both directions, which is
+    // what lets the same pair of values animate the shrink and the grow.
+    pinInstant(el, width, height) {
+      el.classList.add("no-anim");
+      el.style.maxWidth = width;
+      el.style.maxHeight = height;
+      void el.offsetWidth;              // commit before re-enabling transitions
+      el.classList.remove("no-anim");
+    },
+
+    pinTo(el, width, height) {
+      el.style.maxWidth = width;
+      el.style.maxHeight = height;
+    },
+
+    // Size the element would take with no caps on it. Every read happens while
+    // transitions are off: re-arming them before measuring means the browser
+    // has already started animating back towards the uncapped size, and the
+    // measurement catches a box mid-flight — a tall thin column that then gets
+    // animated to.
+    measureNatural(el) {
+      const previousWidth = el.style.maxWidth;
+      const previousHeight = el.style.maxHeight;
+      el.classList.add("no-anim");
+      el.style.maxWidth = "";
+      el.style.maxHeight = "";
+      void el.offsetWidth;
+      const size = { width: el.offsetWidth, height: el.offsetHeight };
+      el.style.maxWidth = previousWidth;
+      el.style.maxHeight = previousHeight;
+      void el.offsetWidth;
+      el.classList.remove("no-anim");
+      return size;
+    },
+
     async beginRegen(message) {
       const bubble = this.bubbleFor(message.id);
       this.regenPrevious = message.text;
+      // Start from the footprint the message already had, so nothing jumps at
+      // the moment the cue takes over. `clipping` hides text that no longer
+      // fits while the box is contracting around it.
       if (bubble) {
-        // Width as well as height. A bubble is sized by its content, so with
-        // only three dots in it it would otherwise snap to a narrow sliver —
-        // a sideways jump every bit as jarring as the vertical one.
-        bubble.style.minWidth = `${bubble.offsetWidth}px`;
-        bubble.style.minHeight = `${bubble.offsetHeight}px`;
+        bubble.classList.add("clipping");
+        this.pinInstant(bubble, `${bubble.offsetWidth}px`, `${bubble.offsetHeight}px`);
       }
 
       this.fadingId = message.id;
@@ -429,34 +471,42 @@ function tavern() {
       message.text = "";
       this.fadingId = null;
 
-      // A long reply would leave a tall empty card with the dots stranded at
-      // the top, so the height pin eases down to a compact cap. min-height
-      // transitions, so this is a glide rather than the collapse it replaced.
+      // Then draw in to a compact pill, both ways. A full-width card holding
+      // three dots looks like a rendering fault; contracting to something the
+      // size of the cue reads as the message being re-thought.
       if (bubble) {
-        const capped = Math.min(bubble.offsetHeight, REGEN_MAX_PIN);
-        requestAnimationFrame(() => { bubble.style.minHeight = `${capped}px`; });
+        requestAnimationFrame(() =>
+          this.pinTo(bubble, `${REGEN_PILL_WIDTH}px`, `${REGEN_PILL_HEIGHT}px`));
       }
     },
 
-    // First tokens: drop the pin so the bubble eases to whatever the new reply
-    // needs — down if it is shorter, straight into growing if longer.
+    // First tokens: expand back out of the pill to whatever the new reply
+    // needs, rather than popping to full width in one frame.
     endRegen(message, applyText) {
       const bubble = this.bubbleFor(message.id);
       applyText();
       this.regenId = null;
       if (!bubble) return;
-      requestAnimationFrame(() => { bubble.style.minHeight = "0px"; });
-      setTimeout(() => {
-        bubble.style.minHeight = "";
-        bubble.style.minWidth = "";
-      }, BUBBLE_RESIZE_MS);
+
+      // $nextTick alone lands before the cue has actually been swapped out for
+      // the text, so the measurement comes back as the pill's own size and the
+      // pin becomes a no-op — leaving the release to do the resizing, uncapped
+      // and unanimated. One frame further on the DOM holds the new reply.
+      this.$nextTick(() => requestAnimationFrame(() => {
+        const natural = this.measureNatural(bubble);
+        requestAnimationFrame(() =>
+          this.pinTo(bubble, `${natural.width}px`, `${natural.height}px`));
+        // Release entirely so streaming text can keep growing the bubble.
+        setTimeout(() => this.releaseRegenPin(message.id), BUBBLE_RESIZE_MS);
+      }));
     },
 
     releaseRegenPin(messageId) {
       const bubble = this.bubbleFor(messageId);
       if (!bubble) return;
-      bubble.style.minHeight = "";
-      bubble.style.minWidth = "";
+      bubble.style.maxWidth = "";
+      bubble.style.maxHeight = "";
+      bubble.classList.remove("clipping");
     },
 
     isRegenerating(message) {
@@ -565,9 +615,13 @@ function tavern() {
       } finally {
         this.streaming = false;
         this.composing = false;
-        // However the turn ended, the bubble must not stay pinned to the size
-        // it happened to be when regeneration started.
-        if (swipeMessageId) this.releaseRegenPin(swipeMessageId);
+        // Only release here if no token ever arrived — a stream that failed or
+        // returned nothing. When endRegen ran it already owns the release, and
+        // clearing the caps underneath it mid-animation drops the bubble to
+        // whatever its half-grown width implies: a brief, very tall column.
+        if (swipeMessageId && this.regenId === swipeMessageId) {
+          this.releaseRegenPin(swipeMessageId);
+        }
         this.regenId = null;
         this.regenPrevious = "";
         this.scrollDown();
