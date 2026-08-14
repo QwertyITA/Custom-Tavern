@@ -3,25 +3,29 @@
    (§18.4: one global palette, per-element overrides). */
 
 :root {
-  --bg: #0f1115;
-  --panel: #161a21;
-  --panel-2: #1d222b;
-  --line: #262c37;
-  --text: #e6e9ef;
-  --muted: #8a93a5;
-  --accent: #7aa2f7;
+  --bg: #fdf7f9;
+  --panel: #ffffff;
+  --panel-2: #f7eef2;
+  --line: #eedde4;
+  --text: #332c30;
+  --muted: #8b7d84;
+  --accent: #c2617f;
 
   /* markup colours — these attach to the parser rules in markup.js (§8) */
-  --c-default: #cfd6e4;
-  --c-dialogue: #9ece6a;
-  --c-action: #a9a1e8;
-  --c-strong: #e0af68;
+  --c-default: #3c3438;
+  --c-dialogue: #a34a6d;
+  --c-action: #6f5aa8;
+  --c-strong: #a9722c;
 
-  --user-bubble: #1f2733;
-  --ai-bubble: #171b23;
-  --error: #f7768e;
-  --ok: #9ece6a;
-  --pending: #565f73;
+  --user-bubble: #fbeef3;
+  --ai-bubble: #ffffff;
+  --error: #c0405e;
+  --ok: #3f7d5a;
+  --pending: #a2949b;
+
+  /* Text drawn on top of --accent. Derived, not hardcoded, so changing the
+     accent in settings cannot leave an unreadable button behind. */
+  --on-accent: #ffffff;
 
   --radius: 10px;
   --font-size: 15px;
@@ -43,16 +47,24 @@ body {
   background: var(--bg);
   color: var(--text);
   font: var(--font-size)/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  display: grid;
-  grid-template-rows: auto auto 1fr auto auto;
-  /* minmax(0,·) stops a wide child — the nowrap world bar, a long code run —
-     from widening the whole grid and giving the page a horizontal scroll. */
-  grid-template-columns: minmax(0, 1fr);
+  /* Flex column, not a fixed grid template. The HUD and the ambient strip are
+     x-show'd, so when they are hidden they leave the layout entirely — with a
+     row template the remaining children shift up a track, and the composer
+     inherits the 1fr meant for the chat and balloons to fill the screen.
+     Flex has nothing to shift into. */
+  display: flex;
+  flex-direction: column;
   height: 100dvh;
   overflow-x: hidden;
 }
 
-.worldbar, .hud, .chat, .composer, .ambient { min-width: 0; }
+/* min-width: 0 stops a wide child — the nowrap world bar, a long unbroken
+   token — from widening the page and giving it a horizontal scroll. */
+.worldbar, .hud, .chat, .composer, .ambient { min-width: 0; flex: none; }
+
+/* Only the chat absorbs the leftover height; min-height: 0 lets it actually
+   scroll instead of growing past the viewport. */
+.chat { flex: 1 1 auto; min-height: 0; }
 
 /* ---------------------------------------------------------- world bar */
 
@@ -340,7 +352,7 @@ body {
   border-radius: 50%;
   border: none;
   background: var(--accent);
-  color: #0b0d12;
+  color: var(--on-accent);
   font-size: 18px;
   flex: none;
 }
@@ -472,7 +484,7 @@ body {
   gap: 8px;
   align-items: center;
 }
-.wide.primary { background: var(--accent); color: #0b0d12; border-color: transparent; font-weight: 600; }
+.wide.primary { background: var(--accent); color: var(--on-accent); border-color: transparent; font-weight: 600; }
 .wide { width: 100%; background: var(--panel-2); color: var(--text);
         border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
 .save-msg { font-size: 12px; color: var(--ok); }

@@ -74,24 +74,24 @@ def kind_defaults() -> dict[str, dict[str, Any]]:
 # generated from one list — adding a token here makes it editable, with no
 # matching change in the GUI, and nothing is customisable only by editing JSON.
 THEME_TOKENS: list[dict[str, str]] = [
-    {"var": "--bg", "label": "Background", "group": "Surfaces", "type": "color", "default": "#0f1115"},
-    {"var": "--panel", "label": "Bars", "group": "Surfaces", "type": "color", "default": "#161a21"},
-    {"var": "--panel-2", "label": "Inputs", "group": "Surfaces", "type": "color", "default": "#1d222b"},
-    {"var": "--line", "label": "Borders", "group": "Surfaces", "type": "color", "default": "#262c37"},
+    {"var": "--bg", "label": "Background", "group": "Surfaces", "type": "color", "default": "#fdf7f9"},
+    {"var": "--panel", "label": "Bars", "group": "Surfaces", "type": "color", "default": "#ffffff"},
+    {"var": "--panel-2", "label": "Inputs", "group": "Surfaces", "type": "color", "default": "#f7eef2"},
+    {"var": "--line", "label": "Borders", "group": "Surfaces", "type": "color", "default": "#eedde4"},
 
-    {"var": "--text", "label": "Text", "group": "Text", "type": "color", "default": "#e6e9ef"},
-    {"var": "--muted", "label": "Muted text", "group": "Text", "type": "color", "default": "#8a93a5"},
-    {"var": "--accent", "label": "Accent", "group": "Text", "type": "color", "default": "#7aa2f7"},
+    {"var": "--text", "label": "Text", "group": "Text", "type": "color", "default": "#332c30"},
+    {"var": "--muted", "label": "Muted text", "group": "Text", "type": "color", "default": "#8b7d84"},
+    {"var": "--accent", "label": "Accent", "group": "Text", "type": "color", "default": "#c2617f"},
 
-    {"var": "--c-default", "label": "Narration", "group": "Message markup", "type": "color", "default": "#cfd6e4"},
-    {"var": "--c-dialogue", "label": "Dialogue", "group": "Message markup", "type": "color", "default": "#9ece6a"},
-    {"var": "--c-action", "label": "Action", "group": "Message markup", "type": "color", "default": "#a9a1e8"},
-    {"var": "--c-strong", "label": "Emphasis", "group": "Message markup", "type": "color", "default": "#e0af68"},
+    {"var": "--c-default", "label": "Narration", "group": "Message markup", "type": "color", "default": "#3c3438"},
+    {"var": "--c-dialogue", "label": "Dialogue", "group": "Message markup", "type": "color", "default": "#a34a6d"},
+    {"var": "--c-action", "label": "Action", "group": "Message markup", "type": "color", "default": "#6f5aa8"},
+    {"var": "--c-strong", "label": "Emphasis", "group": "Message markup", "type": "color", "default": "#a9722c"},
 
-    {"var": "--ai-bubble", "label": "Character bubble", "group": "Bubbles", "type": "color", "default": "#171b23"},
-    {"var": "--user-bubble", "label": "Your bubble", "group": "Bubbles", "type": "color", "default": "#1f2733"},
-    {"var": "--ok", "label": "Success", "group": "Bubbles", "type": "color", "default": "#9ece6a"},
-    {"var": "--error", "label": "Error", "group": "Bubbles", "type": "color", "default": "#f7768e"},
+    {"var": "--ai-bubble", "label": "Character bubble", "group": "Bubbles", "type": "color", "default": "#ffffff"},
+    {"var": "--user-bubble", "label": "Your bubble", "group": "Bubbles", "type": "color", "default": "#fbeef3"},
+    {"var": "--ok", "label": "Success", "group": "Bubbles", "type": "color", "default": "#3f7d5a"},
+    {"var": "--error", "label": "Error", "group": "Bubbles", "type": "color", "default": "#c0405e"},
 
     {"var": "--radius", "label": "Corner rounding", "group": "Layout", "type": "px", "default": "10px"},
     {"var": "--font-size", "label": "Text size", "group": "Layout", "type": "px", "default": "15px"},

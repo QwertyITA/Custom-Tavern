@@ -275,3 +275,27 @@ def test_every_theme_token_is_declared_completely():
         assert token["type"] in ("color", "px", "pct")
         # A token whose own default is invalid could never be reset to it.
         assert config.validate_theme({token["var"]: token["default"]}) == {}
+
+
+def test_css_root_matches_the_declared_theme_defaults():
+    """The stylesheet and THEME_TOKENS are two halves of one palette.
+
+    The editor shows token["default"] when nothing is overridden, and
+    validate_theme drops a value equal to it. If the CSS said something else,
+    the editor would display a colour the page is not actually using.
+    """
+    css = (REPO / "static/styles.css").read_text()
+    root = css.split(":root {", 1)[1].split("}", 1)[0]
+    declared = dict(
+        line.strip().rstrip(";").split(":", 1)
+        for line in root.splitlines()
+        if line.strip().startswith("--") and ":" in line
+    )
+    declared = {k.strip(): v.strip() for k, v in declared.items()}
+
+    for token in config.THEME_TOKENS:
+        assert token["var"] in declared, f"{token['var']} missing from styles.css :root"
+        assert declared[token["var"]] == token["default"], (
+            f"{token['var']}: styles.css has {declared[token['var']]}, "
+            f"THEME_TOKENS says {token['default']}"
+        )

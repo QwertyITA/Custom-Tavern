@@ -287,8 +287,12 @@ function tavern() {
       const found = ((this.character || {}).backgrounds || []).find(
         (b) => (b.id || b.img) === id
       );
+      // The wash is derived from --bg so it works on a light palette as well
+      // as a dark one, instead of being a hardcoded dark overlay.
       document.body.style.backgroundImage = found
-        ? `linear-gradient(rgba(15,17,21,.86), rgba(15,17,21,.94)), url(/static/backgrounds/${found.img})`
+        ? `linear-gradient(color-mix(in srgb, var(--bg) 88%, transparent),` +
+          ` color-mix(in srgb, var(--bg) 95%, transparent)),` +
+          ` url(/static/backgrounds/${found.img})`
         : "";
       document.body.style.backgroundSize = "cover";
     },
