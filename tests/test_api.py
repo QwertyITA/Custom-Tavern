@@ -55,6 +55,97 @@ def test_settings_never_leak_api_keys(client):
         assert backend["api_key"] in ("", "***")
 
 
+@pytest.fixture
+def isolated_settings(tmp_path, monkeypatch):
+    """Point the save path at a temp file — never the developer's real one."""
+    from app import config
+
+    original = config.SETTINGS
+    path = tmp_path / "settings.json"
+    monkeypatch.setattr(config, "settings_path", lambda: path)
+    yield path
+    config.apply_settings(original)
+
+
+def test_saving_settings_writes_the_file_and_takes_effect(client, isolated_settings):
+    from app import config
+
+    payload = {
+        "backends": [
+            {"name": "echo", "kind": "echo", "model": "echo-1"},
+            {"name": "horde", "kind": "horde", "api_key": "example-horde-key-abc123", "model": "any"},
+        ],
+        "tiers": {"blocking": "echo", "foreground": "echo", "background": "horde"},
+        "verbatim_window": 12,
+    }
+    body = client.put("/api/settings", json=payload).json()
+    assert body["ok"] is True
+
+    assert "example-horde-key-abc123" in isolated_settings.read_text()
+    # The response, like every read, is masked.
+    assert body["settings"]["backends"][1]["api_key"] == "***"
+    # And the running process picked it up.
+    assert config.SETTINGS.verbatim_window == 12
+    assert config.SETTINGS.tiers["background"] == "horde"
+
+
+def test_get_after_save_never_returns_the_real_key(client, isolated_settings):
+    client.put("/api/settings", json={
+        "backends": [{"name": "echo", "kind": "echo"},
+                     {"name": "openai", "kind": "openai", "api_key": "example-openai-key-donotleak"}],
+        "tiers": {"blocking": "echo", "foreground": "echo", "background": "echo"},
+    })
+    assert "example-openai-key-donotleak" not in client.get("/api/settings").text
+
+
+def test_saving_with_a_masked_key_keeps_it(client, isolated_settings):
+    import json as _json
+
+    base = {
+        "backends": [{"name": "echo", "kind": "echo"},
+                     {"name": "openai", "kind": "openai", "api_key": "example-openai-key-keepme"}],
+        "tiers": {"blocking": "echo", "foreground": "echo", "background": "echo"},
+    }
+    client.put("/api/settings", json=base)
+
+    # Re-submit exactly what a browser would: the masked key, one field changed.
+    echoed = client.get("/api/settings").json()
+    echoed["backends"][1]["model"] = "gpt-4o-mini"
+    client.put("/api/settings", json=echoed)
+
+    stored = _json.loads(isolated_settings.read_text())
+    openai = next(b for b in stored["backends"] if b["name"] == "openai")
+    assert openai["api_key"] == "example-openai-key-keepme"
+    assert openai["model"] == "gpt-4o-mini"
+
+
+def test_invalid_settings_return_400_and_change_nothing(client, isolated_settings):
+    from app import config
+
+    before = config.SETTINGS.verbatim_window
+    response = client.put("/api/settings", json={
+        "backends": [{"name": "x", "kind": "not-a-backend"}],
+        "tiers": {"blocking": "x", "foreground": "x", "background": "x"},
+    })
+    assert response.status_code == 400
+    assert not isolated_settings.exists()
+    assert config.SETTINGS.verbatim_window == before
+
+
+def test_connection_test_probes_a_backend(client):
+    body = client.post("/api/settings/test", json={"name": "echo", "kind": "echo", "model": "echo-1"}).json()
+    assert body["ok"] is True
+    assert "latency_ms" in body
+
+
+def test_connection_test_reports_failure_without_raising(client):
+    body = client.post("/api/settings/test", json={
+        "name": "dead", "kind": "ollama", "base_url": "http://127.0.0.1:1", "model": "x", "timeout": 2,
+    }).json()
+    assert body["ok"] is False
+    assert body["error"]
+
+
 def test_static_shell_is_served(client):
     assert client.get("/").status_code == 200
     assert client.get("/manifest.webmanifest").status_code == 200

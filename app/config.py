@@ -17,6 +17,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.environ.get("TAVERN_DATA_DIR", REPO_ROOT / "data"))
 STATIC_DIR = REPO_ROOT / "static"
 
+# What the client sees in place of a stored key. Sending it back unchanged means
+# "keep what you have" — the browser is never given the real value, so it cannot
+# leak one back through a form post, a screenshot or a cached response.
+MASK = "***"
+
+VALID_KINDS = ("echo", "ollama", "llamacpp", "openai", "horde")
+VALID_TEMPLATES = ("auto", "messages", "chatml", "llama3", "mistral", "plain")
+TIERS = ("blocking", "foreground", "background")
+
 
 @dataclass
 class BackendConfig:
@@ -84,10 +93,11 @@ class Settings:
             return BackendConfig(name="echo", kind="echo", model="echo-1")
 
     def to_dict(self) -> dict[str, Any]:
+        """Safe to serve to the client: real keys become MASK, never plaintext."""
         d = asdict(self)
         for b in d["backends"]:
             if b.get("api_key"):
-                b["api_key"] = "***"
+                b["api_key"] = MASK
         return d
 
 
@@ -125,10 +135,158 @@ def load_settings(path: Path | None = None) -> Settings:
     return settings
 
 
+class SettingsError(ValueError):
+    """The submitted settings are not usable. Message is shown to the user."""
+
+
+def merge_backend(raw: dict, existing: list[BackendConfig]) -> BackendConfig:
+    """Validate one backend from a client payload, restoring a masked key.
+
+    The client is never sent a real key, so an unedited field comes back as
+    MASK. That means "leave it alone" — writing MASK through would destroy the
+    key, and making the user retype it every time they change a model would
+    train them to keep it somewhere less safe.
+    """
+    if not isinstance(raw, dict):
+        raise SettingsError("each backend must be an object")
+    name = str(raw.get("name", "")).strip()
+    if not name:
+        raise SettingsError("every backend needs a name")
+    kind = str(raw.get("kind", "")).strip()
+    if kind not in VALID_KINDS:
+        raise SettingsError(f"{name}: unknown backend kind {kind!r}")
+    template = str(raw.get("template", "auto")).strip() or "auto"
+    if template not in VALID_TEMPLATES:
+        raise SettingsError(f"{name}: unknown template {template!r}")
+
+    key = str(raw.get("api_key", ""))
+    if key == MASK:
+        by_name = {b.name: b for b in existing}
+        key = by_name[name].api_key if name in by_name else ""
+
+    try:
+        timeout = float(raw.get("timeout", 120.0))
+    except (TypeError, ValueError):
+        raise SettingsError(f"{name}: timeout must be a number") from None
+
+    models = raw.get("models") or []
+    if not isinstance(models, list):
+        raise SettingsError(f"{name}: models must be a list")
+
+    return BackendConfig(
+        name=name,
+        kind=kind,
+        model=str(raw.get("model", "")),
+        base_url=str(raw.get("base_url", "")).strip(),
+        api_key=key,
+        template=template,
+        timeout=timeout,
+        models=[str(m) for m in models],
+    )
+
+
+def _merge_secrets(incoming: list[dict], existing: list[BackendConfig]) -> list[BackendConfig]:
+    out = [merge_backend(raw, existing) for raw in incoming]
+    if len({b.name for b in out}) != len(out):
+        raise SettingsError("backend names must be unique")
+    if not out:
+        raise SettingsError("at least one backend is required")
+    return out
+
+
+def build_settings(payload: dict[str, Any], current: Settings) -> Settings:
+    """Validate a client payload into a Settings, without writing anything."""
+    if not isinstance(payload, dict):
+        raise SettingsError("settings must be an object")
+
+    backends = _merge_secrets(payload.get("backends", []), current.backends)
+    names = {b.name for b in backends}
+
+    tiers = dict(current.tiers)
+    for tier, backend_name in (payload.get("tiers") or {}).items():
+        if tier not in TIERS:
+            raise SettingsError(f"unknown tier {tier!r}")
+        if backend_name not in names:
+            raise SettingsError(f"tier {tier} points at unknown backend {backend_name!r}")
+        tiers[tier] = backend_name
+    for tier in TIERS:
+        if tiers.get(tier) not in names:
+            raise SettingsError(f"tier {tier} must be assigned to a backend")
+
+    settings = Settings(backends=backends, tiers=tiers)
+
+    numeric = {
+        "port": int, "token_budget": int, "verbatim_window": int, "summary_budget": int,
+        "lorebook_scan_depth": int, "lorebook_total_budget": int, "memory_max_injected": int,
+        "background_retries": int, "blocking_await_ms": int, "pass_timeout": float,
+    }
+    for field_name, caster in numeric.items():
+        if field_name in payload:
+            try:
+                value = caster(payload[field_name])
+            except (TypeError, ValueError):
+                raise SettingsError(f"{field_name} must be a number") from None
+            if value < 0:
+                raise SettingsError(f"{field_name} cannot be negative")
+            setattr(settings, field_name, value)
+        else:
+            setattr(settings, field_name, getattr(current, field_name))
+
+    if not 1 <= settings.port <= 65535:
+        raise SettingsError("port must be between 1 and 65535")
+
+    settings.host = str(payload.get("host", current.host)) or current.host
+    settings.strip_user_turn_leakage = bool(
+        payload.get("strip_user_turn_leakage", current.strip_user_turn_leakage)
+    )
+    return settings
+
+
+def settings_path() -> Path:
+    return DATA_DIR / "settings.json"
+
+
+def save_settings(settings: Settings, path: Path | None = None) -> Path:
+    """Write settings.json with real keys, atomically and owner-only.
+
+    Atomic because a half-written settings file on a phone that ran out of
+    battery mid-save would take the app down on next launch. Owner-only because
+    this is the one file in the project that holds plaintext credentials.
+    """
+    path = path or settings_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    payload = asdict(settings)  # deliberately not to_dict(): keys must be real
+    body = json.dumps(payload, indent=2) + "\n"
+
+    tmp = path.with_name(path.name + ".tmp")
+    # Create with 0600 from the outset rather than chmod-ing afterwards, so the
+    # key is never briefly readable by another app on the device.
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "w") as handle:
+            handle.write(body)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    os.replace(tmp, path)
+    os.chmod(path, 0o600)
+    return path
+
+
 SETTINGS = load_settings()
 
 
 def reload_settings() -> Settings:
     global SETTINGS
     SETTINGS = load_settings()
+    return SETTINGS
+
+
+def apply_settings(settings: Settings) -> Settings:
+    """Swap in a new Settings for the running process."""
+    global SETTINGS
+    SETTINGS = settings
     return SETTINGS

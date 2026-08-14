@@ -173,7 +173,91 @@
 
   <h2>Summary</h2>
   <p class="summary" x-text="summary.text || 'nothing summarised yet'"></p>
+
+  <h2>Backends</h2>
+  <button class="wide" @click="openSettings()">settings &amp; API keys</button>
 </aside>
+
+<!-- Settings: backends, keys, tier assignment (§3, §13) -->
+<section class="sheet" x-show="settingsOpen" x-cloak>
+  <header class="sheet-head">
+    <h2>Settings</h2>
+    <button class="icon-btn" @click="settingsOpen = false" aria-label="Close">✕</button>
+  </header>
+
+  <div class="sheet-body">
+    <p class="note">
+      Keys are stored in <code x-text="settings.path"></code> on this phone only.
+      That file is gitignored and written owner-readable. Saved keys are never sent
+      back to this page — a field showing <code>•••</code> already has one.
+    </p>
+
+    <h3>Tiers</h3>
+    <p class="note">Assign by latency tolerance, not importance. Never point
+      <em>background</em> at an on-device model — those passes must survive the
+      screen going off.</p>
+    <template x-for="tier in settings.tier_names" :key="tier">
+      <label class="row">
+        <span class="row-label" x-text="tier"></span>
+        <select x-model="settings.tiers[tier]">
+          <template x-for="b in settings.backends" :key="b.name">
+            <option :value="b.name" x-text="b.name"></option>
+          </template>
+        </select>
+      </label>
+    </template>
+
+    <h3>Backends</h3>
+    <template x-for="(b, i) in settings.backends" :key="i">
+      <div class="backend">
+        <div class="backend-head">
+          <input class="grow" x-model="b.name" placeholder="name" aria-label="Backend name">
+          <select x-model="b.kind">
+            <template x-for="k in settings.kinds" :key="k">
+              <option :value="k" x-text="k"></option>
+            </template>
+          </select>
+          <button class="link danger" @click="removeBackend(i)"
+                  :disabled="settings.backends.length < 2">remove</button>
+        </div>
+
+        <label class="row"><span class="row-label">model</span>
+          <input x-model="b.model" placeholder="llama3.1:8b"></label>
+        <label class="row" x-show="b.kind !== 'echo'"><span class="row-label">url</span>
+          <input x-model="b.base_url" placeholder="http://100.x.y.z:11434" inputmode="url"></label>
+        <label class="row" x-show="b.kind === 'openai' || b.kind === 'horde'">
+          <span class="row-label">key</span>
+          <input type="password" x-model="b.api_key" autocomplete="off"
+                 spellcheck="false" :placeholder="b.kind === 'horde' ? '0000000000 for anonymous' : 'API key'">
+        </label>
+        <label class="row"><span class="row-label">template</span>
+          <select x-model="b.template">
+            <template x-for="t in settings.templates" :key="t">
+              <option :value="t" x-text="t"></option>
+            </template>
+          </select>
+        </label>
+
+        <div class="backend-foot">
+          <button class="link" @click="testBackend(b)" :disabled="testing === b.name">
+            <span x-text="testing === b.name ? 'testing…' : 'test connection'"></span>
+          </button>
+          <span class="test-result" :class="{ ok: (tests[b.name]||{}).ok, bad: tests[b.name] && !tests[b.name].ok }"
+                x-show="tests[b.name]" x-text="testLabel(b.name)"></span>
+        </div>
+      </div>
+    </template>
+
+    <button class="wide" @click="addBackend()">+ add backend</button>
+
+    <div class="sheet-actions">
+      <button class="wide primary" @click="saveSettings()" :disabled="saving">
+        <span x-text="saving ? 'saving…' : 'save'"></span>
+      </button>
+      <span class="save-msg" :class="{ bad: saveError }" x-text="saveError || saveMsg"></span>
+    </div>
+  </div>
+</section>
 
 <script src="/static/markup.js"></script>
 <script src="/static/app.js"></script>

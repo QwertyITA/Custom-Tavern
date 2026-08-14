@@ -7,6 +7,8 @@
 // Keeping them separate is what lets a background pass update its panel
 // without being tied to the request that started it (§1, §4.5).
 
+const MASK_DISPLAY = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
+
 const api = {
   async get(path) {
     const r = await fetch(path);
@@ -392,6 +394,111 @@ function tavern() {
     async setToggle(id, enabled) {
       this.toggleStates[id] = enabled;
       await api.post(`/api/toggles/${id}`, { enabled, scope: "per_chat", scope_id: this.chatId });
+    },
+
+    // ---- settings (§13) ----
+    //
+    // The server sends "***" for any key it holds and never the real value.
+    // Sending "***" back means "keep it", so an untouched key survives a save
+    // without the browser ever having seen it.
+
+    settings: { backends: [], tiers: {}, tier_names: [], kinds: [], templates: [], path: "" },
+    settingsOpen: false,
+    saving: false,
+    saveMsg: "",
+    saveError: "",
+    testing: "",
+    tests: {},
+
+    async openSettings() {
+      this.saveMsg = "";
+      this.saveError = "";
+      this.tests = {};
+      try {
+        const loaded = await api.get("/api/settings");
+        // Show a dot placeholder rather than the literal mask, so it reads as
+        // "a key is set" instead of looking like a corrupted value.
+        loaded.backends.forEach((b) => { if (b.api_key === "***") b.api_key = MASK_DISPLAY; });
+        this.settings = loaded;
+        this.settingsOpen = true;
+      } catch (e) {
+        this.error = `could not load settings: ${e.message || e}`;
+      }
+    },
+
+    // Turn the edited form back into what the API expects.
+    settingsPayload() {
+      return {
+        ...this.settings,
+        backends: this.settings.backends.map((b) => ({
+          ...b,
+          api_key: b.api_key === MASK_DISPLAY ? "***" : b.api_key,
+        })),
+      };
+    },
+
+    addBackend() {
+      this.settings.backends.push({
+        name: `backend-${this.settings.backends.length + 1}`,
+        kind: "ollama", model: "", base_url: "", api_key: "",
+        template: "auto", timeout: 120, models: [],
+      });
+    },
+
+    removeBackend(index) {
+      const [gone] = this.settings.backends.splice(index, 1);
+      // A tier left pointing at a deleted backend would fail validation on
+      // save; repoint it rather than making the user work out why.
+      const fallback = (this.settings.backends[0] || {}).name;
+      for (const tier of this.settings.tier_names) {
+        if (this.settings.tiers[tier] === gone.name) this.settings.tiers[tier] = fallback;
+      }
+    },
+
+    async saveSettings() {
+      this.saving = true;
+      this.saveMsg = "";
+      this.saveError = "";
+      try {
+        const body = await fetch("/api/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(this.settingsPayload()),
+        });
+        const result = await body.json();
+        if (!body.ok) throw new Error(result.detail || result.error || body.statusText);
+        result.settings.backends.forEach((b) => { if (b.api_key === "***") b.api_key = MASK_DISPLAY; });
+        this.settings = { ...this.settings, ...result.settings };
+        this.saveMsg = "saved";
+      } catch (e) {
+        this.saveError = String(e.message || e);
+      } finally {
+        this.saving = false;
+      }
+    },
+
+    async testBackend(backend) {
+      this.testing = backend.name;
+      try {
+        const payload = { ...backend, api_key: backend.api_key === MASK_DISPLAY ? "***" : backend.api_key };
+        const response = await fetch("/api/settings/test", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const result = await response.json();
+        this.tests = { ...this.tests, [backend.name]: response.ok ? result : { ok: false, error: result.detail } };
+      } catch (e) {
+        this.tests = { ...this.tests, [backend.name]: { ok: false, error: String(e.message || e) } };
+      } finally {
+        this.testing = "";
+      }
+    },
+
+    testLabel(name) {
+      const t = this.tests[name];
+      if (!t) return "";
+      return t.ok ? `ok — ${t.model} in ${t.latency_ms}ms` : `failed — ${t.error}`;
     },
 
     // ---- cost dashboard (§14) ----

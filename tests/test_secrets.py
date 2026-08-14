@@ -7,11 +7,13 @@ bearing. A regression here is not a broken test — it is a leaked key.
 from __future__ import annotations
 
 import json
+import stat
 import subprocess
 from pathlib import Path
 
 import pytest
 
+from app import config
 from app.config import BackendConfig, Settings
 
 REPO = Path(__file__).resolve().parent.parent
@@ -132,3 +134,90 @@ def test_hook_verdicts(tmp_path, content, should_block):
     assert blocked is should_block, (
         f"{'expected block' if should_block else 'unexpected block'}: {content}\n{result.stdout}"
     )
+
+
+# --------------------------------------------------- settings storage (§13)
+
+
+@pytest.fixture
+def settings_file(tmp_path, monkeypatch):
+    """Isolate the settings file so a test can never write the real one."""
+    path = tmp_path / "settings.json"
+    monkeypatch.setattr(config, "settings_path", lambda: path)
+    return path
+
+
+def horde(**overrides):
+    base = {"name": "horde", "kind": "horde", "api_key": "REAL-HORDE-KEY-1234", "model": "m"}
+    return {**base, **overrides}
+
+
+def a_settings(**overrides):
+    return Settings(
+        backends=[BackendConfig(**horde())],
+        tiers={"blocking": "horde", "foreground": "horde", "background": "horde"},
+        **overrides,
+    )
+
+
+def test_saved_file_is_owner_only(settings_file):
+    config.save_settings(a_settings(), settings_file)
+    assert stat.S_IMODE(settings_file.stat().st_mode) == 0o600
+
+
+def test_saved_file_holds_the_real_key_not_the_mask(settings_file):
+    config.save_settings(a_settings(), settings_file)
+    stored = json.loads(settings_file.read_text())
+    assert stored["backends"][0]["api_key"] == "REAL-HORDE-KEY-1234"
+
+
+def test_save_is_atomic_and_leaves_no_temp_file(settings_file):
+    config.save_settings(a_settings(), settings_file)
+    assert [p.name for p in settings_file.parent.iterdir()] == ["settings.json"]
+
+
+def test_masked_key_round_trips_without_being_destroyed():
+    """The browser never sees the key, so an untouched field returns MASK."""
+    current = a_settings()
+    payload = json.loads(json.dumps(current.to_dict()))
+    assert payload["backends"][0]["api_key"] == config.MASK
+
+    payload["backends"][0]["model"] = "a-different-model"
+    rebuilt = config.build_settings(payload, current)
+    assert rebuilt.backends[0].api_key == "REAL-HORDE-KEY-1234"
+    assert rebuilt.backends[0].model == "a-different-model"
+
+
+def test_a_real_edit_replaces_the_key():
+    current = a_settings()
+    payload = current.to_dict()
+    payload["backends"][0]["api_key"] = "A-NEW-KEY-5678"
+    assert config.build_settings(payload, current).backends[0].api_key == "A-NEW-KEY-5678"
+
+
+def test_masked_key_for_an_unknown_backend_becomes_empty():
+    """A new backend cannot inherit some other backend's secret."""
+    payload = {
+        "backends": [{"name": "brand-new", "kind": "openai", "api_key": config.MASK}],
+        "tiers": {"blocking": "brand-new", "foreground": "brand-new", "background": "brand-new"},
+    }
+    assert config.build_settings(payload, a_settings()).backends[0].api_key == ""
+
+
+@pytest.mark.parametrize(
+    "payload,message",
+    [
+        ({"backends": []}, "at least one backend"),
+        ({"backends": [{"name": "x", "kind": "nonsense"}]}, "unknown backend kind"),
+        ({"backends": [{"name": "", "kind": "echo"}]}, "needs a name"),
+        ({"backends": [{"name": "x", "kind": "echo"}, {"name": "x", "kind": "echo"}]}, "unique"),
+        ({"backends": [{"name": "x", "kind": "echo"}], "tiers": {"blocking": "ghost"}}, "unknown backend"),
+        ({"backends": [{"name": "x", "kind": "echo", "template": "klingon"}]}, "unknown template"),
+        ({"backends": [{"name": "x", "kind": "echo"}], "port": 99999}, "port must be"),
+        ({"backends": [{"name": "x", "kind": "echo"}], "token_budget": -5}, "cannot be negative"),
+    ],
+)
+def test_invalid_settings_are_rejected(payload, message):
+    payload.setdefault("tiers", {"blocking": "x", "foreground": "x", "background": "x"})
+    with pytest.raises(config.SettingsError, match=message):
+        config.build_settings(payload, a_settings())

@@ -134,6 +134,21 @@ cp data/settings.example.json data/settings.json   # then edit
 
 ## Credentials
 
+Set backends and keys in the app: **menu (☰) → settings & API keys**. Assign
+each tier a backend, fill in the URL/model/key, and use *test connection* to
+check one before relying on it. Everything is written to `data/settings.json`
+on the device.
+
+The key handling is deliberate:
+
+- Saved keys are **never sent back to the browser**. A read returns `***`, and
+  submitting `***` unchanged means "keep the stored value" — so you can change
+  a model without retyping a key, and the page never holds one to leak.
+- The file is written **atomically and `0600`**, created with those permissions
+  rather than chmod-ed afterwards, so the key is never briefly world-readable.
+- A failed connection test **masks the key out of the error text**, since a
+  `base_url` can carry a token.
+
 **This repository is public.** Real API keys go in `data/settings.json`, which
 is gitignored; `data/settings.example.json` is the tracked template and holds
 only placeholders. Anything committed here is world-readable the moment it is

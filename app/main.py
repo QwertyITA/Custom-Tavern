@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -15,7 +16,7 @@ from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import assembly, cards, memory as memory_store, repo, state as state_mod
+from . import assembly, cards, config, memory as memory_store, providers, repo, state as state_mod
 from .config import DATA_DIR, SETTINGS, STATIC_DIR, reload_settings
 from .db import get_db
 from .events import BUS
@@ -24,6 +25,7 @@ from .models import (
     CreateChatRequest,
     EditMessageRequest,
     PassDef,
+    Sampling,
     SendMessageRequest,
     ToggleRequest,
 )
@@ -101,7 +103,76 @@ async def health() -> dict:
 
 @app.get("/api/settings")
 async def get_settings() -> dict:
-    return SETTINGS.to_dict()
+    """Masked — the browser never receives a real key."""
+    # config.SETTINGS, not the name imported at module load: saving rebinds the
+    # one in config, and a stale copy here would show pre-save values.
+    return {
+        **config.SETTINGS.to_dict(),
+        "kinds": list(config.VALID_KINDS),
+        "templates": list(config.VALID_TEMPLATES),
+        "tier_names": list(config.TIERS),
+        "path": str(config.settings_path()),
+    }
+
+
+def _adopt(settings) -> None:
+    config.apply_settings(settings)
+    if SCHEDULER is not None:
+        SCHEDULER.settings = settings
+
+
+@app.put("/api/settings")
+async def put_settings(payload: dict = Body(...)) -> dict:
+    """Save settings.json. Keys sent back as *** keep their stored value."""
+    try:
+        settings = config.build_settings(payload, config.SETTINGS)
+        config.save_settings(settings)
+    except config.SettingsError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(500, f"could not write settings: {exc}") from exc
+
+    _adopt(settings)
+    # Cached providers hold connections built from the old config.
+    await close_all()
+    return {"ok": True, "settings": settings.to_dict()}
+
+
+@app.post("/api/settings/test")
+async def test_backend(payload: dict = Body(...)) -> dict:
+    """Probe one backend so a key can be checked before it is relied on.
+
+    Body is a single backend object. A masked key resolves against what is
+    already stored, so an untouched key can be tested without retyping it.
+    """
+    try:
+        backend = config.merge_backend(payload, config.SETTINGS.backends)
+    except config.SettingsError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    provider = providers.build(backend)
+    request = providers.GenRequest(
+        system="Reply with the single word: ok",
+        messages=[{"role": "user", "content": "ping"}],
+        sampling=Sampling(max_tokens=8, temp=0),
+        pass_id="connection_test",
+    )
+    started = time.monotonic()
+    try:
+        result = await asyncio.wait_for(provider.generate(request), timeout=45)
+    except (providers.ProviderError, asyncio.TimeoutError, OSError) as exc:
+        # str(exc) can carry a base_url with an embedded token; mask it.
+        return {"ok": False, "error": config.MASK.join(str(exc).split(backend.api_key))
+                if backend.api_key else str(exc)}
+    finally:
+        await provider.aclose()
+
+    return {
+        "ok": True,
+        "model": result.model or backend.model,
+        "latency_ms": round((time.monotonic() - started) * 1000),
+        "sample": result.text[:120],
+    }
 
 
 @app.post("/api/settings/reload")
