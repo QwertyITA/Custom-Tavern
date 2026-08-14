@@ -130,6 +130,40 @@ def theme_tokens() -> list[dict[str, str]]:
     return [dict(token) for token in THEME_TOKENS]
 
 
+BACKGROUND_DIR = STATIC_DIR / "backgrounds"
+BACKGROUND_SUFFIXES = (".svg", ".jpg", ".jpeg", ".png", ".webp", ".avif")
+NO_BACKGROUND = "none"
+
+
+def available_backgrounds() -> list[str]:
+    """Backgrounds bundled in static/backgrounds, newest name order.
+
+    Enumerated rather than hardcoded, so dropping a file in that folder makes
+    it selectable in settings with no code change.
+    """
+    if not BACKGROUND_DIR.is_dir():
+        return []
+    return sorted(
+        f.name for f in BACKGROUND_DIR.iterdir()
+        if f.is_file() and f.suffix.lower() in BACKGROUND_SUFFIXES
+    )
+
+
+def validate_background(raw: Any) -> str:
+    """Only a bundled filename or "none".
+
+    The value becomes a URL path, so accepting free text would let a saved
+    setting point anywhere; matching against the directory listing keeps it to
+    files that actually exist.
+    """
+    value = str(raw or "").strip()
+    if value in ("", NO_BACKGROUND):
+        return NO_BACKGROUND
+    if value in available_backgrounds():
+        return value
+    raise SettingsError(f"unknown background {value!r}")
+
+
 @dataclass
 class BackendConfig:
     """One inference endpoint. `kind` selects the provider implementation."""
@@ -181,6 +215,12 @@ class Settings:
     # Appearance overrides: CSS variable -> value. Only keys in THEME_TOKENS,
     # only values matching that token's shape (§12, §18.4).
     theme: dict[str, str] = field(default_factory=dict)
+
+    # Backdrop behind the chat. A bundled filename or "none"; background_dim is
+    # how strongly the theme background is washed over it, so the image can be
+    # present without the text fighting it.
+    background: str = "tavern.svg"
+    background_dim: int = 70
 
     @property
     def data_dir(self) -> Path:
@@ -349,6 +389,17 @@ def build_settings(payload: dict[str, Any], current: Settings) -> Settings:
     settings.theme = (
         validate_theme(payload["theme"]) if "theme" in payload else dict(current.theme)
     )
+    settings.background = (
+        validate_background(payload["background"])
+        if "background" in payload else current.background
+    )
+    try:
+        dim = int(payload.get("background_dim", current.background_dim))
+    except (TypeError, ValueError):
+        raise SettingsError("background_dim must be a number") from None
+    if not 0 <= dim <= 100:
+        raise SettingsError("background_dim must be between 0 and 100")
+    settings.background_dim = dim
     return settings
 
 

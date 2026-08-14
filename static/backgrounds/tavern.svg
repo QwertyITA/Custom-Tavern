@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1800" preserveAspectRatio="xMidYMid slice">
+  <!--
+    Original artwork for Personal Tavern. Drawn as vector rather than sourced
+    from a stock photo: the repository is public, so an image with no licence
+    question is worth more than a photograph, and an SVG is a few kilobytes
+    that stays sharp on any phone instead of a megabyte that does not.
+
+    Composition assumes a heavy wash over the top (the app tints it with the
+    theme background), so it is built from large soft shapes — fine detail
+    would be lost under the tint and only cost legibility.
+  -->
+  <defs>
+    <linearGradient id="wall" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f3e6e2"/>
+      <stop offset="1" stop-color="#e2cdc6"/>
+    </linearGradient>
+    <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#cbaa99"/>
+      <stop offset="1" stop-color="#b28e7d"/>
+    </linearGradient>
+    <radialGradient id="lamp" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffe9c2" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#ffe9c2" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="windowGlow" cx="0.5" cy="0.4" r="0.7">
+      <stop offset="0" stop-color="#fff4dd"/>
+      <stop offset="1" stop-color="#f0dcc0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1200" height="1800" fill="url(#wall)"/>
+  <rect y="1240" width="1200" height="560" fill="url(#floor)"/>
+
+  <!-- floorboards -->
+  <g stroke="#a3806f" stroke-opacity="0.35" stroke-width="3">
+    <path d="M0 1330 H1200 M0 1420 H1200 M0 1520 H1200 M0 1640 H1200 M0 1770 H1200"/>
+    <path d="M180 1240 L60 1800 M520 1240 L470 1800 M760 1240 L800 1800 M1050 1240 L1180 1800"/>
+  </g>
+
+  <!-- window, left -->
+  <g>
+    <rect x="90" y="300" width="300" height="420" rx="10" fill="#b9917f"/>
+    <rect x="110" y="320" width="260" height="380" rx="6" fill="url(#windowGlow)"/>
+    <g stroke="#b9917f" stroke-width="12">
+      <path d="M240 320 V700 M110 510 H370"/>
+    </g>
+    <!-- light spilling onto the floor -->
+    <path d="M110 720 L370 720 L560 1400 L200 1400 Z" fill="#fff3d8" opacity="0.28"/>
+  </g>
+
+  <!-- shelves of bottles, right -->
+  <g>
+    <rect x="720" y="360" width="420" height="18" rx="6" fill="#a4826f"/>
+    <rect x="720" y="600" width="420" height="18" rx="6" fill="#a4826f"/>
+    <g fill="#c9a08c">
+      <rect x="760" y="270" width="34" height="90" rx="12"/>
+      <rect x="820" y="292" width="30" height="68" rx="11"/>
+      <rect x="878" y="258" width="36" height="102" rx="13"/>
+      <rect x="946" y="286" width="30" height="74" rx="11"/>
+      <rect x="1006" y="268" width="34" height="92" rx="12"/>
+      <rect x="1072" y="296" width="30" height="64" rx="11"/>
+      <rect x="770" y="512" width="32" height="88" rx="12"/>
+      <rect x="836" y="534" width="30" height="66" rx="11"/>
+      <rect x="900" y="506" width="34" height="94" rx="12"/>
+      <rect x="968" y="528" width="30" height="72" rx="11"/>
+      <rect x="1036" y="514" width="34" height="86" rx="12"/>
+    </g>
+  </g>
+
+  <!-- ceiling beams -->
+  <g fill="#a3806d" opacity="0.85">
+    <rect x="0" y="90" width="1200" height="46"/>
+    <rect x="0" y="0" width="1200" height="34" opacity="0.6"/>
+  </g>
+
+  <!-- hanging lamps -->
+  <g>
+    <circle cx="600" cy="330" r="210" fill="url(#lamp)"/>
+    <path d="M600 136 V250" stroke="#8d6b59" stroke-width="6"/>
+    <path d="M540 250 H660 L630 330 H570 Z" fill="#c99a63"/>
+    <circle cx="180" cy="230" r="120" fill="url(#lamp)" opacity="0.7"/>
+    <path d="M180 136 V190" stroke="#8d6b59" stroke-width="5"/>
+    <path d="M140 190 H220 L202 240 H158 Z" fill="#c99a63" opacity="0.9"/>
+  </g>
+
+  <!-- bar counter -->
+  <g>
+    <rect x="0" y="960" width="1200" height="70" rx="10" fill="#9c7a67"/>
+    <rect x="0" y="1030" width="1200" height="220" fill="#8a6a58"/>
+    <g stroke="#755749" stroke-width="4" opacity="0.6">
+      <path d="M150 1030 V1250 M420 1030 V1250 M690 1030 V1250 M960 1030 V1250"/>
+    </g>
+    <!-- a tankard and a cloth left on the counter -->
+    <g fill="#c9a08c">
+      <rect x="300" y="890" width="66" height="72" rx="8"/>
+      <rect x="366" y="908" width="26" height="36" rx="12"/>
+    </g>
+    <path d="M820 946 q40 -22 84 -4 q-30 22 -84 4 Z" fill="#e6d3c8"/>
+  </g>
+
+  <!-- barrels, foreground right -->
+  <g>
+    <ellipse cx="1010" cy="1560" rx="150" ry="46" fill="#7d5f4f" opacity="0.35"/>
+    <rect x="880" y="1230" width="260" height="330" rx="70" fill="#9b7860"/>
+    <g stroke="#7d5f4f" stroke-width="14" opacity="0.75">
+      <path d="M884 1320 H1136 M884 1470 H1136"/>
+    </g>
+  </g>
+
+  <!-- soft vignette so the edges sit back behind the text -->
+  <rect width="1200" height="1800" fill="url(#lamp)" opacity="0.12"/>
+</svg>

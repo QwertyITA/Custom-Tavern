@@ -92,6 +92,20 @@ That puts "Personal Tavern" and "Personal Tavern (stop)" in `~/.shortcuts`.
 Add the Termux:Widget widget to your home screen and the app is one tap away —
 it updates and starts.
 
+### Backdrop
+
+A tavern scene sits behind the chat by default. It is original vector art
+(`static/backgrounds/tavern.svg`) rather than a stock photo — this repository
+is public, so an image with no licence question attached is worth more than a
+photograph, and a few kilobytes of SVG stays sharp on any screen where a JPEG
+would not.
+
+Change it under **⚙ → Appearance**: pick a different backdrop or `none`, and
+set how strongly the theme colour washes over it. Drop your own files into
+`static/backgrounds/` and they appear in the list — the folder is enumerated,
+not hardcoded. A backdrop set by the `background_swap` pass takes precedence
+while it is active.
+
 ## Everyday use
 
 ```bash

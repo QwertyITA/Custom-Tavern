@@ -102,6 +102,7 @@ function tavern() {
     editingEl: null,
     regenId: null,
     regenPrevious: "",
+    sceneBackgroundFile: "",
     drawer: false,
     hud: false,
     error: "",
@@ -173,6 +174,7 @@ function tavern() {
       this.summary = data.summary;
       this.toggleStates = data.toggles || {};
       this.turn = this.messages.length ? this.messages[this.messages.length - 1].turn : 0;
+      this.sceneBackgroundFile = "";
       this.applyTheme();
 
       const sceneSlice = (data.slices || {})["state.scene"];
@@ -203,6 +205,7 @@ function tavern() {
       }
       this.applyColours(this.character);
       this.updateColorScheme();
+      this.applyBackground();
     },
 
     // Declare which scheme the palette actually is. Both "only light" and
@@ -254,6 +257,19 @@ function tavern() {
     resetTheme() {
       this.settings.theme = {};
       this.applyTheme();
+    },
+
+    setBackground(value) {
+      this.settings.background = value;
+      // A settings change should show immediately, so drop any scene backdrop
+      // that would otherwise hide the choice being made.
+      this.sceneBackgroundFile = "";
+      this.applyBackground();
+    },
+
+    setBackgroundDim(value) {
+      this.settings.background_dim = parseInt(value, 10);
+      this.applyBackground();
     },
 
     // ---- ambient stream ----
@@ -310,18 +326,35 @@ function tavern() {
       }
     },
 
+    // A scene set by the background_swap pass wins; otherwise the backdrop
+    // chosen in settings. Kept in one place so the two cannot fight.
     applyBackground(id) {
-      const found = ((this.character || {}).backgrounds || []).find(
-        (b) => (b.id || b.img) === id
-      );
-      // The wash is derived from --bg so it works on a light palette as well
-      // as a dark one, instead of being a hardcoded dark overlay.
-      document.body.style.backgroundImage = found
-        ? `linear-gradient(color-mix(in srgb, var(--bg) 88%, transparent),` +
-          ` color-mix(in srgb, var(--bg) 95%, transparent)),` +
-          ` url(/static/backgrounds/${found.img})`
+      if (id) {
+        const found = ((this.character || {}).backgrounds || []).find(
+          (b) => (b.id || b.img) === id
+        );
+        this.sceneBackgroundFile = found ? found.img : "";
+      }
+      const file = this.sceneBackgroundFile || this.backgroundFile();
+      const dim = Number.isFinite(this.settings.background_dim)
+        ? this.settings.background_dim : 70;
+
+      // The wash derives from --bg rather than being a fixed dark overlay, so
+      // it works on a light palette as well as a dark one — and it is what
+      // keeps text readable over an image at all.
+      document.body.style.backgroundImage = file
+        ? `linear-gradient(color-mix(in srgb, var(--bg) ${dim}%, transparent),` +
+          ` color-mix(in srgb, var(--bg) ${Math.min(100, dim + 7)}%, transparent)),` +
+          ` url("/static/backgrounds/${encodeURIComponent(file)}")`
         : "";
       document.body.style.backgroundSize = "cover";
+      document.body.style.backgroundPosition = "center";
+      document.body.style.backgroundAttachment = "fixed";
+    },
+
+    backgroundFile() {
+      const chosen = this.settings.background;
+      return !chosen || chosen === "none" ? "" : chosen;
     },
 
     mergeRun(run, turn) {
@@ -599,7 +632,8 @@ function tavern() {
     // without the browser ever having seen it.
 
     settings: { backends: [], tiers: {}, tier_names: [], kinds: [], templates: [],
-                kind_defaults: {}, theme_tokens: [], theme: {}, path: "" },
+                kind_defaults: {}, theme_tokens: [], theme: {},
+                backgrounds: [], background: "none", background_dim: 70, path: "" },
     settingsOpen: false,
     saving: false,
     saveMsg: "",

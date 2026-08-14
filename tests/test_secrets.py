@@ -315,3 +315,50 @@ def test_stylesheet_declares_a_colour_scheme():
     app = (REPO / "static/app.js").read_text()
     # And it must follow the chosen palette, not stay pinned to light.
     assert "colorScheme" in app and "updateColorScheme" in app
+
+
+# ------------------------------------------------------- backdrop (§12)
+
+
+def test_the_bundled_backdrop_exists_and_is_well_formed():
+    """Shipped as vector: a public repo should not carry a stock photo with a
+    licence question attached, and an SVG stays sharp at any phone size."""
+    import xml.etree.ElementTree as ET
+
+    path = config.BACKGROUND_DIR / "tavern.svg"
+    assert path.exists(), "the default backdrop is missing"
+    root = ET.parse(path).getroot()
+    assert root.tag.endswith("svg")
+    assert root.get("viewBox")
+    assert path.stat().st_size < 200_000, "a backdrop this large belongs in a raster format"
+
+
+def test_the_default_backdrop_is_one_that_ships():
+    assert config.Settings().background in config.available_backgrounds()
+
+
+@pytest.mark.parametrize("value", ["none", ""])
+def test_backdrop_can_be_turned_off(value):
+    assert config.validate_background(value) == config.NO_BACKGROUND
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["../../etc/passwd", "/etc/passwd", "http://example.com/x.png",
+     "not-a-file.png", "tavern.svg/../../secret"],
+)
+def test_backdrop_must_name_a_bundled_file(value):
+    """The value becomes a URL path, so free text would point anywhere."""
+    with pytest.raises(config.SettingsError):
+        config.validate_background(value)
+
+
+@pytest.mark.parametrize("value", [-1, 101, 999, "abc"])
+def test_backdrop_fade_is_bounded(value):
+    payload = {
+        "backends": [{"name": "e", "kind": "echo"}],
+        "tiers": {"blocking": "e", "foreground": "e", "background": "e"},
+        "background_dim": value,
+    }
+    with pytest.raises(config.SettingsError):
+        config.build_settings(payload, Settings())

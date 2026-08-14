@@ -297,6 +297,26 @@
 
     <h3>Appearance</h3>
     <p class="note">Changes preview live. Nothing here needs a file edited by hand.</p>
+
+    <label class="row theme-row">
+      <span class="row-label wide-label">Backdrop</span>
+      <select :value="settings.background" @change="setBackground($event.target.value)">
+        <option value="none">none</option>
+        <template x-for="file in settings.backgrounds || []" :key="file">
+          <option :value="file" x-text="file.replace(/\.[^.]+$/, '')"></option>
+        </template>
+      </select>
+    </label>
+    <label class="row theme-row" x-show="settings.background !== 'none'">
+      <span class="row-label wide-label">Backdrop fade</span>
+      <input type="range" min="40" max="100" :value="settings.background_dim"
+             @input="setBackgroundDim($event.target.value)">
+      <span class="theme-value" x-text="`${settings.background_dim}%`"></span>
+    </label>
+    <p class="note" x-show="settings.background !== 'none'">
+      Higher fade washes the image out further behind the text. Drop your own
+      files in <code>static/backgrounds/</code> and they appear in this list.
+    </p>
     <template x-for="group in themeGroups()" :key="group">
       <div class="theme-group">
         <div class="theme-group-name" x-text="group"></div>

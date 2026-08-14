@@ -55,6 +55,10 @@
   "lorebook_total_budget": 600,
   "memory_max_injected": 6,
 
+  "_appearance": "Set these in the app (gear -> Appearance) rather than here. background is a filename in static/backgrounds or \"none\"; background_dim is how strongly the theme colour washes over it.",
+  "background": "tavern.svg",
+  "background_dim": 70,
+
   "_engine": "Pass engine (§5). blocking_await_ms is how long the next turn waits on a late pass before proceeding on provisional state.",
   "background_retries": 2,
   "blocking_await_ms": 1500,

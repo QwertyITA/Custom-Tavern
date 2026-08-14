@@ -391,3 +391,40 @@ def test_an_invalid_theme_value_is_rejected(client, isolated_settings):
         "theme": {"--accent": "url(javascript:1)"},
     })
     assert response.status_code == 400
+
+
+def test_settings_list_the_available_backdrops(client):
+    body = client.get("/api/settings").json()
+    assert "tavern.svg" in body["backgrounds"]
+    assert body["background"] in body["backgrounds"] + ["none"]
+
+
+def test_backdrop_choice_persists(client, isolated_settings):
+    import json as _json
+
+    base = {
+        "backends": [{"name": "echo", "kind": "echo"}],
+        "tiers": {"blocking": "echo", "foreground": "echo", "background": "echo"},
+    }
+    client.put("/api/settings", json={**base, "background": "none"})
+    assert _json.loads(isolated_settings.read_text())["background"] == "none"
+
+    client.put("/api/settings", json={**base, "background": "tavern.svg", "background_dim": 55})
+    stored = _json.loads(isolated_settings.read_text())
+    assert stored["background"] == "tavern.svg"
+    assert stored["background_dim"] == 55
+
+
+def test_an_unknown_backdrop_is_rejected(client, isolated_settings):
+    response = client.put("/api/settings", json={
+        "backends": [{"name": "echo", "kind": "echo"}],
+        "tiers": {"blocking": "echo", "foreground": "echo", "background": "echo"},
+        "background": "../../../etc/passwd",
+    })
+    assert response.status_code == 400
+
+
+def test_the_backdrop_is_actually_served(client):
+    response = client.get("/static/backgrounds/tavern.svg")
+    assert response.status_code == 200
+    assert "svg" in response.headers["content-type"]
