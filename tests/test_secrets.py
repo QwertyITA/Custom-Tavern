@@ -299,3 +299,19 @@ def test_css_root_matches_the_declared_theme_defaults():
             f"{token['var']}: styles.css has {declared[token['var']]}, "
             f"THEME_TOKENS says {token['default']}"
         )
+
+
+def test_stylesheet_declares_a_colour_scheme():
+    """Opts the page out of Chromium's forced dark repainting.
+
+    Without this, Brave and Chrome repaint light surfaces dark at paint time
+    while leaving text colours alone — a black page with the light theme's
+    pink text on it.
+    """
+    css = (REPO / "static/styles.css").read_text()
+    root = css.split(":root {", 1)[1].split("}", 1)[0]
+    assert "color-scheme:" in root
+
+    app = (REPO / "static/app.js").read_text()
+    # And it must follow the chosen palette, not stay pinned to light.
+    assert "colorScheme" in app and "updateColorScheme" in app

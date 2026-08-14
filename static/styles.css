@@ -3,6 +3,14 @@
    (§18.4: one global palette, per-element overrides). */
 
 :root {
+  /* Tells the browser this page manages its own colours, which is what opts it
+     out of Chromium's "force dark mode for web contents" (Brave exposes this in
+     Appearance settings, and it is on by default in some builds). Without it
+     the engine repaints our light surfaces dark at paint time while leaving the
+     text colours alone — black background, pink text.
+     Kept in sync with the chosen palette by updateColorScheme() in app.js. */
+  color-scheme: only light;
+
   --bg: #fdf7f9;
   --panel: #ffffff;
   --panel-2: #f7eef2;

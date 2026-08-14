@@ -9,6 +9,17 @@
 
 const MASK_DISPLAY = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
 
+// WCAG relative luminance of a #rgb / #rrggbb colour, 0 (black) to 1 (white).
+function luminance(hex) {
+  const m = String(hex).trim().replace("#", "");
+  const full = m.length === 3 ? m.split("").map((c) => c + c).join("") : m;
+  if (!/^[0-9a-fA-F]{6}/.test(full)) return 1;
+  const [r, g, b] = [0, 2, 4]
+    .map((i) => parseInt(full.slice(i, i + 2), 16) / 255)
+    .map((v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
 // Swipe thresholds, in CSS pixels.
 const SWIPE_CLAIM = 12;   // movement before a drag counts as horizontal at all
 const SWIPE_COMMIT = 64;  // release past this and the variant changes
@@ -191,6 +202,22 @@ function tavern() {
         root.style.setProperty(name, value);
       }
       this.applyColours(this.character);
+      this.updateColorScheme();
+    },
+
+    // Declare which scheme the palette actually is. Both "only light" and
+    // "dark" opt the page out of forced dark repainting; announcing the wrong
+    // one would give us light scrollbars and form controls on a dark palette,
+    // or vice versa. Derived from the background rather than a stored flag, so
+    // it stays right whatever the user picks.
+    updateColorScheme() {
+      const root = document.documentElement;
+      const bg = getComputedStyle(root).getPropertyValue("--bg").trim();
+      const dark = luminance(bg) < 0.4;
+      root.style.colorScheme = dark ? "dark" : "only light";
+      // Keep the browser/PWA chrome on the same palette as the page.
+      const meta = document.querySelector('meta[name="theme-color"]');
+      if (meta && bg) meta.setAttribute("content", bg);
     },
 
     applyColours(character) {
