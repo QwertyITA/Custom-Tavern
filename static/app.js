@@ -37,6 +37,8 @@ const MESSAGE_LEAVE_MS = 220;
 const CONFIRM_MS = 3000;
 // How long a one-line confirmation ("Copied") stays on screen.
 const HINT_MS = 1900;
+// Quiet time after the last keystroke before the template preview re-renders.
+const PREVIEW_DEBOUNCE_MS = 200;
 
 // Hold-to-open action wheel.
 const HOLD_MS = 380;          // press this long and the wheel opens
@@ -202,6 +204,10 @@ function tavern() {
     // splitting on every keystroke would renumber the list under the cursor.
     altGreetings: "",
     stopStrings: "",
+    previewFor: "",
+    previewText: "",
+    previewStop: "",
+    previewTimer: 0,
     personas: [],
     note: { text: "", depth: 0, frequency: 1 },
     noteFromChat: false,
@@ -417,6 +423,75 @@ function tavern() {
       try {
         this.messages = await api.get(`/api/chats/${this.chatId}/messages`);
       } catch (_) { /* the chat may have gone */ }
+    },
+
+    // ---- instruct templates ----
+
+    // A newline in a turn marker is the normal case, and a textbox that eats
+    // it is unusable — so they are shown and typed as \n and converted at the
+    // edges. Nothing else is escaped: these are literal strings otherwise.
+    showEscapes(value) {
+      return String(value || "").replace(/\n/g, "\\n").replace(/\t/g, "\\t");
+    },
+
+    parseEscapes(value) {
+      return String(value || "").replace(/\\n/g, "\n").replace(/\\t/g, "\t");
+    },
+
+    setTemplateField(backend, key, raw) {
+      backend.template_spec = { ...(backend.template_spec || {}), [key]: this.parseEscapes(raw) };
+      this.queuePreview(backend);
+    },
+
+    // One request per pause, not one per keystroke. A turn marker is typed a
+    // character at a time and each one would otherwise be a round trip, with
+    // the replies free to land out of order and leave the preview showing a
+    // prefix of what is in the boxes.
+    queuePreview(backend) {
+      if (this.previewFor !== backend.name) return;
+      clearTimeout(this.previewTimer);
+      this.previewTimer = setTimeout(() => this.refreshPreview(backend), PREVIEW_DEBOUNCE_MS);
+    },
+
+    useTemplatePreset(backend, name) {
+      const preset = (this.settings.template_presets || {})[name];
+      if (!preset) return;
+      // Replaced wholesale: half of one format and half of another is not a
+      // format, and it fails in ways that read as a bad prompt.
+      backend.template_spec = { ...preset };
+      this.flashHint(`Filled in from ${name}`);
+      // Not queued: a preset arrives all at once, so there is no pause to wait
+      // for and the wait would just read as lag.
+      if (this.previewFor === backend.name) this.refreshPreview(backend);
+    },
+
+    async previewTemplate(backend) {
+      clearTimeout(this.previewTimer);
+      if (this.previewFor === backend.name) {
+        this.previewFor = "";
+        return;
+      }
+      this.previewFor = backend.name;
+      await this.refreshPreview(backend);
+    },
+
+    // Rendered by the server, by the same function that runs for real. A
+    // preview drawn any other way is a second implementation that can
+    // disagree with the first.
+    async refreshPreview(backend) {
+      try {
+        const body = await api.post("/api/settings/template/preview", {
+          template: backend.template,
+          template_spec: backend.template_spec || {},
+        });
+        this.previewText = body.prompt;
+        this.previewStop = body.stop.length
+          ? `Stops at: ${body.stop.map((s) => this.showEscapes(s)).join("  ")}`
+          : "No stop sequences from this template.";
+      } catch (e) {
+        this.previewText = String(e.message || e);
+        this.previewStop = "";
+      }
     },
 
     // ---- author's note ----

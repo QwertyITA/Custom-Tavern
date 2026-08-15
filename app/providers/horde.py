@@ -104,7 +104,7 @@ class HordeProvider(Provider):
         if stops:
             params["stop_sequence"] = stops
 
-        payload = {"prompt": request.prompt_text(template), "params": params}
+        payload = {"prompt": request.prompt_text(template, self.config.template_spec), "params": params}
         # Horde selects by a models *list*; `model` is the single-model field
         # every other backend uses. Treat one as shorthand for the other so the
         # settings screen behaves the same way for every kind.

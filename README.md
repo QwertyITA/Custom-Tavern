@@ -151,6 +151,38 @@ the story survive the cut. Impersonate deliberately does not use the
 character's — that is your line, and a sequence that ends their replies has no
 business cutting off yours.
 
+### Writing your own instruct template
+
+Most models are covered by picking `chatml`, `llama3`, `mistral` or `plain` in
+☰ → brain, and `auto` guesses from the model name. Pick **custom** and eight
+boxes appear instead — the strings that go around each turn:
+
+| Box | Chatml, as an example |
+| --- | --- |
+| Very beginning of the prompt | *(blank)* |
+| Before / after the instructions | `<\|im_start\|>system\n` / `<\|im_end\|>\n` |
+| Before / after your message | `<\|im_start\|>user\n` / `<\|im_end\|>\n` |
+| Before / after the reply | `<\|im_start\|>assistant\n` / `<\|im_end\|>\n` |
+| Start of the new reply | `<\|im_start\|>assistant\n` |
+
+Newlines are typed and shown as `\n`, because a marker almost always ends in
+one and a text box that swallows it is unusable.
+
+Nothing here is a lesser path: the four presets fill the same eight boxes, and
+`chatml`, `llama3` and `plain` come back out byte-identical to the built-in
+versions. So the way in is to press the preset closest to your model and change
+the one thing it disagrees about. (`mistral` is the exception — the built-in one
+folds the system prompt into the first user instruction, which is a *rule* and
+not a pair of strings. The preset is the other common Mistral shape, with the
+system prompt as an instruction of its own. Both work.)
+
+**Show me a real prompt** renders a short made-up exchange through the boxes.
+It is drawn by the same function that runs for real, not a second
+implementation of it — being believed is the only thing it is for. It also
+lists the stop sequences your boxes imply, which are taken from the three that
+would end a reply: the marker closing the character's turn, and the two opening
+yours.
+
 ### Author's note
 
 A standing instruction, under **☰ → story**. Unlike the character's own text it

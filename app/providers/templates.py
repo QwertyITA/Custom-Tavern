@@ -96,10 +96,134 @@ def guess_template(model: str) -> str:
     return "chatml"
 
 
-def render(template: str, system: str, messages: list[Message], prefill: str = "") -> str:
+def render(
+    template: str,
+    system: str,
+    messages: list[Message],
+    prefill: str = "",
+    spec: dict | None = None,
+) -> str:
+    if template == "custom":
+        return _custom(system, messages, prefill, spec)
     fn = TEMPLATES.get(template, _chatml)
     return fn(system, messages, prefill)
 
 
-def stop_for(template: str) -> list[str]:
+def stop_for(template: str, spec: dict | None = None) -> list[str]:
+    """A custom template stops on its own turn markers, which is what the
+    named ones do too — the sequences are just written down rather than
+    hardcoded.
+
+    Three of the eight boxes end a reply: the marker that closes the
+    character's turn, and the two that would open yours. They are stripped
+    first, because the padding around a marker is layout — a model emits
+    `<|im_end|>` and may or may not follow it with the newline, and a stop
+    string that includes the newline would sit there waiting for it.
+    """
+    if template == "custom":
+        fields = custom_spec(spec)
+        raw = (fields["assistant_suffix"], fields["user_prefix"], fields["user_suffix"])
+        return [s for s in dict.fromkeys(x.strip() for x in raw) if s]
     return list(STOP_STRINGS.get(template, []))
+
+# --------------------------------------------------------------- custom
+
+
+# A template written out as the strings that go around each turn, rather than
+# as code. Every named template above can be expressed in these seven fields,
+# which is what makes them presets rather than special cases — and what lets
+# someone who has never heard the phrase "instruct template" fill one in by
+# looking at what a model's own documentation prints.
+CUSTOM_FIELDS: list[dict[str, str]] = [
+    {"key": "prompt_start", "label": "Very beginning of the prompt",
+     "hint": "A start-of-text marker, if your model wants one. Usually blank."},
+    {"key": "system_prefix", "label": "Before the instructions",
+     "hint": "Opens the block that tells the model who it is."},
+    {"key": "system_suffix", "label": "After the instructions",
+     "hint": "Closes it."},
+    {"key": "user_prefix", "label": "Before your message",
+     "hint": "Marks a turn as yours."},
+    {"key": "user_suffix", "label": "After your message", "hint": "Ends your turn."},
+    {"key": "assistant_prefix", "label": "Before the reply",
+     "hint": "Marks a turn as the character's."},
+    {"key": "assistant_suffix", "label": "After the reply",
+     "hint": "Ends their turn."},
+    {"key": "reply_start", "label": "Start of the new reply",
+     "hint": "The last thing in the prompt — where the model takes over."},
+]
+
+CUSTOM_KEYS = tuple(field["key"] for field in CUSTOM_FIELDS)
+
+
+def custom_spec(raw: dict | None) -> dict[str, str]:
+    """A full spec from whatever was stored, missing fields blank."""
+    raw = raw if isinstance(raw, dict) else {}
+    return {key: str(raw.get(key, "") or "") for key in CUSTOM_KEYS}
+
+
+def _custom(system: str, messages: list[Message], prefill: str = "", spec: dict | None = None) -> str:
+    fields = custom_spec(spec)
+    parts: list[str] = [fields["prompt_start"]]
+    if system:
+        parts.append(f"{fields['system_prefix']}{system}{fields['system_suffix']}")
+    for msg in messages:
+        # A system message mid-conversation — the author's note, the state
+        # block — is framed as the user speaking, because most instruct formats
+        # have no third role and dropping the frame entirely runs it into the
+        # previous turn.
+        if msg["role"] == "assistant":
+            parts.append(f"{fields['assistant_prefix']}{msg['content']}{fields['assistant_suffix']}")
+        else:
+            parts.append(f"{fields['user_prefix']}{msg['content']}{fields['user_suffix']}")
+    parts.append(fields["reply_start"] + prefill)
+    return "".join(parts)
+
+
+# The presets, as data. Filling the boxes from one of these is how someone
+# starts: pick the closest, then change the part their model disagrees about.
+CUSTOM_PRESETS: dict[str, dict[str, str]] = {
+    "chatml": {
+        "prompt_start": "",
+        "system_prefix": "<|im_start|>system\n", "system_suffix": "<|im_end|>\n",
+        "user_prefix": "<|im_start|>user\n", "user_suffix": "<|im_end|>\n",
+        "assistant_prefix": "<|im_start|>assistant\n", "assistant_suffix": "<|im_end|>\n",
+        "reply_start": "<|im_start|>assistant\n",
+    },
+    "llama3": {
+        "prompt_start": "<|begin_of_text|>",
+        "system_prefix": "<|start_header_id|>system<|end_header_id|>\n\n",
+        "system_suffix": "<|eot_id|>",
+        "user_prefix": "<|start_header_id|>user<|end_header_id|>\n\n",
+        "user_suffix": "<|eot_id|>",
+        "assistant_prefix": "<|start_header_id|>assistant<|end_header_id|>\n\n",
+        "assistant_suffix": "<|eot_id|>",
+        "reply_start": "<|start_header_id|>assistant<|end_header_id|>\n\n",
+    },
+    # Not byte-identical to the built-in `mistral`, which folds the system
+    # prompt into the first user instruction — a rule, not a pair of strings,
+    # so the boxes cannot express it. This is the other common Mistral shape:
+    # the system prompt as an instruction of its own. Both work; pick `mistral`
+    # from the template list if you want the folding one.
+    "mistral": {
+        "prompt_start": "<s>",
+        "system_prefix": "[INST] ", "system_suffix": " [/INST]",
+        "user_prefix": "[INST] ", "user_suffix": " [/INST]",
+        "assistant_prefix": " ", "assistant_suffix": "</s>",
+        "reply_start": " ",
+    },
+    "plain": {
+        "prompt_start": "",
+        "system_prefix": "", "system_suffix": "\n\n",
+        "user_prefix": "User: ", "user_suffix": "\n",
+        "assistant_prefix": "Assistant: ", "assistant_suffix": "\n",
+        "reply_start": "Assistant: ",
+    },
+}
+
+
+def custom_presets() -> dict[str, dict[str, str]]:
+    return {name: dict(spec) for name, spec in CUSTOM_PRESETS.items()}
+
+
+def custom_fields() -> list[dict[str, str]]:
+    return [dict(field) for field in CUSTOM_FIELDS]

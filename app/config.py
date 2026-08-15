@@ -24,7 +24,7 @@ STATIC_DIR = REPO_ROOT / "static"
 MASK = "***"
 
 VALID_KINDS = ("echo", "ollama", "llamacpp", "openai", "horde")
-VALID_TEMPLATES = ("auto", "messages", "chatml", "llama3", "mistral", "plain")
+VALID_TEMPLATES = ("auto", "messages", "chatml", "llama3", "mistral", "plain", "custom")
 TIERS = ("blocking", "foreground", "background")
 
 # Sensible starting values per backend kind. The settings screen fills these in
@@ -228,6 +228,8 @@ class BackendConfig:
     # Sequences that end a generation. Per backend because a model's own
     # artefacts are a property of the model, not of the story being told.
     stop: list[str] = field(default_factory=list)
+    # Only read when template == "custom": the turn markers, written down.
+    template_spec: dict[str, str] = field(default_factory=dict)
     # Horde-only knobs; ignored elsewhere.
     models: list[str] = field(default_factory=list)
 
@@ -382,8 +384,29 @@ def merge_backend(raw: dict, existing: list[BackendConfig]) -> BackendConfig:
         template=template,
         timeout=timeout,
         stop=parse_stop_strings(raw.get("stop")),
+        template_spec=_template_spec(raw.get("template_spec")),
         models=[str(m) for m in models],
     )
+
+
+def _template_spec(raw: Any) -> dict[str, str]:
+    """Only the eight known boxes, only as strings — this is concatenated
+    straight into a prompt, so anything else has no meaning here.
+
+    All or nothing: a backend that has never used a custom template stores
+    nothing, and one that has stores every box, including the blank ones. The
+    half-filled shape in between is the one that breaks things — the editor
+    would bind an input to a missing key, and a blank box would come back as
+    `undefined` rather than as the empty string it is.
+    """
+    # Imported here rather than at module scope: providers imports config, so
+    # a top-level import would close the loop.
+    from .providers import templates
+
+    if not isinstance(raw, dict):
+        return {}
+    spec = templates.custom_spec(raw)
+    return spec if any(spec.values()) else {}
 
 
 def parse_stop_strings(raw: Any) -> list[str]:

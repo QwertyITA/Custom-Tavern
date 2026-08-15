@@ -116,9 +116,23 @@ async def get_settings() -> dict:
         "tier_names": list(config.TIERS),
         "kind_defaults": config.kind_defaults(),
         "theme_tokens": config.theme_tokens(),
+        "template_fields": _template_fields(),
+        "template_presets": _template_presets(),
         "backgrounds": config.available_backgrounds(),
         "path": str(config.settings_path()),
     }
+
+
+def _template_fields() -> list[dict]:
+    from .providers import templates as template_mod
+
+    return template_mod.custom_fields()
+
+
+def _template_presets() -> dict:
+    from .providers import templates as template_mod
+
+    return template_mod.custom_presets()
 
 
 def _safe_error(exc: Exception, api_key: str) -> str:
@@ -212,6 +226,37 @@ async def discover_models(payload: dict = Body(...)) -> dict:
     finally:
         await provider.aclose()
     return {"ok": True, "models": models}
+
+
+# Short enough to read whole on a phone, and long enough to show every box:
+# a system prompt, both roles, and a turn boundary in each direction.
+PREVIEW_SYSTEM = "You are Wren, who runs the ferry. Stay in character."
+PREVIEW_SAMPLE = [
+    {"role": "user", "content": "Is the ferry still running?"},
+    {"role": "assistant", "content": '*She wipes the counter.* "Not in this wind."'},
+    {"role": "user", "content": "Then I'll wait."},
+]
+
+
+@app.post("/api/settings/template/preview")
+async def preview_template(payload: dict = Body(...)) -> dict:
+    """Show what a prompt would actually look like through this template.
+
+    Rendered by the same function that runs for real, on a short made-up
+    exchange. A preview drawn any other way is a second implementation that
+    can disagree with the first, and the whole reason to show it is to be
+    believed.
+    """
+    from .providers import templates as template_mod
+
+    template = str(payload.get("template") or "custom")
+    spec = payload.get("template_spec") or {}
+    text = template_mod.render(template, PREVIEW_SYSTEM, list(PREVIEW_SAMPLE), spec=spec)
+    return {
+        "prompt": text,
+        "stop": template_mod.stop_for(template, spec),
+        "characters": len(text),
+    }
 
 
 @app.post("/api/settings/reload")

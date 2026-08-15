@@ -65,7 +65,7 @@ class OllamaProvider(Provider):
             # our framing is the one the model actually sees.
             payload = {
                 "model": self.model,
-                "prompt": request.prompt_text(template),
+                "prompt": request.prompt_text(template, self.config.template_spec),
                 "raw": True,
                 "stream": stream,
                 "options": _options(request.sampling, stop),
@@ -195,7 +195,7 @@ class LlamaCppProvider(OllamaProvider):
             template = templates.guess_template(self.model)
         sampling = request.sampling
         return "/completion", {
-            "prompt": request.prompt_text(template),
+            "prompt": request.prompt_text(template, self.config.template_spec),
             "temperature": sampling.temp,
             "top_p": sampling.top_p,
             "top_k": sampling.top_k,

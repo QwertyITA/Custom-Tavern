@@ -1405,3 +1405,106 @@ def test_stop_strings_survive_a_card_round_trip(client):
     card = client.get(f"/api/characters/{character_id}/export").json()
     back_id = import_card(client, card, "stops.json")
     assert client.get(f"/api/characters/{back_id}").json()["stop_strings"] == ["Narrator:", "---"]
+
+
+# ------------------------------------------------------- template editor
+
+
+def test_settings_ship_the_boxes_and_the_presets(client):
+    """The editor draws itself from these; hardcoding the field list in the
+    frontend is how the two halves drift apart."""
+    body = client.get("/api/settings").json()
+    keys = [field["key"] for field in body["template_fields"]]
+    assert "reply_start" in keys
+    assert all(field["label"] and field["hint"] for field in body["template_fields"])
+    for name in ("chatml", "llama3", "mistral", "plain"):
+        assert set(body["template_presets"][name]) == set(keys), name
+    assert "custom" in body["templates"]
+
+
+def test_a_custom_template_survives_a_save(client, isolated_settings):
+    from app import config
+
+    spec = {"user_prefix": "### Instruction:\n", "reply_start": "### Response:\n"}
+    client.put("/api/settings", json={
+        "backends": [{"name": "echo", "kind": "echo", "model": "echo-1",
+                      "template": "custom", "template_spec": spec}],
+        "tiers": {"blocking": "echo", "foreground": "echo", "background": "echo"},
+    })
+    stored = config.SETTINGS.backend("echo")
+    assert stored.template == "custom"
+    assert stored.template_spec["user_prefix"] == "### Instruction:\n"
+    # Every box present, so the editor never renders an undefined input.
+    assert stored.template_spec["assistant_suffix"] == ""
+
+    # And it comes back out for the next page load.
+    echoed = client.get("/api/settings").json()["backends"][0]
+    assert echoed["template_spec"]["reply_start"] == "### Response:\n"
+
+
+def test_the_preview_uses_the_real_renderer(client):
+    """A preview drawn by a second implementation can lie, and being believed
+    is the only thing it is for."""
+    from app.main import PREVIEW_SAMPLE, PREVIEW_SYSTEM
+    from app.providers.templates import CUSTOM_PRESETS, render
+
+    body = client.post("/api/settings/template/preview", json={
+        "template": "custom", "template_spec": CUSTOM_PRESETS["chatml"],
+    }).json()
+    expected = render("custom", PREVIEW_SYSTEM, list(PREVIEW_SAMPLE), spec=CUSTOM_PRESETS["chatml"])
+    assert body["prompt"] == expected
+    assert body["characters"] == len(body["prompt"])
+    assert "<|im_end|>" in body["stop"]
+
+
+def test_the_preview_sample_exercises_every_box(client):
+    """A sample with no assistant turn would leave two boxes untestable from
+    the one place a user can actually see them."""
+    from app.main import PREVIEW_SAMPLE, PREVIEW_SYSTEM
+
+    assert PREVIEW_SYSTEM
+    assert {m["role"] for m in PREVIEW_SAMPLE} == {"user", "assistant"}
+
+
+def test_the_preview_does_not_consume_its_sample(client):
+    """It is a module-level list; rendering twice must show the same thing."""
+    first = client.post("/api/settings/template/preview", json={"template": "chatml"}).json()
+    second = client.post("/api/settings/template/preview", json={"template": "chatml"}).json()
+    assert first["prompt"] == second["prompt"]
+
+
+def test_the_preview_falls_back_to_an_empty_spec(client):
+    """Opening the editor before typing anything must still show something."""
+    body = client.post("/api/settings/template/preview", json={"template": "custom"}).json()
+    assert "Wren" in body["prompt"]
+    assert body["stop"] == []
+
+
+def test_the_preview_can_show_a_named_template_too(client):
+    from app.providers.templates import STOP_STRINGS
+
+    body = client.post("/api/settings/template/preview", json={"template": "llama3"}).json()
+    assert "<|begin_of_text|>" in body["prompt"]
+    assert body["stop"] == STOP_STRINGS["llama3"]
+
+
+def test_a_reply_really_goes_out_through_the_custom_template(client, isolated_settings):
+    """End to end: the boxes reach the provider, not just the settings file."""
+    from app import config, providers
+    from app.models import Sampling
+    from app.providers import GenRequest
+
+    client.put("/api/settings", json={
+        "backends": [{"name": "echo", "kind": "echo", "model": "echo-1",
+                      "template": "custom",
+                      "template_spec": {"user_prefix": "<<YOU>>", "user_suffix": "<</YOU>>",
+                                        "reply_start": "<<THEM>>"}}],
+        "tiers": {"blocking": "echo", "foreground": "echo", "background": "echo"},
+    })
+    provider = providers.build(config.SETTINGS.backend("echo"))
+    request = GenRequest(system="S", messages=[{"role": "user", "content": "hello"}])
+    prompt = request.prompt_text(provider.template(), provider.config.template_spec)
+    # The system prompt is unwrapped because those two boxes were left blank —
+    # blank means "no marker", not "drop the text".
+    assert prompt == "S<<YOU>>hello<</YOU>><<THEM>>", prompt
+    assert "<<YOU>>" in provider.stop_strings(Sampling())

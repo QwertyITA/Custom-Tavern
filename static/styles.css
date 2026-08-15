@@ -1356,3 +1356,35 @@ body {
 .msg:has(.bubble.clipping) {
   content-visibility: visible;
 }
+
+/* ------------------------------------------------------ template editor */
+
+.col-field.tight { margin-bottom: 8px; }
+.col-field.tight .kind-note { margin: 0; }
+/* Turn markers are punctuation soup; a monospace face is the difference
+   between reading them and squinting at them. */
+input.mono, .preview {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+input.mono {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 9px;
+  width: 100%;
+}
+.preview {
+  margin: 0 0 6px;
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 40vh;
+  overflow-y: auto;
+  color: var(--muted);
+}
+.preset-row .preset { font-size: 12px; text-transform: capitalize; }

@@ -8,7 +8,18 @@ from app.config import BackendConfig, KIND_DEFAULTS, VALID_KINDS, VALID_TEMPLATE
 from app.models import Sampling
 from app.providers import GenRequest, build
 from app.providers.horde import LIMITS, HordeProvider
-from app.providers.templates import TEMPLATES, guess_template, render
+from app.providers.templates import (
+    CUSTOM_FIELDS,
+    CUSTOM_KEYS,
+    CUSTOM_PRESETS,
+    TEMPLATES,
+    custom_fields,
+    custom_presets,
+    custom_spec,
+    guess_template,
+    render,
+    stop_for,
+)
 
 
 def horde_provider(**overrides) -> HordeProvider:
@@ -143,6 +154,111 @@ def test_template_guessing_matches_model_families():
 def test_every_named_template_renders():
     for name in TEMPLATES:
         assert render(name, "s", [{"role": "user", "content": "u"}])
+
+
+# ------------------------------------------------------- custom template
+
+
+SAMPLE = [
+    {"role": "user", "content": "U1"},
+    {"role": "assistant", "content": "A1"},
+    {"role": "user", "content": "U2"},
+]
+
+
+@pytest.mark.parametrize("name", ["chatml", "llama3", "plain"])
+def test_a_preset_reproduces_its_named_template_exactly(name):
+    """The presets are the point: they prove the eight boxes are enough to
+    express a real template, so filling them in is not a lesser path."""
+    assert render("custom", "SYS", SAMPLE, "pre", CUSTOM_PRESETS[name]) == render(
+        name, "SYS", SAMPLE, "pre"
+    )
+
+
+def test_the_mistral_preset_is_the_unfolded_variant():
+    """Built-in `mistral` folds the system prompt into the first instruction —
+    a rule, not a pair of strings, so the boxes cannot say it. The preset is
+    the other common shape, and the difference is deliberate."""
+    out = render("custom", "SYS", SAMPLE, spec=CUSTOM_PRESETS["mistral"])
+    assert out.startswith("<s>[INST] SYS [/INST]")
+    assert out != render("mistral", "SYS", SAMPLE)
+
+
+def test_custom_stops_come_from_the_boxes():
+    stops = stop_for("custom", CUSTOM_PRESETS["chatml"])
+    assert "<|im_end|>" in stops
+    assert any(s.startswith("<|im_start|>") for s in stops)
+
+
+def test_custom_stops_are_stripped_of_layout_whitespace():
+    """`<|im_end|>\\n` as a stop string waits for a newline the model may never
+    emit, so the reply runs on past the marker that was supposed to end it."""
+    assert all(s == s.strip() for s in stop_for("custom", CUSTOM_PRESETS["chatml"]))
+    assert "[/INST]" in stop_for("custom", CUSTOM_PRESETS["mistral"])
+
+
+def test_custom_stops_drop_empty_boxes():
+    spec = dict(CUSTOM_PRESETS["plain"])
+    assert "" not in stop_for("custom", spec)
+
+
+def test_a_half_filled_spec_still_renders():
+    """Someone will type into two boxes and hit send. It has to produce a
+    prompt, not a KeyError."""
+    out = render("custom", "SYS", SAMPLE, spec={"user_prefix": "### "})
+    assert "SYS" in out and "U1" in out and "A1" in out
+
+
+@pytest.mark.parametrize("junk", [None, {}, [], "nonsense", 3])
+def test_custom_spec_survives_junk(junk):
+    spec = custom_spec(junk)
+    assert set(spec) == set(CUSTOM_KEYS)
+    assert all(value == "" for value in spec.values())
+
+
+def test_every_preset_fills_every_box():
+    """A preset that omits a key would silently clear that box when picked."""
+    for name, spec in CUSTOM_PRESETS.items():
+        assert set(spec) == set(CUSTOM_KEYS), name
+
+
+def test_the_field_list_matches_the_keys():
+    """The editor draws itself from CUSTOM_FIELDS; a key with no field would be
+    invisible and unfillable."""
+    assert tuple(f["key"] for f in custom_fields()) == CUSTOM_KEYS
+    assert all(f["label"] and f["hint"] for f in custom_fields())
+
+
+def test_presets_and_fields_are_handed_out_as_copies():
+    """They are module constants; the API serialises them every request."""
+    custom_presets()["chatml"]["reply_start"] = "clobbered"
+    custom_fields()[0]["label"] = "clobbered"
+    assert CUSTOM_PRESETS["chatml"]["reply_start"] != "clobbered"
+    assert CUSTOM_FIELDS[0]["label"] != "clobbered"
+
+
+def test_a_backend_on_the_custom_template_stops_on_its_own_markers():
+    """The whole path: config -> provider.stop_strings -> the boxes."""
+    provider = horde_provider(template="custom", template_spec=CUSTOM_PRESETS["llama3"])
+    assert "<|eot_id|>" in provider.stop_strings(Sampling())
+
+
+def test_a_backend_renders_through_its_own_spec():
+    provider = horde_provider(template="custom", template_spec=CUSTOM_PRESETS["chatml"])
+    request = GenRequest(system="SYS", messages=[{"role": "user", "content": "hi"}])
+    assert request.prompt_text(provider.template(), provider.config.template_spec) == render(
+        "chatml", "SYS", [{"role": "user", "content": "hi"}]
+    )
+
+
+def test_an_unknown_spec_key_is_dropped_rather_than_rendered():
+    """Old settings files and hand-edited JSON both arrive here."""
+    spec = {**CUSTOM_PRESETS["plain"], "nonsense": "SHOULD NOT APPEAR"}
+    assert "SHOULD NOT APPEAR" not in render("custom", "SYS", SAMPLE, spec=spec)
+
+
+def test_custom_is_a_selectable_template():
+    assert "custom" in VALID_TEMPLATES
 
 
 # ------------------------------------------------------- model discovery

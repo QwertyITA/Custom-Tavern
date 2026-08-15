@@ -52,7 +52,7 @@ Everything else leans on these.
 
 ## Phase 3 — the prompt, made legible
 
-- [ ] **12. Instruct/context template editor.** Editable sequences — system
+- [x] **12. Instruct/context template editor.** Editable sequences — system
       prefix/suffix, user and assistant sequences, stop strings — presented so
       someone who has never heard the phrase "instruct template" can tell what
       each box does. Live preview of an assembled prompt.

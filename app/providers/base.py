@@ -44,8 +44,8 @@ class GenRequest:
     # routing and mocks never have to infer intent from prompt wording.
     pass_id: str = ""
 
-    def prompt_text(self, template: str) -> str:
-        return templates.render(template, self.system, self.messages, self.prefill)
+    def prompt_text(self, template: str, spec: dict | None = None) -> str:
+        return templates.render(template, self.system, self.messages, self.prefill, spec)
 
     def estimated_input_tokens(self) -> int:
         body = self.system + "".join(m["content"] for m in self.messages)
@@ -107,7 +107,7 @@ class Provider:
         stops.extend(getattr(self.config, "stop", []) or [])
         template = self.template()
         if template != "messages":
-            stops.extend(templates.stop_for(template))
+            stops.extend(templates.stop_for(template, getattr(self.config, "template_spec", None)))
         return [s for s in dict.fromkeys(stops) if s]  # de-dupe, keep order
 
     async def generate(self, request: GenRequest) -> GenResult:

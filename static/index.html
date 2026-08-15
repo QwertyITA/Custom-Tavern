@@ -548,6 +548,48 @@
                 </template>
               </select>
             </label>
+            <!-- Only for "custom". Every named template above is one of these
+                 with the boxes already filled in, which is why starting from
+                 one and changing a box is the way in. -->
+            <div class="fold" :class="{ open: b.template === 'custom' }">
+              <div class="fold-clip">
+                <p class="kind-note">
+                  How each turn is wrapped. Copy these from the model's own page —
+                  or start from one that is close and change what differs.
+                </p>
+                <div class="preset-row">
+                  <template x-for="name in Object.keys(settings.template_presets || {})" :key="name">
+                    <button class="preset" @click="useTemplatePreset(b, name)">
+                      <span x-text="name"></span>
+                    </button>
+                  </template>
+                </div>
+                <!-- The hint is the placeholder and nothing else. Printing it
+                     again under the box doubled the height of the editor, and
+                     eight boxes of that is a screen and a half of scrolling
+                     past text you have already read. -->
+                <template x-for="f in settings.template_fields || []" :key="f.key">
+                  <label class="col-field tight">
+                    <span class="row-label wide-label" x-text="f.label"></span>
+                    <input class="mono" :value="showEscapes((b.template_spec || {})[f.key])"
+                           @input="setTemplateField(b, f.key, $event.target.value)"
+                           :placeholder="f.hint" :title="f.hint"
+                           spellcheck="false" autocomplete="off">
+                  </label>
+                </template>
+                <button class="wide" @click="previewTemplate(b)">
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-eye"/></svg>
+                  <span x-text="previewFor === b.name ? 'Hide the preview' : 'Show me a real prompt'"></span>
+                </button>
+                <div class="fold" :class="{ open: previewFor === b.name }">
+                  <div class="fold-clip">
+                    <pre class="preview" x-text="previewText"></pre>
+                    <p class="kind-note" x-text="previewStop"></p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <label class="col-field">
               <span class="row-label wide-label">Stop at</span>
               <textarea rows="2" :value="(b.stop || []).join('\n')"
