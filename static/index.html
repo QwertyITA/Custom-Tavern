@@ -12,102 +12,175 @@
 <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
 <link rel="stylesheet" href="/static/styles.css">
 </head>
-<body x-data="tavern()" x-init="boot()" @keydown.escape="menu ? menu = false : closePanel()">
+<body x-data="tavern()" x-init="boot()" @keydown.escape="panelOpen ? closePanel() : (menu && (menu = false))">
 
-<!-- (1) pinned header: who you are talking to, then the menu, then the world
-     info. Three stacked rows rather than one, so the menu can open between the
-     name and the world line and push the world line down instead of covering
-     the conversation. -->
+<!-- Icon sprite. Every glyph in the app is defined once here and used by
+     reference, so the message tools, the action wheel and the menu cannot
+     drift into three different drawing styles — and so none of them depend on
+     which emoji font the phone happens to ship. All are stroked in
+     currentColor and inherit whatever the palette sets. -->
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <defs>
+    <g id="i-brain">
+      <path d="M12 5.4A3 3 0 0 0 6.4 4 2.8 2.8 0 0 0 4 6.7a3 3 0 0 0-.4 5.2A3 3 0 0 0 5 17a3 3 0 0 0 4.4 2.4A2.6 2.6 0 0 0 12 21z"/>
+      <path d="M12 5.4A3 3 0 0 1 17.6 4 2.8 2.8 0 0 1 20 6.7a3 3 0 0 1 .4 5.2A3 3 0 0 1 19 17a3 3 0 0 1-4.4 2.4A2.6 2.6 0 0 1 12 21z"/>
+      <path d="M12 5.4V21"/>
+    </g>
+    <g id="i-theme">
+      <circle cx="12" cy="12" r="8.4"/>
+      <path d="M12 3.6a8.4 8.4 0 0 1 0 16.8z" fill="currentColor" stroke="none"/>
+    </g>
+    <g id="i-chats">
+      <path d="M20.5 11.7c0 3.9-3.8 7-8.5 7-1 0-2-.15-2.9-.42L4 20l1.4-3.6a6.6 6.6 0 0 1-1.9-4.7c0-3.9 3.8-7 8.5-7s8.5 3.1 8.5 7z"/>
+    </g>
+    <g id="i-story">
+      <path d="M12 6.6C10.4 5.3 8.3 4.6 5.6 4.6H3.5v13h2.1c2.7 0 4.8.7 6.4 2 1.6-1.3 3.7-2 6.4-2h2.1v-13h-2.1c-2.7 0-4.8.7-6.4 2z"/>
+      <path d="M12 6.6v13"/>
+    </g>
+    <g id="i-menu">
+      <path d="M4 7h16M4 12h16M4 17h16"/>
+    </g>
+    <g id="i-place">
+      <path d="M12 21s6.5-5.7 6.5-10.2a6.5 6.5 0 0 0-13 0C5.5 15.3 12 21 12 21z"/>
+      <circle cx="12" cy="10.6" r="2.4"/>
+    </g>
+    <g id="i-weather">
+      <path d="M7.4 18.5h9.8a3.8 3.8 0 0 0 .5-7.6 5.6 5.6 0 0 0-10.8-1.2 3.9 3.9 0 0 0 .5 8.8z"/>
+    </g>
+    <g id="i-time">
+      <circle cx="12" cy="12" r="8.4"/>
+      <path d="M12 7.2V12l3.2 2"/>
+    </g>
+    <g id="i-refresh">
+      <path d="M20 12a8 8 0 1 1-2.4-5.7"/>
+      <path d="M20 4.2V9h-4.8"/>
+    </g>
+    <g id="i-edit">
+      <path d="M4 20h4l10-10a2.6 2.6 0 0 0-3.7-3.7L4.3 16.3z"/>
+      <path d="M14 6.6 17.4 10"/>
+    </g>
+    <g id="i-delete">
+      <path d="M4.8 7h14.4"/>
+      <path d="M9.4 7V5.2A1.2 1.2 0 0 1 10.6 4h2.8a1.2 1.2 0 0 1 1.2 1.2V7"/>
+      <path d="M6.6 7l.9 12.1A1.9 1.9 0 0 0 9.4 21h5.2a1.9 1.9 0 0 0 1.9-1.9L17.4 7"/>
+      <path d="M10.4 11v6M13.6 11v6"/>
+    </g>
+    <g id="i-copy">
+      <rect x="9" y="9" width="11" height="11" rx="2.2"/>
+      <path d="M15 6.2A2.2 2.2 0 0 0 12.8 4H6.2A2.2 2.2 0 0 0 4 6.2v6.6A2.2 2.2 0 0 0 6.2 15"/>
+    </g>
+    <g id="i-suggest">
+      <path d="M6 18 18.4 5.6a2 2 0 0 0-2.8-2.8L3.2 15.2 2.4 19.4z"/>
+      <path d="M19 14.4l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z"/>
+    </g>
+    <g id="i-react">
+      <circle cx="12" cy="12" r="8.4"/>
+      <path d="M8.6 14.2a4.4 4.4 0 0 0 6.8 0"/>
+      <path d="M9 9.6h.01M15 9.6h.01" stroke-width="2.4"/>
+    </g>
+    <g id="i-check"><path d="M4.8 12.6 9.6 17.4 19.2 6.6"/></g>
+    <g id="i-close"><path d="M6 6l12 12M18 6 6 18"/></g>
+    <g id="i-back"><path d="M14.6 5.4 8 12l6.6 6.6"/></g>
+    <g id="i-plus"><path d="M12 5v14M5 12h14"/></g>
+    <g id="i-scales">
+      <path d="M12 4v16M7 20h10"/>
+      <path d="M12 6.6 5 9M12 6.6 19 9"/>
+      <path d="M2.6 14.4 5 9l2.4 5.4a2.6 2.6 0 0 1-4.8 0zM16.6 14.4 19 9l2.4 5.4a2.6 2.6 0 0 1-4.8 0z"/>
+    </g>
+    <!-- Stands in for a character with no portrait: a head and shoulders, so
+         the roster stays a column of faces rather than a ragged list. -->
+    <g id="i-person">
+      <circle cx="12" cy="9" r="3.6"/>
+      <path d="M4.8 20.4a7.4 7.4 0 0 1 14.4 0"/>
+    </g>
+  </defs>
+</svg>
+
+<!-- (1) pinned header: everything identifying the conversation on one line —
+     the menu, who you are talking to, and where they are. The menu row opens
+     underneath it. -->
 <header class="worldbar">
 
   <div class="bar-row">
-    <button class="icon-btn glyph" :class="{ on: menu }" @click="menu = !menu"
+    <button class="icon-btn" :class="{ on: menu }" @click="menu = !menu"
             :aria-expanded="menu" aria-controls="main-menu"
-            aria-label="Menu" title="Menu">☰&#xFE0E;</button>
-    <span class="who" x-text="character ? character.name : '—'"></span>
+            aria-label="Menu" title="Menu">
+      <svg class="icon" viewBox="0 0 24 24"><use href="#i-menu"/></svg>
+    </button>
+
+    <span class="who" x-text="character ? character.name : ''"></span>
+
+    <!-- Hidden entirely until a scene exists. Three em-dashes said nothing
+         except that the app had not got round to it yet. -->
+    <div class="world-fields" x-show="hasScene" x-cloak>
+      <span class="field" :class="{ refreshing: refreshing.scene }"
+            :title="`Place: ${scene.place || 'unknown'}`" x-show="scene.place">
+        <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-place"/></svg>
+        <span class="field-value" x-text="scene.place"></span>
+      </span>
+      <span class="field" :class="{ refreshing: refreshing.scene }"
+            :title="`Weather: ${scene.weather || 'unknown'}`" x-show="scene.weather">
+        <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-weather"/></svg>
+        <span class="field-value" x-text="scene.weather"></span>
+      </span>
+      <span class="field" :class="{ refreshing: refreshing.scene }"
+            :title="`Time: ${scene.time || 'unknown'}`" x-show="scene.time">
+        <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-time"/></svg>
+        <span class="field-value" x-text="scene.time"></span>
+      </span>
+    </div>
+
+    <!-- The scene pass only fires when a reply suggests the setting moved.
+         That is right nearly always, and wrong exactly when you are looking at
+         a stale line and can see that it is stale. Before there is any line at
+         all this is also the way to ask for one. -->
+    <button class="icon-btn refresh" :class="{ spinning: refreshing.scene }"
+            @click="refreshWorld()" :disabled="refreshing.scene || !chatId"
+            :aria-label="hasScene ? 'Refresh world info' : 'Generate world info'"
+            :title="hasScene ? 'Refresh world info' : 'Generate world info'">
+      <svg class="icon" viewBox="0 0 24 24"><use href="#i-refresh"/></svg>
+    </button>
   </div>
 
   <!-- The row of destinations. Collapsed to nothing until the menu opens; see
-       the grid-rows note in styles.css for why it animates the way it does. -->
+       the grid-rows note in styles.css for why it animates the way it does.
+       It stays open once opened — picking a destination is usually the first
+       of several, and collapsing it underneath the user each time made the
+       header jump for no reason they asked for. -->
   <div class="menu-wrap" :class="{ open: menu }" id="main-menu">
     <div class="menu-clip">
-      <!-- Inline SVG rather than emoji: an emoji is drawn by whichever font
-           the phone happens to have, so the four of them arrive in different
-           weights and refuse to take the theme colour. These are stroked in
-           currentColor and match whatever the palette is set to. -->
       <nav class="menu-row">
-        <button class="menu-btn" :class="{ on: panel === 'brain' }" @click="openPanel('brain')"
+        <button class="menu-btn" :class="{ on: panelOpen && panel === 'brain' }" @click="openPanel('brain')"
                 aria-label="Model and engine" title="Model and engine">
-          <svg class="menu-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-               stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M12 5.4A3 3 0 0 0 6.4 4 2.8 2.8 0 0 0 4 6.7a3 3 0 0 0-.4 5.2A3 3 0 0 0 5 17a3 3 0 0 0 4.4 2.4A2.6 2.6 0 0 0 12 21z"/>
-            <path d="M12 5.4A3 3 0 0 1 17.6 4 2.8 2.8 0 0 1 20 6.7a3 3 0 0 1 .4 5.2A3 3 0 0 1 19 17a3 3 0 0 1-4.4 2.4A2.6 2.6 0 0 1 12 21z"/>
-            <path d="M12 5.4V21"/>
-          </svg>
-          <span class="menu-label">brain</span>
+          <svg class="menu-glyph" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-brain"/></svg>
+          <span class="menu-label">Brain</span>
         </button>
-        <button class="menu-btn" :class="{ on: panel === 'theme' }" @click="openPanel('theme')"
+        <button class="menu-btn" :class="{ on: panelOpen && panel === 'theme' }" @click="openPanel('theme')"
                 aria-label="Appearance" title="Appearance">
-          <svg class="menu-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-               stroke-width="1.6" aria-hidden="true">
-            <circle cx="12" cy="12" r="8.4"/>
-            <path d="M12 3.6a8.4 8.4 0 0 1 0 16.8z" fill="currentColor" stroke="none"/>
-          </svg>
-          <span class="menu-label">theme</span>
+          <svg class="menu-glyph" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-theme"/></svg>
+          <span class="menu-label">Theme</span>
         </button>
-        <button class="menu-btn" :class="{ on: panel === 'chats' }" @click="openPanel('chats')"
+        <button class="menu-btn" :class="{ on: panelOpen && panel === 'chats' }" @click="openPanel('chats')"
                 aria-label="Characters and chats" title="Characters and chats">
-          <svg class="menu-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-               stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M20.5 11.7c0 3.9-3.8 7-8.5 7-1 0-2-.15-2.9-.42L4 20l1.4-3.6a6.6 6.6 0 0 1-1.9-4.7c0-3.9 3.8-7 8.5-7s8.5 3.1 8.5 7z"/>
-          </svg>
-          <span class="menu-label">chats</span>
+          <svg class="menu-glyph" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chats"/></svg>
+          <span class="menu-label">Chats</span>
         </button>
-        <button class="menu-btn" :class="{ on: panel === 'story' }" @click="openPanel('story')"
+        <button class="menu-btn" :class="{ on: panelOpen && panel === 'story' }" @click="openPanel('story')"
                 aria-label="Story state" title="Story state">
-          <svg class="menu-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-               stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M12 6.6C10.4 5.3 8.3 4.6 5.6 4.6H3.5v13h2.1c2.7 0 4.8.7 6.4 2 1.6-1.3 3.7-2 6.4-2h2.1v-13h-2.1c-2.7 0-4.8.7-6.4 2z"/>
-            <path d="M12 6.6v13"/>
-          </svg>
-          <span class="menu-label">story</span>
+          <svg class="menu-glyph" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-story"/></svg>
+          <span class="menu-label">Story</span>
         </button>
       </nav>
     </div>
-  </div>
-
-  <div class="bar-row world-row">
-    <div class="world-fields">
-      <span class="field" :class="{ refreshing: refreshing.scene }">
-        <span class="field-label">place</span>
-        <span class="field-value" x-text="scene.place || '—'"></span>
-      </span>
-      <span class="sep">·</span>
-      <span class="field" :class="{ refreshing: refreshing.scene }">
-        <span class="field-label">weather</span>
-        <span class="field-value" x-text="scene.weather || '—'"></span>
-      </span>
-      <span class="sep">·</span>
-      <span class="field" :class="{ refreshing: refreshing.scene }">
-        <span class="field-label">time</span>
-        <span class="field-value" x-text="scene.time || '—'"></span>
-      </span>
-    </div>
-    <!-- The scene pass only fires when a reply suggests the setting moved.
-         That is right nearly always, and wrong exactly when you are looking
-         at a stale line and can see that it is stale. -->
-    <button class="icon-btn glyph refresh" :class="{ spinning: refreshing.scene }"
-            @click="refreshWorld()" :disabled="refreshing.scene || !chatId"
-            aria-label="Refresh world info" title="Refresh world info">⟳&#xFE0E;</button>
   </div>
 </header>
 
 <!-- pass-status HUD (debug, toggleable) (§12) -->
 <section class="hud" x-show="hud" x-cloak>
   <div class="hud-head">
-    <span>turn <b x-text="turn"></b></span>
-    <span x-text="`${totals.tokens_in + totals.tokens_out} tok this chat`"></span>
-    <button class="link" @click="loadCost()">cost ▾</button>
+    <span>Turn <b x-text="turn"></b></span>
+    <span x-text="`${totals.tokens_in + totals.tokens_out} tokens this chat`"></span>
+    <button class="link" @click="loadCost()">Cost ▾</button>
   </div>
   <template x-for="run in hudRuns" :key="run.id">
     <div class="hud-row" :class="'status-' + run.status">
@@ -120,10 +193,10 @@
       <span class="hud-err" x-show="run.error" x-text="run.error"></span>
     </div>
   </template>
-  <div class="hud-empty" x-show="hudRuns.length === 0">no passes yet this turn</div>
+  <div class="hud-empty" x-show="hudRuns.length === 0">No passes yet this turn</div>
 
   <div class="cost" x-show="cost.per_pass.length" x-cloak>
-    <div class="cost-head">spend per pass — proves the gating works</div>
+    <div class="cost-head">Spend per pass — proves the gating works</div>
     <template x-for="row in cost.per_pass" :key="row.pass_id">
       <div class="cost-row">
         <span x-text="row.pass_id"></span>
@@ -143,7 +216,7 @@
      remember to scroll (see initScroll). -->
 <div class="chat-inner" x-init="initScroll($el)">
   <template x-for="m in messages" :key="m.id">
-    <article class="msg" :class="m.role">
+    <article class="msg" :class="[m.role, sendingId === m.id ? 'sending' : '']">
       <img class="pfp" x-show="m.role === 'assistant' && portrait" :src="portrait" alt=""
            @error="$el.style.visibility = 'hidden'">
       <!-- Swipe the message itself to change variant: left forward, right back
@@ -151,10 +224,11 @@
       <div class="bubble" :data-mid="m.id"
            :class="{ swipeable: swipeable(m), dragging: dragId === m.id }"
            :style="dragId === m.id ? `transform: translateX(${dragDx}px)` : ''"
-           @pointerdown="onSwipeStart($event, m)"
-           @pointermove="onSwipeMove($event, m)"
-           @pointerup="onSwipeEnd($event, m)"
-           @pointercancel="dragStart = null; dragId = null; dragDx = 0">
+           @pointerdown="onMsgDown($event, m)"
+           @pointermove="onMsgMove($event, m)"
+           @pointerup="onMsgUp($event, m)"
+           @pointercancel="onMsgCancel()"
+           @contextmenu.prevent>
         <span class="swipe-hint" x-show="swipeHint(m)" x-text="swipeHint(m)" x-cloak></span>
 
         <!-- Regenerating replaces this message in place: the bubble becomes the
@@ -169,31 +243,58 @@
                   :style="editHeight ? `min-height:${editHeight}px` : ''"
                   @input="autosize($event.target)" x-cloak></textarea>
 
-        <div class="msg-tools" x-show="m.role === 'assistant' && !streaming">
+        <!-- Both roles get tools now. There is no regenerate button: the
+             right-arrow and the swipe gesture already do exactly that, and a
+             third control for it was the odd one out. Everything else lives in
+             the hold-to-open wheel; these are the two or three worth having
+             one tap away. -->
+        <div class="msg-tools" x-show="!streaming">
           <template x-if="editing !== m.id">
             <div class="tools-row">
-              <button class="glyph-btn" @click="startEdit(m, $el)" title="Edit" aria-label="Edit">✎&#xFE0E;</button>
-              <button class="glyph-btn" @click="swipe(m)" :disabled="streaming"
-                      title="Regenerate" aria-label="Regenerate">⟳&#xFE0E;</button>
-              <span class="variants" x-show="m.variant_count > 1">
+              <button class="glyph-btn" @click="startEdit(m, $el)" title="Edit" aria-label="Edit">
+                <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-edit"/></svg>
+              </button>
+              <button class="glyph-btn danger" :class="{ armed: confirmMsg === m.id }"
+                      @click="deleteMessage(m)"
+                      :title="confirmMsg === m.id ? 'Tap again to delete' : 'Delete'"
+                      aria-label="Delete">
+                <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-delete"/></svg>
+              </button>
+              <!-- Always shown on a reply, even at 1/1. The right arrow past
+                   the last variant is what generates another, so hiding these
+                   until a second one exists left the first reply with no way
+                   to be re-rolled except the swipe. -->
+              <span class="variants" x-show="m.role === 'assistant'">
                 <button class="glyph-btn" @click="goToVariant(m, -1)"
                         :disabled="(m.variant_index || 0) === 0"
-                        title="Previous variant" aria-label="Previous variant">‹</button>
+                        title="Previous variant" aria-label="Previous variant">
+                  <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-back"/></svg>
+                </button>
                 <span class="variant-count" x-text="`${(m.variant_index||0)+1}/${m.variant_count}`"></span>
-                <button class="glyph-btn" @click="goToVariant(m, 1)"
-                        title="Next variant" aria-label="Next variant">›</button>
+                <button class="glyph-btn flip" @click="goToVariant(m, 1)"
+                        title="Next variant" aria-label="Next variant">
+                  <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-back"/></svg>
+                </button>
               </span>
-              <span class="edited" x-show="m.edited" title="Edited">✎&#xFE0E;</span>
+              <span class="edited" x-show="m.edited" title="Edited">
+                <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-edit"/></svg>
+              </span>
             </div>
           </template>
           <template x-if="editing === m.id">
             <div class="tools-row">
               <button class="glyph-btn ok" @click="saveEdit(m, false)"
-                      title="Save" aria-label="Save">✓&#xFE0E;</button>
-              <button class="glyph-btn" @click="saveEdit(m, true)"
-                      title="Save and re-run the state auditor" aria-label="Save and re-audit">⚖&#xFE0E;</button>
+                      title="Save" aria-label="Save">
+                <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-check"/></svg>
+              </button>
+              <button class="glyph-btn" x-show="m.role === 'assistant'" @click="saveEdit(m, true)"
+                      title="Save and re-run the state auditor" aria-label="Save and re-audit">
+                <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-scales"/></svg>
+              </button>
               <button class="glyph-btn danger" @click="cancelEdit()"
-                      title="Discard changes" aria-label="Discard changes">✕&#xFE0E;</button>
+                      title="Discard changes" aria-label="Discard changes">
+                <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-close"/></svg>
+              </button>
             </div>
           </template>
         </div>
@@ -215,10 +316,41 @@
 
   <div class="banner error" x-show="error" x-cloak>
     <span x-text="error"></span>
-    <button class="link" @click="error = ''">dismiss</button>
+    <button class="link" @click="error = ''">Dismiss</button>
   </div>
 </div>
 </main>
+
+<!-- Hold a message to open this. Two ways to choose, and the wheel does not
+     have to guess which one is happening: keep holding and slide onto an
+     option, or let go where you are and the names appear for tapping. -->
+<div class="wheel-layer" x-show="wheel" x-cloak
+     @pointerup.self="closeWheel()" @click.self="closeWheel()">
+  <template x-if="wheel">
+    <div class="wheel" :class="{ released: wheel.released }"
+         :style="`left:${wheel.cx}px; top:${wheel.cy}px`">
+      <span class="wheel-hub" :class="{ dimmed: wheel.active >= 0 }"></span>
+      <template x-for="(o, i) in wheel.options" :key="o.id">
+        <button class="wheel-opt"
+                :class="{ active: wheel.active === i, danger: o.danger, soon: o.soon }"
+                :style="`--dx:${o.dx}px; --dy:${o.dy}px; --i:${i}`"
+                @click="pickWheel(o)" :aria-label="o.label" :title="o.label">
+          <span class="wheel-disc">
+            <svg class="wheel-glyph" viewBox="0 0 24 24" aria-hidden="true"><use :href="o.icon"/></svg>
+          </span>
+          <span class="wheel-label" x-text="o.label"></span>
+        </button>
+      </template>
+    </div>
+  </template>
+</div>
+
+<!-- One line of feedback for things with no other visible result. -->
+<div class="hint-toast" x-show="wheelHint" x-cloak x-text="wheelHint"
+     x-transition:enter="hint-enter" x-transition:enter-start="hint-from"
+     x-transition:enter-end="hint-to"
+     x-transition:leave="hint-leave" x-transition:leave-start="hint-to"
+     x-transition:leave-end="hint-from"></div>
 
 <!-- ambient indicator: a background pass is working, no character-thinking cue -->
 <div class="ambient" x-show="ambient.length" x-cloak>
@@ -229,7 +361,7 @@
 
 <!-- (4) composer -->
 <footer class="composer">
-  <textarea x-model="draft" rows="1" placeholder="say something…"
+  <textarea x-model="draft" rows="1" placeholder="Say something…"
             @keydown.enter.prevent="if (!$event.shiftKey) send()"
             @input="autosize($event.target)" x-ref="input"></textarea>
   <button class="send" @click="send()" :disabled="streaming || !draft.trim()">↑</button>
@@ -238,7 +370,11 @@
 <!-- Every destination in the menu opens the same sheet with a different body.
      One sheet rather than four: they share the head, the scroll behaviour and
      the safe-area padding, and only ever one is on screen. -->
-<section class="sheet" x-show="panel" x-cloak>
+<section class="sheet" x-show="panelOpen" x-cloak
+         x-transition:enter="sheet-enter" x-transition:enter-start="sheet-from"
+         x-transition:enter-end="sheet-to"
+         x-transition:leave="sheet-leave" x-transition:leave-start="sheet-to"
+         x-transition:leave-end="sheet-from">
   <header class="sheet-head">
     <button class="icon-btn" x-show="panel === 'character'" @click="panel = 'chats'"
             aria-label="Back">‹</button>
@@ -276,19 +412,23 @@
         <template x-for="(b, i) in settings.backends" :key="i">
           <div class="backend">
             <div class="backend-head">
-              <input class="grow" x-model="b.name" placeholder="name" aria-label="Backend name">
+              <!-- Not x-model: the rename has to see the old name to move the
+                   tiers that point at it, and x-model would have overwritten
+                   it first. -->
+              <input class="grow" :value="b.name" @input="renameBackend(b, $event.target.value)"
+                     placeholder="Name" aria-label="Backend name">
               <select x-model="b.kind" @change="onKindChange(b)">
                 <template x-for="k in settings.kinds" :key="k">
                   <option :value="k" x-text="k"></option>
                 </template>
               </select>
               <button class="link danger" @click="removeBackend(i)"
-                      :disabled="settings.backends.length < 2">remove</button>
+                      :disabled="settings.backends.length < 2">Remove</button>
             </div>
 
             <p class="kind-note" x-show="kindNote(b.kind)" x-text="kindNote(b.kind)"></p>
 
-            <label class="row"><span class="row-label">model</span>
+            <label class="row"><span class="row-label">Model</span>
               <!-- datalist, not select: the options are what the backend reports,
                    but a model you are about to pull must still be typeable. -->
               <input x-model="b.model" :list="`models-${i}`" placeholder="llama3.1:8b"
@@ -299,18 +439,18 @@
                 </template>
               </datalist>
               <button class="link" @click.prevent="loadModels(b)" :disabled="loadingModels === b.name">
-                <span x-text="loadingModels === b.name ? '…' : 'load'"></span>
+                <span x-text="loadingModels === b.name ? '…' : 'Load'"></span>
               </button>
             </label>
             <p class="kind-note" x-show="modelHint(b.name)" x-text="modelHint(b.name)"></p>
-            <label class="row" x-show="b.kind !== 'echo'"><span class="row-label">url</span>
+            <label class="row" x-show="b.kind !== 'echo'"><span class="row-label">URL</span>
               <input x-model="b.base_url" placeholder="http://100.x.y.z:11434" inputmode="url"></label>
             <label class="row" x-show="b.kind === 'openai' || b.kind === 'horde'">
-              <span class="row-label">key</span>
+              <span class="row-label">Key</span>
               <input type="password" x-model="b.api_key" autocomplete="off"
                      spellcheck="false" :placeholder="b.kind === 'horde' ? '0000000000 for anonymous' : 'API key'">
             </label>
-            <label class="row"><span class="row-label">template</span>
+            <label class="row"><span class="row-label">Template</span>
               <select x-model="b.template">
                 <template x-for="t in settings.templates" :key="t">
                   <option :value="t" x-text="t"></option>
@@ -320,7 +460,7 @@
 
             <div class="backend-foot">
               <button class="link" @click="testBackend(b)" :disabled="testing === b.name">
-                <span x-text="testing === b.name ? 'testing…' : 'test connection'"></span>
+                <span x-text="testing === b.name ? 'Testing…' : 'Test connection'"></span>
               </button>
               <span class="test-result" :class="{ ok: (tests[b.name]||{}).ok, bad: tests[b.name] && !tests[b.name].ok }"
                     x-show="tests[b.name]" x-text="testLabel(b.name)"></span>
@@ -328,7 +468,7 @@
           </div>
         </template>
 
-        <button class="wide" @click="addBackend()">+ add backend</button>
+        <button class="wide" @click="addBackend()">Add backend</button>
 
         <h3>Context</h3>
         <p class="note">
@@ -371,13 +511,13 @@
               <span class="pass-tier" x-text="p.model_tier"></span>
             </div>
             <div class="pass-nums">
-              <label><span>temp</span>
+              <label><span>Temp</span>
                 <input type="number" min="0" max="2" step="0.05"
                        :value="p.sampling.temp" @input="setSampling(p, 'temp', $event.target.value)"></label>
-              <label><span>top&nbsp;p</span>
+              <label><span>Top&nbsp;p</span>
                 <input type="number" min="0" max="1" step="0.05"
                        :value="p.sampling.top_p" @input="setSampling(p, 'top_p', $event.target.value)"></label>
-              <label><span>max&nbsp;tok</span>
+              <label><span>Max&nbsp;tokens</span>
                 <input type="number" min="1" max="8192" step="1"
                        :value="p.sampling.max_tokens" @input="setSampling(p, 'max_tokens', $event.target.value)"></label>
             </div>
@@ -387,7 +527,7 @@
 
         <div class="sheet-actions">
           <button class="wide primary" @click="saveSettings()" :disabled="saving">
-            <span x-text="saving ? 'saving…' : 'save'"></span>
+            <span x-text="saving ? 'Saving…' : 'Save'"></span>
           </button>
           <span class="save-msg" :class="{ bad: saveError }" x-text="saveError || saveMsg"></span>
         </div>
@@ -402,7 +542,7 @@
         <label class="row theme-row">
           <span class="row-label wide-label">Backdrop</span>
           <select :value="settings.background" @change="setBackground($event.target.value)">
-            <option value="none">none</option>
+            <option value="none">None</option>
             <template x-for="file in settings.backgrounds || []" :key="file">
               <option :value="file" x-text="file.replace(/\.[^.]+$/, '')"></option>
             </template>
@@ -439,11 +579,11 @@
             </template>
           </div>
         </template>
-        <button class="wide" @click="resetTheme()">reset appearance to defaults</button>
+        <button class="wide" @click="resetTheme()">Reset appearance to defaults</button>
 
         <div class="sheet-actions">
           <button class="wide primary" @click="saveSettings()" :disabled="saving">
-            <span x-text="saving ? 'saving…' : 'save'"></span>
+            <span x-text="saving ? 'Saving…' : 'Save'"></span>
           </button>
           <span class="save-msg" :class="{ bad: saveError }" x-text="saveError || saveMsg"></span>
         </div>
@@ -461,11 +601,18 @@
         <template x-for="c in characters" :key="c.id">
           <div class="char" :class="{ current: c.id === characterId }">
             <div class="char-head">
-              <!-- A card can name a portrait file that was never copied in.
-                   In a list the row should close up around it rather than
-                   keep a hole where the picture would have been. -->
-              <img class="char-pfp" x-show="c.pfp" :src="`/static/characters/${c.pfp}`" alt=""
-                   @error="$el.style.display = 'none'">
+              <!-- Every row gets a portrait slot, filled or not: a card can
+                   name an image that was never copied in, and a character
+                   written here has none at all. The fallback sits underneath
+                   and the photo covers it when there is one, so a broken image
+                   reveals the placeholder instead of leaving a hole. -->
+              <span class="char-pfp">
+                <svg class="char-pfp-generic" viewBox="0 0 24 24" aria-hidden="true">
+                  <use href="#i-person"/>
+                </svg>
+                <img x-show="c.pfp" :src="`/static/characters/${c.pfp}`" alt=""
+                     @error="$el.style.display = 'none'">
+              </span>
               <div class="char-id">
                 <span class="char-name" x-text="c.name"></span>
                 <span class="char-meta" x-text="`${c.chats} chat${c.chats === 1 ? '' : 's'}`"></span>
@@ -498,12 +645,12 @@
                           x-text="confirmChat === chat.id ? '⚠&#xFE0E;' : '✕&#xFE0E;'"></button>
                 </li>
               </template>
-              <li class="chat-empty" x-show="!chatsFor(c.id).length">no chats yet</li>
+              <li class="chat-empty" x-show="!chatsFor(c.id).length">No chats yet</li>
             </ul>
           </div>
         </template>
 
-        <button class="wide" @click="newCharacter()">+ new character</button>
+        <button class="wide" @click="newCharacter()">New character</button>
         <p class="note">
           Importing a card still works — drop it in <code>data/characters/</code> and
           restart. A character written here starts blank.
@@ -519,7 +666,7 @@
           are kept as they are — editing here only rewrites the text below.
         </p>
         <label class="row col-row"><span class="row-label wide-label">Name</span>
-          <input x-model="draftCharacter.name" placeholder="name"></label>
+          <input x-model="draftCharacter.name" placeholder="Name"></label>
         <label class="col-field"><span class="row-label wide-label">Persona</span>
           <textarea x-model="draftCharacter.persona" rows="6"
                     placeholder="Who they are, how they speak, what they want."></textarea></label>
@@ -538,7 +685,7 @@
 
         <div class="sheet-actions">
           <button class="wide primary" @click="saveCharacter()" :disabled="savingCharacter">
-            <span x-text="savingCharacter ? 'saving…' : 'save character'"></span>
+            <span x-text="savingCharacter ? 'Saving…' : 'Save character'"></span>
           </button>
           <span class="save-msg" :class="{ bad: charError }" x-text="charError || charMsg"></span>
         </div>
@@ -557,7 +704,7 @@
               <span class="band-guide" x-text="b.guidance"></span>
             </div>
           </template>
-          <div class="provisional" x-show="stateProvisional">provisional — auditor pending</div>
+          <div class="provisional" x-show="stateProvisional">Provisional — auditor pending</div>
         </div>
 
         <h3>Toggles</h3>
@@ -569,12 +716,12 @@
         </template>
 
         <h3>Summary</h3>
-        <p class="summary" x-text="summary.text || 'nothing summarised yet'"></p>
+        <p class="summary" x-text="summary.text || 'Nothing summarised yet'"></p>
 
         <h3>Debug</h3>
         <label class="toggle">
           <input type="checkbox" x-model="hud">
-          <span>Pass HUD &amp; cost</span>
+          <span>Pass HUD and cost</span>
         </label>
       </div>
     </template>

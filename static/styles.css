@@ -35,6 +35,17 @@
      accent in settings cannot leave an unreadable button behind. */
   --on-accent: #ffffff;
 
+  /* Motion. Nothing in this app moves linearly: a linear transition is the
+     one curve nothing in the physical world follows, and it reads as a slide
+     show rather than as something moving. Use these rather than writing a
+     bezier inline, so the whole interface accelerates the same way.
+       --ease-out     things arriving: fast, then settling
+       --ease-in-out  things travelling between two places
+       --ease-back    things appearing, with a slight overshoot to land on */
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
+  --ease-in-out: cubic-bezier(.65, 0, .35, 1);
+  --ease-back: cubic-bezier(.34, 1.56, .64, 1);
+
   --radius: 10px;
   --font-size: 15px;
   --bubble-max: 86%;
@@ -79,21 +90,21 @@ body {
 .worldbar {
   display: flex;
   flex-direction: column;
-  padding: calc(6px + var(--safe-top)) 10px 6px;
+  padding: calc(6px + var(--safe-top)) 8px 6px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   position: sticky;
   top: 0;
   z-index: 5;
 }
-.bar-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.world-row { padding-top: 2px; }
+/* One line: menu, who, where. Each side is fixed-width and the two text runs
+   share what is left, so a long character name and a long place shrink
+   together instead of one of them pushing the other off the row. */
+.bar-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
 
-/* Who you are talking to. First thing in the header because on a phone the
-   portrait is small and easy to lose track of. */
 .who {
-  flex: 1;
-  min-width: 0;
+  flex: 0 1 auto;
+  min-width: 3.5em;
   font-size: 14px;
   font-weight: 600;
   color: var(--text);
@@ -102,10 +113,26 @@ body {
   white-space: nowrap;
 }
 
+/* ------------------------------------------------------------- icons */
+
+/* The sprite itself never renders; it only holds the definitions. */
+.sprite { display: none; }
+.icon, .icon-sm, .menu-glyph, .wheel-glyph {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  display: block;
+  flex: none;
+}
+.icon { width: 20px; height: 20px; }
+.icon-sm { width: 14px; height: 14px; opacity: .75; }
+.menu-glyph { width: 21px; height: 21px; }
+
 /* ------------------------------------------------------------ main menu */
 
-/* Opening the menu eases the row of destinations down and carries the world
-   line with it, rather than covering the conversation with a panel.
+/* Opening the menu eases the row of destinations down under the header.
  *
  * The height animates through grid-template-rows: 0fr -> 1fr. Every other way
  * of doing this is worse here. A fixed max-height has to be guessed, and the
@@ -117,7 +144,7 @@ body {
 .menu-wrap {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 260ms cubic-bezier(.4, 0, .2, 1);
+  transition: grid-template-rows 280ms var(--ease-out);
 }
 .menu-wrap.open { grid-template-rows: 1fr; }
 /* The grid child must be able to go to zero height, which means its own
@@ -125,11 +152,7 @@ body {
    while the track collapses around them. */
 .menu-clip { overflow: hidden; min-height: 0; }
 
-.menu-row {
-  display: flex;
-  gap: 6px;
-  padding: 8px 0 6px;
-}
+.menu-row { display: flex; gap: 6px; padding: 8px 2px 4px; }
 .menu-btn {
   flex: 1;
   display: flex;
@@ -143,56 +166,52 @@ body {
   color: var(--muted);
   /* Each button slides in behind the opening row, staggered left to right, so
      the menu reads as one movement rather than four boxes appearing. */
-  transform: translateY(-6px);
+  transform: translateY(-8px) scale(.96);
   opacity: 0;
-  transition: transform 240ms cubic-bezier(.4, 0, .2, 1),
-              opacity 200ms ease,
-              color 140ms ease,
-              border-color 140ms ease;
+  transition: transform 260ms var(--ease-back),
+              opacity 200ms var(--ease-out),
+              color 140ms var(--ease-out),
+              border-color 140ms var(--ease-out);
 }
 .menu-wrap.open .menu-btn { transform: none; opacity: 1; }
-.menu-wrap.open .menu-btn:nth-child(2) { transition-delay: 40ms; }
-.menu-wrap.open .menu-btn:nth-child(3) { transition-delay: 80ms; }
-.menu-wrap.open .menu-btn:nth-child(4) { transition-delay: 120ms; }
+.menu-wrap.open .menu-btn:nth-child(2) { transition-delay: 45ms; }
+.menu-wrap.open .menu-btn:nth-child(3) { transition-delay: 90ms; }
+.menu-wrap.open .menu-btn:nth-child(4) { transition-delay: 135ms; }
 .menu-btn.on { color: var(--accent); border-color: var(--accent); background: var(--panel); }
-.menu-glyph { width: 21px; height: 21px; display: block; }
 .menu-label { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
 
 .icon-btn.refresh { flex: none; }
+/* A continuous rotation is the one thing that must stay linear — easing it
+   makes the spinner hesitate once per turn. */
 .icon-btn.refresh.spinning { animation: spin 1.1s linear infinite; color: var(--accent); }
 .icon-btn.on { color: var(--accent); }
 
 .world-fields {
-  flex: 1;
+  flex: 1 1 auto;
   display: flex;
-  align-items: baseline;
-  gap: 6px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: 12px;
 }
 
-.field { display: inline-flex; align-items: baseline; gap: 5px; min-width: 0; }
-/* Labels are for screen readers and wide screens; on a phone the three values
-   need every pixel, so they collapse away rather than truncating the values. */
-.field-label { display: none; }
+/* Each reading is its own icon-and-value pair. The icon says which reading it
+   is, so the words "place", "weather" and "time" no longer have to fit on the
+   row beside three values and a name. */
+/* Place gets twice the room of the other two: a room name is several words and
+   carries the most, while weather and time are usually one or two. Splitting
+   the row evenly truncated all three to nothing in particular. */
+.field { display: inline-flex; align-items: center; gap: 3px; min-width: 0; flex: 1 1 auto; }
+.field:first-child { flex: 2 1 auto; }
 .field-value { color: var(--text); overflow: hidden; text-overflow: ellipsis; }
-.sep { color: var(--muted); opacity: .5; }
-
-@media (min-width: 520px) {
-  .field-label {
-    display: inline;
-    color: var(--muted);
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: .06em;
-  }
-}
 
 /* per-field refresh animation (§12) */
-.field.refreshing .field-value {
-  animation: field-refresh 1.1s ease-in-out infinite;
+.field.refreshing .field-value,
+.field.refreshing .icon-sm {
+  animation: field-refresh 1.1s var(--ease-in-out) infinite;
 }
 @keyframes field-refresh {
   0%, 100% { opacity: 1; }
@@ -200,13 +219,18 @@ body {
 }
 
 .icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: none;
   border: 1px solid transparent;
   color: var(--muted);
   font-size: 17px;
-  padding: 4px 8px;
+  padding: 5px;
   border-radius: 8px;
+  transition: color 140ms var(--ease-out), background 140ms var(--ease-out);
 }
+.icon-btn:disabled { opacity: .35; }
 .icon-btn.active { color: var(--accent); border-color: var(--line); }
 
 /* ---------------------------------------------------------------- HUD */
@@ -233,6 +257,7 @@ body {
 .hud-row.status-failed { color: var(--error); }
 .hud-pass { color: inherit; overflow: hidden; text-overflow: ellipsis; }
 .hud-tier, .hud-model, .hud-tok { opacity: .7; }
+.hud-tier, .hud-status { text-transform: capitalize; }
 .hud-err { grid-column: 1 / -1; color: var(--error); }
 .hud-empty { color: var(--muted); }
 
@@ -252,7 +277,7 @@ body {
 .anim-typing i {
   width: 5px; height: 5px; border-radius: 50%;
   background: var(--muted);
-  animation: dot 1.2s infinite ease-in-out;
+  animation: dot 1.2s infinite var(--ease-in-out);
 }
 .anim-typing i:nth-child(2) { animation-delay: .15s; }
 .anim-typing i:nth-child(3) { animation-delay: .3s; }
@@ -297,7 +322,7 @@ body {
 .anim.status-pending { opacity: .35; animation: none; }
 .anim.status-done { opacity: .5; animation: none; }
 .anim.status-failed::before { content: "⊘"; color: var(--error); animation: none; }
-.anim.status-failed { animation: shake .4s ease-in-out; }
+.anim.status-failed { animation: shake .4s var(--ease-in-out); }
 @keyframes shake { 25% { transform: translateX(-2px); } 75% { transform: translateX(2px); } }
 
 /* --------------------------------------------------------------- chat */
@@ -348,7 +373,7 @@ body {
   white-space: pre-wrap;
   color: var(--c-default);
   /* Must match TEXT_FADE_MS in app.js — the regen sequence waits for it. */
-  transition: opacity 170ms ease;
+  transition: opacity 170ms var(--ease-out);
 }
 .body.fade-out { opacity: 0; }
 .body.regen {
@@ -393,7 +418,24 @@ body {
   padding: 5px 8px;
   min-width: 32px;      /* a comfortable tap target on a phone */
   min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 140ms var(--ease-out), background 140ms var(--ease-out);
 }
+/* Message-tool icons come from the same sprite as everything else, at the
+   smaller size the row of them wants. */
+.icon-btn-glyph {
+  width: 16px; height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  display: block;
+}
+/* The next-variant arrow is the back arrow turned round; one path, two uses. */
+.glyph-btn.flip .icon-btn-glyph { transform: scaleX(-1); }
 .glyph-btn:active { background: var(--panel-2); }
 .glyph-btn:disabled { opacity: .3; }
 .glyph-btn.ok { color: var(--ok); }
@@ -402,7 +444,7 @@ body {
 .glyph-btn.armed {
   background: var(--error);
   color: var(--on-accent);
-  animation: field-refresh 1.2s ease-in-out infinite;
+  animation: field-refresh 1.2s var(--ease-in-out) infinite;
 }
 .variant-count { font-size: 11px; opacity: .75; padding: 0 2px; }
 .link {
@@ -488,10 +530,29 @@ body {
 .char.current { border-color: var(--accent); }
 .char-head { display: flex; align-items: center; gap: 8px; }
 .char-pfp {
+  position: relative;
   width: 38px; height: 38px; flex: none;
   border-radius: 50%;
-  object-fit: cover;
   border: 1px solid var(--line);
+  background: var(--panel);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+.char-pfp img {
+  position: absolute;
+  inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+}
+.char-pfp-generic {
+  width: 22px; height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
 }
 .char-id { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .char-name {
@@ -537,6 +598,9 @@ body {
 
 /* ------------------------------------------------------- settings sheet */
 
+/* A destination is a whole screen, not a window over the conversation: it
+   covers everything including the header, and slides up from the bottom edge
+   the way a phone page does. */
 .sheet {
   position: fixed;
   inset: 0;
@@ -544,7 +608,16 @@ body {
   background: var(--bg);
   display: flex;
   flex-direction: column;
+  /* The slide is a transform on a full-screen element; promoting it keeps the
+     panel's own scrolling smooth while it is still moving. */
+  will-change: transform;
 }
+/* Alpine swaps these classes around x-show, which is what keeps the element
+   mounted long enough to animate on the way out as well as in. */
+.sheet-enter { transition: transform 320ms var(--ease-out), opacity 200ms var(--ease-out); }
+.sheet-leave { transition: transform 260ms var(--ease-in-out), opacity 180ms var(--ease-in-out); }
+.sheet-from { transform: translateY(100%); opacity: .4; }
+.sheet-to { transform: none; opacity: 1; }
 .sheet-head {
   display: flex;
   align-items: center;
@@ -582,7 +655,9 @@ body {
   flex: none;
   color: var(--muted);
   font-size: 12px;
-  text-transform: lowercase;
+  /* Tier and field names arrive as identifiers — "blocking", "top_p". They are
+     read as words, so they are shown as words. */
+  text-transform: capitalize;
 }
 .row input, .row select, .backend-head input, .backend-head select {
   flex: 1;
@@ -704,11 +779,11 @@ body {
    the same number they fix the box at an exact size, which is what actually
    animates. 300ms matches BUBBLE_RESIZE_MS. */
 .bubble {
-  transition: transform .18s ease-out,
-              min-width 300ms cubic-bezier(.4, 0, .2, 1),
-              max-width 300ms cubic-bezier(.4, 0, .2, 1),
-              min-height 300ms cubic-bezier(.4, 0, .2, 1),
-              max-height 300ms cubic-bezier(.4, 0, .2, 1);
+  transition: transform .18s var(--ease-out),
+              min-width 300ms var(--ease-in-out),
+              max-width 300ms var(--ease-in-out),
+              min-height 300ms var(--ease-in-out),
+              max-height 300ms var(--ease-in-out);
 }
 /* Used to commit a start size before arming the transition (pinInstant). */
 .bubble.no-anim { transition: none !important; }
@@ -782,4 +857,144 @@ body {
   .body.regen {
     animation: none !important;
   }
+}
+
+/* ------------------------------------------------------- action wheel */
+
+.wheel-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  animation: scrim-in 200ms var(--ease-out) both;
+  /* The finger is mid-gesture on top of this; letting the page scroll under
+     it would drag the conversation out from under the wheel. */
+  touch-action: none;
+}
+@keyframes scrim-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* Anchored at the press point. Options are placed around it by transform, so
+   moving the anchor moves the whole wheel without relaying anything out. */
+.wheel { position: absolute; width: 0; height: 0; }
+
+.wheel-hub {
+  position: absolute;
+  left: 0; top: 0;
+  width: 14px; height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: .9;
+  transition: transform 180ms var(--ease-back), opacity 180ms var(--ease-out);
+  animation: hub-in 260ms var(--ease-back) both;
+}
+/* Shrinks away as the finger commits to an option, so the centre reads as the
+   place you came from rather than a sixth thing to pick. */
+.wheel-hub.dimmed { transform: scale(.55); opacity: .4; }
+@keyframes hub-in { from { transform: scale(0); } to { transform: scale(1); } }
+
+.wheel-opt {
+  position: absolute;
+  left: 0; top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  /* Flies out from the hub rather than fading in where it will end up. The
+     keyframes carry the offset, so `both` is what leaves it there. */
+  animation: wheel-out 340ms var(--ease-back) both;
+  animation-delay: calc(var(--i) * 34ms);
+}
+@keyframes wheel-out {
+  from { transform: translate(-50%, -50%) scale(.2); opacity: 0; }
+  to   { transform: translate(-50%, -50%) translate(var(--dx), var(--dy)) scale(1); opacity: 1; }
+}
+
+.wheel-disc {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px; height: 46px;
+  border-radius: 50%;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .12);
+  transition: transform 180ms var(--ease-back),
+              background 160ms var(--ease-out),
+              border-color 160ms var(--ease-out),
+              color 160ms var(--ease-out);
+}
+.wheel-glyph { width: 21px; height: 21px; }
+.wheel-opt.active { color: var(--on-accent); }
+.wheel-opt.active .wheel-disc {
+  transform: scale(1.2);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.wheel-opt.danger .wheel-disc { color: var(--error); }
+.wheel-opt.danger.active .wheel-disc { background: var(--error); border-color: var(--error); color: var(--on-accent); }
+.wheel-opt.soon .wheel-disc { opacity: .55; border-style: dashed; }
+
+/* Names appear only for the tap-to-choose path. While the finger is still
+   down the icon under it is the label, and five words around the hand would
+   mostly be covered by it. */
+.wheel-label {
+  font-size: 11px;
+  color: var(--text);
+  background: var(--panel);
+  border-radius: 6px;
+  padding: 1px 6px;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 200ms var(--ease-out), transform 220ms var(--ease-back);
+  pointer-events: none;
+}
+.wheel.released .wheel-label { opacity: 1; transform: none; }
+
+/* ----------------------------------------------------------- hint toast */
+
+.hint-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(84px + var(--safe-bottom));
+  transform: translateX(-50%);
+  z-index: 45;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 12px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .2);
+  pointer-events: none;
+}
+.hint-enter { transition: opacity 180ms var(--ease-out), transform 260ms var(--ease-back); }
+.hint-leave { transition: opacity 160ms var(--ease-in-out), transform 200ms var(--ease-in-out); }
+.hint-from { opacity: 0; transform: translateX(-50%) translateY(10px) scale(.94); }
+.hint-to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+
+/* --------------------------------------------------- message lifecycle */
+
+/* Sent messages rise from under the composer into place instead of appearing
+   in the column. The distance is deliberately more than the bubble's own
+   height so it reads as coming from the text box rather than nudging up. */
+@keyframes message-send {
+  from { transform: translateY(38px) scale(.94); opacity: 0; }
+  60%  { opacity: 1; }
+  to   { transform: none; opacity: 1; }
+}
+.msg.sending .bubble { animation: message-send 420ms var(--ease-back) both; }
+
+/* And deleted ones collapse out of the column rather than blinking away and
+   yanking everything below them up a bubble's height. */
+.bubble.leaving {
+  animation: message-leave 220ms var(--ease-in-out) both;
+  transform-origin: center top;
+}
+@keyframes message-leave {
+  to { transform: scale(.86); opacity: 0; }
 }

@@ -28,6 +28,21 @@ const BUBBLE_RESIZE_MS = 300;
 // not leave a screenful of empty card around three dots.
 const REGEN_PILL_WIDTH = 84;
 const REGEN_PILL_HEIGHT = 46;
+// Matches .sheet-leave in styles.css: how long a panel takes to slide away.
+const PANEL_LEAVE_MS = 260;
+// Matches .msg.sending and .bubble.leaving in styles.css.
+const MESSAGE_SEND_MS = 460;
+const MESSAGE_LEAVE_MS = 220;
+// How long an armed delete stays armed before giving up on the second tap.
+const CONFIRM_MS = 3000;
+// How long a one-line confirmation ("Copied") stays on screen.
+const HINT_MS = 1900;
+
+// Hold-to-open action wheel.
+const HOLD_MS = 380;          // press this long and the wheel opens
+const HOLD_SLOP = 10;         // finger movement that cancels the hold instead
+const WHEEL_RADIUS = 78;      // how far the options sit from the press point
+const WHEEL_PICK_MIN = 34;    // drag at least this far before a release picks
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -140,10 +155,24 @@ function tavern() {
     // The header menu, and which of its destinations is open. One panel at a
     // time — "" means the conversation is unobstructed.
     menu: false,
+    // Two fields rather than one: `panel` says which body to render and
+    // `panelOpen` says whether the sheet is on screen. Clearing the name at
+    // the moment of closing would unmount the body through its own x-if, and
+    // the sheet would slide away empty.
     panel: "",
+    panelOpen: false,
     historyFor: "",
     confirmChar: "",
     confirmChat: "",
+    confirmMsg: "",
+    // Hold-to-open action wheel. `wheel` is null when closed; when open it
+    // carries the message, where it was opened, and which option the finger
+    // is currently over.
+    wheel: null,
+    wheelHint: "",
+    // The message currently playing the send animation. Held only long enough
+    // for the keyframes to run; a class left on would replay on every re-render.
+    sendingId: "",
     draftCharacter: { id: "", name: "" },
     savingCharacter: false,
     charMsg: "",
@@ -156,7 +185,7 @@ function tavern() {
     streaming: false,
     composing: false,
     composingKind: "typing",
-    composingLabel: "typing…",
+    composingLabel: "Typing…",
     turn: 0,
     hudRuns: [],
     ambient: [],
@@ -196,6 +225,12 @@ function tavern() {
       }
     },
 
+    // Whether the scene pass has produced anything yet. Before it has, the
+    // header shows the name alone rather than a row of placeholder dashes.
+    get hasScene() {
+      return !!(this.scene.place || this.scene.weather || this.scene.time);
+    },
+
     get portrait() {
       if (!this.character) return "";
       const set = this.character.pfp_set || {};
@@ -224,6 +259,11 @@ function tavern() {
       this.sceneBackgroundFile = "";
       this.applyTheme();
 
+      // Cleared before being refilled. Merging onto whatever the last chat
+      // left behind meant a brand-new conversation opened showing the previous
+      // one's weather — the slice is per chat, so its absence is information.
+      this.scene = { place: "", weather: "", time: "" };
+      this.expression = "neutral";
       const sceneSlice = (data.slices || {})["state.scene"];
       if (sceneSlice) this.scene = { ...this.scene, ...sceneSlice.value };
       const expr = (data.slices || {})["state.expression"];
@@ -247,9 +287,9 @@ function tavern() {
     // fetched for a panel the user never opens. Opening one closes the menu:
     // the icon row has done its job and the world line can come back up.
     async openPanel(name) {
-      if (this.panel === name) return this.closePanel();
+      if (this.panelOpen && this.panel === name) return this.closePanel();
       this.panel = name;
-      this.menu = false;
+      this.panelOpen = true;
       this.saveMsg = "";
       this.saveError = "";
       try {
@@ -262,7 +302,9 @@ function tavern() {
         } else if (name === "chats") {
           this.characters = await api.get("/api/characters");
           this.chats = await api.get("/api/chats");
-          this.historyFor = this.characterId;
+          // Every history starts closed: a roster of characters is the thing
+          // being looked at, and one of them unrolled pushes the rest down.
+          this.historyFor = "";
         }
       } catch (e) {
         this.error = String(e.message || e);
@@ -270,9 +312,12 @@ function tavern() {
     },
 
     closePanel() {
-      this.panel = "";
+      this.panelOpen = false;
       this.confirmChar = "";
       this.confirmChat = "";
+      // Drop the body only once the sheet has finished leaving, and only if
+      // nothing has been opened in the meantime.
+      setTimeout(() => { if (!this.panelOpen) this.panel = ""; }, PANEL_LEAVE_MS);
     },
 
     panelTitle() {
@@ -523,7 +568,7 @@ function tavern() {
           const running = event.run.status === "running" || event.run.status === "pending";
           if (event.run.pass_id === "basic") {
             this.composingKind = event.run.animation;
-            this.composingLabel = event.run.animation === "typing" ? "typing…" : event.run.label;
+            this.composingLabel = event.run.animation === "typing" ? "Typing…" : event.run.label;
           } else if (event.run.tier !== "blocking") {
             // ambient: a subtle indicator, never a character-thinking cue
             this.ambient = running
@@ -739,7 +784,7 @@ function tavern() {
       this.streaming = true;
       this.composing = !swipeMessageId;
       this.composingKind = "typing";
-      this.composingLabel = "typing…";
+      this.composingLabel = "Typing…";
       this.hudRuns = [];
 
       let target = null;
@@ -757,6 +802,13 @@ function tavern() {
             case "turn_start":
               this.turn = event.turn;
               this.messages.push(event.message);
+              // Fly it up from the composer rather than having it appear in
+              // the column. Cleared once the keyframes are done so a later
+              // re-render of the same message does not replay them.
+              this.sendingId = event.message.id;
+              setTimeout(() => {
+                if (this.sendingId === event.message.id) this.sendingId = "";
+              }, MESSAGE_SEND_MS);
               this.scrollDown();
               break;
 
@@ -889,6 +941,35 @@ function tavern() {
       this.endEdit();
     },
 
+    // Same two-tap arming as the character and chat deletes: on a phone the
+    // buttons sit under a thumb that is already moving.
+    async deleteMessage(message) {
+      if (this.confirmMsg !== message.id) {
+        this.confirmMsg = message.id;
+        clearTimeout(this._confirmTimer);
+        // Unlike a list row, a message scrolls away. An armed button left
+        // behind somewhere off-screen is a trap, so it disarms itself.
+        this._confirmTimer = setTimeout(() => { this.confirmMsg = ""; }, CONFIRM_MS);
+        return;
+      }
+      this.confirmMsg = "";
+      clearTimeout(this._confirmTimer);
+      const el = this.bubbleFor(message.id);
+      try {
+        await api.del(`/api/messages/${message.id}`);
+      } catch (e) {
+        this.error = String(e.message || e);
+        return;
+      }
+      if (el) {
+        // Let it shrink out of the column rather than blinking away and
+        // yanking everything below it up a bubble's height.
+        el.classList.add("leaving");
+        await sleep(MESSAGE_LEAVE_MS);
+      }
+      this.messages = this.messages.filter((m) => m.id !== message.id);
+    },
+
     // direction: +1 forward (generate a new variant past the end), -1 back.
     async goToVariant(message, direction) {
       if (this.streaming) return;
@@ -923,18 +1004,40 @@ function tavern() {
     dragId: null,
     dragDx: 0,
     dragStart: null,
+    hold: null,
 
     swipeable(message) {
       return message.role === "assistant" && this.editing !== message.id && !this.streaming;
     },
 
-    onSwipeStart(event, message) {
-      if (!this.swipeable(message) || !event.isPrimary) return;
+    // One press does three different things depending on what happens next:
+    // move sideways and it is a swipe, move at all soon after and it belongs to
+    // the scroller, stay still and it opens the wheel. All three start here.
+    onMsgDown(event, message) {
+      if (!event.isPrimary) return;
+      this.hold = { x: event.clientX, y: event.clientY, pointerId: event.pointerId, id: message.id };
+      clearTimeout(this._holdTimer);
+      this._holdTimer = setTimeout(() => this.openWheel(message), HOLD_MS);
+
+      if (!this.swipeable(message)) return;
       this.dragStart = { x: event.clientX, y: event.clientY, id: message.id, claimed: false };
       this.dragDx = 0;
     },
 
-    onSwipeMove(event, message) {
+    cancelHold() {
+      clearTimeout(this._holdTimer);
+      this.hold = null;
+    },
+
+    onMsgMove(event, message) {
+      // While the wheel is up, the finger is choosing, not dragging.
+      if (this.wheel && !this.wheel.released) return this.trackWheel(event);
+
+      if (this.hold) {
+        const moved = Math.hypot(event.clientX - this.hold.x, event.clientY - this.hold.y);
+        if (moved > HOLD_SLOP) this.cancelHold();
+      }
+
       const start = this.dragStart;
       if (!start || start.id !== message.id) return;
       const dx = event.clientX - start.x;
@@ -955,7 +1058,10 @@ function tavern() {
       this.dragDx = Math.max(-SWIPE_MAX, Math.min(SWIPE_MAX, atStart && dx > 0 ? dx / 3 : dx));
     },
 
-    onSwipeEnd(event, message) {
+    onMsgUp(event, message) {
+      this.cancelHold();
+      if (this.wheel && !this.wheel.released) return this.releaseWheel(event);
+
       const start = this.dragStart;
       const dx = this.dragDx;
       this.dragStart = null;
@@ -963,6 +1069,162 @@ function tavern() {
       this.dragDx = 0;
       if (!start || !start.claimed || Math.abs(dx) < SWIPE_COMMIT) return;
       this.goToVariant(message, dx < 0 ? 1 : -1);
+    },
+
+    onMsgCancel() {
+      this.cancelHold();
+      this.dragStart = null;
+      this.dragId = null;
+      this.dragDx = 0;
+    },
+
+    // ---- hold-to-open action wheel ----
+
+    // Everything a message can have done to it, in one place. Regenerate is
+    // deliberately absent: the arrows and the swipe already cover it.
+    wheelOptions() {
+      return [
+        { id: "edit", label: "Edit", icon: "#i-edit" },
+        { id: "copy", label: "Copy", icon: "#i-copy" },
+        { id: "delete", label: "Delete", icon: "#i-delete", danger: true },
+        { id: "suggest", label: "Suggest edit", icon: "#i-suggest", soon: true },
+        { id: "react", label: "React", icon: "#i-react", soon: true },
+      ];
+    },
+
+    openWheel(message) {
+      const hold = this.hold;
+      if (!hold || this.streaming || this.editing === message.id) return;
+
+      // The hold has won; whatever the swipe was accumulating is not a swipe.
+      this.dragStart = null;
+      this.dragId = null;
+      this.dragDx = 0;
+
+      // Keep receiving move and up events after the finger leaves the bubble —
+      // the options sit outside it by design.
+      const bubble = this.bubbleFor(message.id);
+      if (bubble) {
+        try { bubble.setPointerCapture(hold.pointerId); } catch (_) { /* mouse, already gone */ }
+      }
+
+      // Keep the whole circle on screen: opened against an edge it would put
+      // half its options where no finger can reach them.
+      const options = this.wheelOptions();
+      const margin = WHEEL_RADIUS + 42;
+      const step = 360 / options.length;
+      this.wheel = {
+        message,
+        cx: Math.max(margin, Math.min(window.innerWidth - margin, hold.x)),
+        cy: Math.max(margin, Math.min(window.innerHeight - margin, hold.y)),
+        active: -1,
+        released: false,
+        options: options.map((option, i) => {
+          const degrees = -90 + i * step;
+          const radians = (degrees * Math.PI) / 180;
+          return {
+            ...option,
+            angle: degrees,
+            dx: Math.cos(radians) * WHEEL_RADIUS,
+            dy: Math.sin(radians) * WHEEL_RADIUS,
+          };
+        }),
+      };
+      this.hold = null;
+      if (navigator.vibrate) navigator.vibrate(12);
+    },
+
+    // Which option the finger is over, or -1 for none. Near the centre is
+    // deliberately nothing, so there is somewhere to retreat to.
+    wheelIndexAt(x, y) {
+      const wheel = this.wheel;
+      if (!wheel) return -1;
+      const dx = x - wheel.cx;
+      const dy = y - wheel.cy;
+      if (Math.hypot(dx, dy) < WHEEL_PICK_MIN) return -1;
+      const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+      let best = -1;
+      let bestGap = Infinity;
+      wheel.options.forEach((option, i) => {
+        const gap = Math.abs(((angle - option.angle + 540) % 360) - 180);
+        if (gap < bestGap) { bestGap = gap; best = i; }
+      });
+      return best;
+    },
+
+    trackWheel(event) {
+      this.wheel.active = this.wheelIndexAt(event.clientX, event.clientY);
+    },
+
+    // Letting go is the first of the two ways to choose. If the finger moved
+    // onto an option, that is the choice. If it did not, the wheel stays where
+    // it is, puts names on everything, and waits to be tapped.
+    releaseWheel(event) {
+      const index = this.wheelIndexAt(event.clientX, event.clientY);
+      if (index >= 0) return this.pickWheel(this.wheel.options[index]);
+      this.wheel.released = true;
+      this.wheel.active = -1;
+    },
+
+    closeWheel() {
+      this.wheel = null;
+    },
+
+    flashHint(text) {
+      this.wheelHint = text;
+      clearTimeout(this._hintTimer);
+      this._hintTimer = setTimeout(() => { this.wheelHint = ""; }, HINT_MS);
+    },
+
+    async pickWheel(option) {
+      if (!this.wheel) return;
+      const message = this.wheel.message;
+      this.closeWheel();
+
+      if (option.soon) return this.flashHint(`${option.label} is not built yet`);
+      if (option.id === "edit") return this.startEdit(message, this.bubbleFor(message.id));
+      if (option.id === "copy") return this.copyMessage(message);
+      if (option.id === "delete") {
+        // Arm the bubble's own delete rather than deleting outright. A drag
+        // that lands one option over should not be able to destroy a message.
+        this.confirmMsg = message.id;
+        clearTimeout(this._confirmTimer);
+        this._confirmTimer = setTimeout(() => { this.confirmMsg = ""; }, CONFIRM_MS);
+        this.flashHint("Tap the bin to confirm");
+      }
+    },
+
+    async copyMessage(message) {
+      this.flashHint(await this.writeClipboard(message.text || "") ? "Copied" : "Could not copy");
+    },
+
+    // Two mechanisms, and the order matters. execCommand goes first because it
+    // only works from inside the user gesture that started this, and awaiting
+    // anything spends that gesture; it is also the one that works on plain
+    // http://<phone-ip>:8787, which is how this app gets reached from another
+    // device on the network. The async API is the fallback, for the browsers
+    // that have dropped execCommand — it needs a secure context *and*
+    // permission, and rejects rather than returning false when refused.
+    async writeClipboard(text) {
+      try {
+        const box = document.createElement("textarea");
+        box.value = text;
+        box.setAttribute("readonly", "");
+        box.style.cssText = "position:fixed;top:-1000px;opacity:0";
+        document.body.appendChild(box);
+        box.select();
+        const copied = document.execCommand("copy");
+        box.remove();
+        if (copied) return true;
+      } catch (_) { /* fall through */ }
+
+      if (navigator.clipboard && window.isSecureContext) {
+        try {
+          await navigator.clipboard.writeText(text);
+          return true;
+        } catch (_) { /* refused */ }
+      }
+      return false;
     },
 
     swipeHint(message) {
@@ -1147,6 +1409,28 @@ function tavern() {
 
     kindNote(kind) {
       return ((this.settings.kind_defaults || {})[kind] || {}).note || "";
+    },
+
+    // Renaming a backend has to drag everything that referred to it by name
+    // along. A tier is stored as the backend's name, so without this the first
+    // keystroke of a rename orphans the tier, the tier <select> falls off its
+    // options, and saving is rejected with "tier blocking points at unknown
+    // backend" — naming the value the user is in the middle of typing.
+    renameBackend(backend, name) {
+      const previous = backend.name;
+      backend.name = name;
+      if (previous === name) return;
+      for (const tier of this.settings.tier_names) {
+        if (this.settings.tiers[tier] === previous) this.settings.tiers[tier] = name;
+      }
+      for (const map of [this.models, this.tests, this.modelErrors]) {
+        if (previous in map) {
+          map[name] = map[previous];
+          delete map[previous];
+        }
+      }
+      if (this.loadingModels === previous) this.loadingModels = name;
+      if (this.testing === previous) this.testing = name;
     },
 
     removeBackend(index) {
