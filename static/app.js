@@ -216,6 +216,10 @@ function tavern() {
     previewTimer: 0,
     samplerBook: {},
     advancedFor: "",
+    rulesOpen: false,
+    armedRule: "",
+    ruleSample: "The cat sat on the mat... twice.",
+    ruleTests: {},
     sent: null,
     sentError: "",
     openPart: "",
@@ -562,6 +566,103 @@ function tavern() {
     togglePart(part) {
       if (!part.text) return this.flashHint("These are the messages on screen");
       this.openPart = this.openPart === part.id ? "" : part.id;
+    },
+
+    // ---- find and replace (§16) ----
+
+    scopeNote(rule) {
+      const scopes = (this.settings.regex_meta || {}).scopes || [];
+      return (scopes.find((s) => s.id === rule.scope) || {}).note || "";
+    },
+
+    addRule() {
+      const max = ((this.settings.regex_meta || {}).max_rules) || 40;
+      const rules = this.settings.regex_rules || (this.settings.regex_rules = []);
+      if (rules.length >= max) return this.flashHint(`${max} rules is the limit`);
+      rules.push({
+        id: Math.random().toString(36).slice(2, 10),
+        // Display, always: it is the only scope that can be undone, so it is
+        // the only honest place for a rule nobody has tested yet to start.
+        label: "New rule", find: "", replace: "", scope: "display", role: "both",
+        enabled: true, ignore_case: true, multiline: false, dot_all: false,
+      });
+    },
+
+    removeRule(rule) {
+      if (this.armedRule !== rule.id) {
+        this.armedRule = rule.id;
+        clearTimeout(this._armedRuleTimer);
+        this._armedRuleTimer = setTimeout(() => { this.armedRule = ""; }, CONFIRM_MS);
+        return;
+      }
+      this.armedRule = "";
+      const rules = this.settings.regex_rules;
+      this.flipRules(() => rules.splice(rules.indexOf(rule), 1));
+    },
+
+    moveRule(rule, direction) {
+      const rules = this.settings.regex_rules;
+      const at = rules.indexOf(rule);
+      const to = at + direction;
+      if (to < 0 || to >= rules.length) {
+        return this.flashHint(direction < 0 ? "Already first" : "Already last");
+      }
+      this.flipRules(() => {
+        rules.splice(at, 1);
+        rules.splice(to, 0, rule);
+      });
+    },
+
+    // Same FLIP as the prompt sections: a rule travels past its neighbour
+    // rather than the two of them swapping in one frame. Order is the whole of
+    // how two rules interact, so the move has to be legible.
+    flipRules(mutate) {
+      const before = new Map(
+        [...document.querySelectorAll(".rule")].map((r) => [
+          r.dataset.rid, r.getBoundingClientRect().top,
+        ]),
+      );
+      mutate();
+      this.$nextTick(() => {
+        for (const row of document.querySelectorAll(".rule")) {
+          const was = before.get(row.dataset.rid);
+          if (was === undefined) continue;
+          const delta = was - row.getBoundingClientRect().top;
+          if (!delta) continue;
+          row.style.transition = "none";
+          row.style.transform = `translateY(${delta}px)`;
+          requestAnimationFrame(() => {
+            row.style.transition = `transform ${SECTION_MOVE_MS}ms var(--ease-out)`;
+            row.style.transform = "";
+            setTimeout(() => { row.style.transition = ""; }, SECTION_MOVE_MS);
+          });
+        }
+      });
+    },
+
+    // The pattern is run on the server, by the same code that will run it for
+    // real — including the check that refuses one slow enough to hang the app.
+    // A second regex engine in the browser would disagree about escapes,
+    // groups and Unicode, which is the whole reason this is a round trip.
+    queueRuleTest(rule) {
+      clearTimeout(this._ruleTestTimer);
+      this._ruleTestTimer = setTimeout(() => this.testRule(rule), PREVIEW_DEBOUNCE_MS);
+    },
+
+    async testRule(rule) {
+      if (!rule.find) {
+        this.ruleTests = { ...this.ruleTests, [rule.id]: null };
+        return;
+      }
+      try {
+        const body = await api.post("/api/regex/test", { rule, sample: this.ruleSample });
+        this.ruleTests = { ...this.ruleTests, [rule.id]: body };
+      } catch (e) {
+        this.ruleTests = {
+          ...this.ruleTests,
+          [rule.id]: { ok: false, error: String(e.message || e) },
+        };
+      }
     },
 
     // ---- prompt manager ----

@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import assembly, cards, config, macros, memory as memory_store, prompt_layout
-from . import providers, repo, state as state_mod
+from . import providers, regex_rules, repo, state as state_mod
 from .config import DATA_DIR, SETTINGS, STATIC_DIR, reload_settings
 from .db import get_db
 from .events import BUS
@@ -79,7 +79,7 @@ async def _stream(generator) -> StreamingResponse:
     async def body():
         try:
             async for event in generator:
-                yield _sse(event)
+                yield _sse(_lens(event))
         except asyncio.CancelledError:  # client navigated away mid-turn
             raise
         except Exception as exc:  # noqa: BLE001 — surface it to the client
@@ -90,6 +90,28 @@ async def _stream(generator) -> StreamingResponse:
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+def _lens(event: dict) -> dict:
+    """Attach display-scope rewrites (§16) to any message an event carries.
+
+    Here rather than at each `yield` in the scheduler, so a display rule is not
+    something a future event type can forget to apply — the alternative is a
+    message that reads one way while it streams in and another way after a
+    reload, which reads as the rule being broken.
+
+    Deltas are deliberately untouched: a rule matching across a chunk boundary
+    cannot be applied to half a match, and the finished message that follows a
+    moment later is rewritten correctly.
+    """
+    if not config.SETTINGS.regex_rules:
+        return event
+    for key in ("message", "variant"):
+        body = event.get(key)
+        if isinstance(body, dict) and body.get("text"):
+            # A variant carries no role of its own; it is always a reply.
+            event = {**event, key: _with_display(body, role="assistant")}
+    return event
 
 
 # ----------------------------------------------------------------- system
@@ -125,6 +147,8 @@ async def get_settings() -> dict:
         "prompt_sections": prompt_layout.normalise(config.SETTINGS.prompt_sections),
         "prompt_bands": prompt_layout.BANDS,
         "prompt_fixed": sorted(prompt_layout.FIXED_IDS),
+        "regex_rules": regex_rules.normalise(config.SETTINGS.regex_rules),
+        "regex_meta": regex_rules.catalogue(),
         "backgrounds": config.available_backgrounds(),
         "path": str(config.settings_path()),
     }
@@ -248,6 +272,20 @@ PREVIEW_SAMPLE = [
     {"role": "assistant", "content": '*She wipes the counter.* "Not in this wind."'},
     {"role": "user", "content": "Then I'll wait."},
 ]
+
+
+@app.post("/api/regex/test")
+async def test_regex(payload: dict = Body(...)) -> dict:
+    """Run one rule against a sample (§16).
+
+    Testable in place matters more here than anywhere else in the app: a rule
+    with the wrong pattern in the input or output scope rewrites messages
+    permanently, and finding out afterwards is not a recoverable position.
+    """
+    rules = regex_rules.normalise([payload.get("rule") or {}])
+    if not rules:
+        return {"ok": False, "error": "no pattern yet", "result": "", "matches": 0}
+    return regex_rules.preview(rules[0], str(payload.get("sample") or ""))
 
 
 @app.get("/api/samplers")
@@ -503,7 +541,24 @@ async def delete_chat(chat_id: str) -> dict:
 
 @app.get("/api/chats/{chat_id}/messages")
 async def list_messages(chat_id: str, include_dropped: bool = False) -> list[dict]:
-    return repo.list_messages(get_db(), chat_id, include_dropped=include_dropped)
+    messages = repo.list_messages(get_db(), chat_id, include_dropped=include_dropped)
+    return [_with_display(m) for m in messages]
+
+
+def _with_display(message: dict, role: str = "") -> dict:
+    """Attach the display-scope rewrite (§16), leaving `text` as it was stored.
+
+    Two fields rather than one, because they answer different questions: the
+    screen wants `display`, and editing, copying and the prompt all want the
+    message that was actually said.
+    """
+    rules = config.SETTINGS.regex_rules
+    if not rules:
+        return message
+    shown = regex_rules.apply(
+        rules, message.get("text") or "", "display", message.get("role") or role
+    )
+    return {**message, "display": shown} if shown != message.get("text") else message
 
 
 @app.get("/api/chats/{chat_id}/state")

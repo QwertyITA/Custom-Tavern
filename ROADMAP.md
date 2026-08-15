@@ -64,7 +64,7 @@ Everything else leans on these.
 - [x] **17. Advanced samplers.** min-p, top-k, typical-p, repetition/frequency/
       presence penalty, DRY, XTC, seed. Per pass, only where the backend
       supports them.
-- [ ] **16. Regex rules.** User-defined find/replace, scoped to input, output
+- [x] **16. Regex rules.** User-defined find/replace, scoped to input, output
       or display only. Ordered, toggleable, testable in place.
 
 ## Phase 4 — living with it

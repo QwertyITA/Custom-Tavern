@@ -151,6 +151,41 @@ the story survive the cut. Impersonate deliberately does not use the
 character's — that is your line, and a sequence that ends their replies has no
 business cutting off yours.
 
+### Find and replace
+
+Under ☰ → brain. Rules run in order on every message, and each one picks a
+scope. The scopes differ in what they destroy:
+
+| Scope | What it does | Undoable |
+| --- | --- | --- |
+| **How it looks** | Rewrites only what is drawn | Yes — the message is untouched |
+| **What you send** | Rewrites your message before it is stored | No |
+| **What it replies** | Rewrites the reply before it is stored | No |
+
+Reach for the display scope. It is a lens: turn the rule off and the original
+comes back, because the original was never overwritten. A bubble that a display
+rule is rewriting carries a faint left rule, so "why doesn't this match what I
+copied" has an answer. The other two are edits to the record — change a bad
+rule afterwards and the damage is already in the database.
+
+Each rule has a **Try it on** box that runs the pattern server-side, by the
+same code that will run it for real, and shows the result and the match count
+as you type. Use it. A wrong pattern in one of the permanent scopes is not a
+recoverable position.
+
+**About slow patterns.** Rules are your own regular expressions running in the
+one process serving your phone, and Python cannot interrupt a regex once it has
+started — a pattern that backtracks catastrophically would hang the app with no
+way out. So every pattern is timed against four short adversarial strings when
+it is saved, and one that is slow there is refused with an explanation. That
+catches the usual shapes (`(a+)+`, `(a|a)*`, `([a-z]+)+$` and friends); it is a
+filter rather than a proof, so a message longer than 40,000 characters is also
+left alone as a second line of defence.
+
+Streaming text is not rewritten as it arrives — a rule matching across a chunk
+boundary cannot be applied to half a match — so a display rule settles the
+moment the reply finishes.
+
 ### Samplers
 
 Under ☰ → brain, per pass. Temperature, top-p and the length cap are on the

@@ -272,6 +272,9 @@ class Settings:
     # keeps working and every section arrives switched on.
     prompt_sections: list[dict[str, Any]] = field(default_factory=list)
 
+    # User find/replace rules (§16). Empty is the normal state.
+    regex_rules: list[dict[str, Any]] = field(default_factory=list)
+
     # Appearance overrides: CSS variable -> value. Only keys in THEME_TOKENS,
     # only values matching that token's shape (§12, §18.4).
     theme: dict[str, str] = field(default_factory=dict)
@@ -507,7 +510,28 @@ def build_settings(payload: dict[str, Any], current: Settings) -> Settings:
     settings.prompt_sections = _prompt_sections(
         payload["prompt_sections"] if "prompt_sections" in payload else current.prompt_sections
     )
+    settings.regex_rules = _regex_rules(
+        payload["regex_rules"] if "regex_rules" in payload else current.regex_rules
+    )
     return settings
+
+
+def _regex_rules(raw: Any) -> list[dict[str, Any]]:
+    """Normalised, and every pattern checked before it can be stored.
+
+    Checked here rather than when it runs: `re` cannot be interrupted, so a
+    pattern that backtracks catastrophically would hang the one process serving
+    the phone, and the save is the last moment anyone can be told about it.
+    """
+    from . import regex_rules
+
+    rules = regex_rules.normalise(raw)
+    for rule in rules:
+        try:
+            regex_rules.check(rule)
+        except regex_rules.RuleError as exc:
+            raise SettingsError(f"rule {rule['label']!r}: {exc}") from exc
+    return rules
 
 
 def _prompt_sections(raw: Any) -> list[dict[str, Any]]:

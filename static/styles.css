@@ -1586,3 +1586,63 @@ input.mono {
   color: var(--bg);
   font-size: 10px;
 }
+
+/* ---- find and replace (§16) ---------------------------------------------
+   The scope buttons are the load-bearing control: two of the three rewrite the
+   record permanently, and the note under them changes to say so. */
+.rule {
+  margin: 0 0 14px;
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  /* transform belongs to the FLIP in app.js, which manages its own transition. */
+  transition: opacity 220ms var(--ease-out);
+}
+.rule.off { opacity: .55; }
+
+.rule-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.rule-name {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  padding: 2px 0;
+  transition: border-color 200ms var(--ease-out);
+}
+.rule-name:focus { border-bottom-color: var(--accent); outline: none; }
+
+.rule-scopes { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
+.rule-scopes .preset { font-size: 12px; }
+.rule-scopes .preset.picked {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+
+.rule-flags {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 10px 0;
+}
+.rule-flags .toggle { font-size: 12px; }
+
+.rule-result { margin-bottom: 6px; }
+.rule-result .preview { max-height: 20vh; margin-bottom: 2px; }
+.rule-result.bad .preview { color: var(--error); border-color: var(--error); }
+
+/* A message a display rule is rewriting. Marked, because "why does this not
+   match what I copied" is otherwise unanswerable — and marked faintly, because
+   the whole point of the display scope is that it is meant to be lived with. */
+.body.lensed { border-left: 2px solid var(--line); padding-left: 8px; }

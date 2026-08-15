@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .. import assembly
-from .. import macros, memory as memory_store, repo, state as state_mod
+from .. import macros, memory as memory_store, regex_rules, repo, state as state_mod
 from ..config import Settings
 from ..db import Database
 from ..events import BUS
@@ -98,6 +98,9 @@ class PassScheduler:
         budget = self.settings.blocking_await_ms / 1000 if timeout is None else timeout
         done, _ = await asyncio.wait(tasks, timeout=budget)
         return len(done)
+
+    def _rewrite_reply(self, reply: str) -> str:
+        return regex_rules.apply(self.settings.regex_rules, reply, "output", "assistant")
 
     # ----------------------------------------------------------- pass runs
 
@@ -213,6 +216,12 @@ class PassScheduler:
         # as the character's name in the transcript too.
         user_text = macros.substitute(
             user_text, assembly.macro_context(self.db, chat, character)
+        )
+        # Input-scope rules run before the message is stored (§16) — they are an
+        # edit to the record by design, which is what separates them from the
+        # display scope.
+        user_text = regex_rules.apply(
+            self.settings.regex_rules, user_text, "input", "user"
         )
         user_message = repo.add_message(self.db, chat_id, "user", user_text)
         turn = user_message["turn"]
@@ -360,6 +369,10 @@ class PassScheduler:
             strip_leakage=self.settings.strip_user_turn_leakage,
             user_names=("You", "{{user}}"),
         )
+        # Output-scope rules, before it is stored (§16). After clean_reply, so a
+        # rule is written against the text a person would have read rather than
+        # against artefacts the postprocessor was about to remove anyway.
+        reply = self._rewrite_reply(reply)
         if thinking:
             yield {"type": "thinking", "text": thinking}
         if not reply.strip():
@@ -937,7 +950,9 @@ class PassScheduler:
         body, thinking = split_thinking("".join(collected))
         if payload is None:
             body, payload = split_state_suffix(body)
-        reply = clean_reply(body, strip_leakage=self.settings.strip_user_turn_leakage) or "…"
+        reply = self._rewrite_reply(
+            clean_reply(body, strip_leakage=self.settings.strip_user_turn_leakage)
+        ) or "…"
 
         variant = repo.add_variant(
             self.db, message_id, reply, provider=provider.name, model=sink.model or provider.model

@@ -279,8 +279,11 @@
         <div class="body regen" x-show="isRegenerating(m)" x-cloak>
           <span class="anim anim-typing"><i></i><i></i><i></i></span>
         </div>
-        <div class="body" :class="{ 'fade-out': fadingId === m.id }"
-             x-effect="Markup.schedule($el, m.text)"
+        <!-- `display` only exists when a display-scope rule (§16) rewrote this
+             message; `text` is always what was actually said, and it is what
+             editing, copying and the prompt all use. -->
+        <div class="body" :class="{ 'fade-out': fadingId === m.id, lensed: !!m.display }"
+             x-effect="Markup.schedule($el, m.display || m.text)"
              x-show="editing !== m.id && !isRegenerating(m)"></div>
         <textarea class="edit-box" x-show="editing === m.id" x-model="editText"
                   :style="editHeight ? `min-height:${editHeight}px` : ''"
@@ -714,6 +717,101 @@
                 </button>
               </section>
             </template>
+          </div>
+        </div>
+
+        <h3>Find and replace</h3>
+        <p class="note">
+          Rules run in order, on every message. Scope decides what they touch —
+          and only one of the three can be undone.
+        </p>
+        <button class="disclose" :class="{ open: rulesOpen }"
+                @click="rulesOpen = !rulesOpen" :aria-expanded="rulesOpen">
+          <svg class="disclose-arrow" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-back"/></svg>
+          <span x-text="rulesOpen ? 'Hide the rules' : 'Show the rules'"></span>
+          <span class="p-count" x-show="(settings.regex_rules || []).length"
+                x-text="(settings.regex_rules || []).length"></span>
+        </button>
+        <div class="fold" :class="{ open: rulesOpen }">
+          <div class="fold-clip">
+            <template x-for="r in settings.regex_rules || []" :key="r.id">
+              <div class="rule" :data-rid="r.id" :class="{ off: !r.enabled }">
+                <div class="rule-head">
+                  <div class="p-move">
+                    <button class="glyph-btn" @click="moveRule(r, -1)"
+                            :aria-label="`Move ${r.label} up`" title="Move up">
+                      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-up"/></svg>
+                    </button>
+                    <button class="glyph-btn" @click="moveRule(r, 1)"
+                            :aria-label="`Move ${r.label} down`" title="Move down">
+                      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-down"/></svg>
+                    </button>
+                  </div>
+                  <input class="rule-name" x-model="r.label" placeholder="What this rule is"
+                         :aria-label="`Name of ${r.label}`">
+                  <button class="p-switch" :class="{ on: r.enabled }" @click="r.enabled = !r.enabled"
+                          :aria-pressed="r.enabled"
+                          :aria-label="`${r.enabled ? 'Disable' : 'Enable'} ${r.label}`">
+                    <span class="p-knob"></span>
+                  </button>
+                </div>
+
+                <label class="col-field tight">
+                  <span class="row-label wide-label">Find</span>
+                  <input class="mono" x-model="r.find" spellcheck="false" autocomplete="off"
+                         @input="queueRuleTest(r)" placeholder="A regular expression">
+                </label>
+                <label class="col-field tight">
+                  <span class="row-label wide-label">Replace with</span>
+                  <input class="mono" x-model="r.replace" spellcheck="false" autocomplete="off"
+                         @input="queueRuleTest(r)" placeholder="\1 puts the first group back">
+                </label>
+
+                <div class="rule-scopes">
+                  <template x-for="sc in (settings.regex_meta || {}).scopes || []" :key="sc.id">
+                    <button class="preset" :class="{ picked: r.scope === sc.id }"
+                            @click="r.scope = sc.id" x-text="sc.label"></button>
+                  </template>
+                </div>
+                <p class="kind-note" x-text="scopeNote(r)"></p>
+
+                <div class="rule-flags">
+                  <label class="toggle"><input type="checkbox" x-model="r.ignore_case"><span>Ignore case</span></label>
+                  <label class="toggle"><input type="checkbox" x-model="r.multiline"><span>^ and $ per line</span></label>
+                  <label class="toggle"><input type="checkbox" x-model="r.dot_all"><span>. matches newlines</span></label>
+                  <label class="row"><span class="row-label">Applies to</span>
+                    <select x-model="r.role">
+                      <template x-for="ro in (settings.regex_meta || {}).roles || []" :key="ro">
+                        <option :value="ro" x-text="ro === 'both' ? 'Both of you' : (ro === 'user' ? 'You' : 'Them')"></option>
+                      </template>
+                    </select>
+                  </label>
+                </div>
+
+                <!-- Testable in place matters more here than anywhere else:
+                     a wrong pattern in the input or output scope rewrites
+                     messages permanently. -->
+                <label class="col-field tight">
+                  <span class="row-label wide-label">Try it on</span>
+                  <textarea rows="2" x-model="ruleSample" @input="queueRuleTest(r)"
+                            placeholder="Paste a line and watch what happens to it"></textarea>
+                </label>
+                <div class="rule-result" :class="{ bad: ruleTests[r.id] && !ruleTests[r.id].ok }"
+                     x-show="ruleTests[r.id]">
+                  <pre class="preview" x-text="ruleTests[r.id] &&
+                        (ruleTests[r.id].ok ? ruleTests[r.id].result : ruleTests[r.id].error)"></pre>
+                  <span class="kind-note" x-show="ruleTests[r.id] && ruleTests[r.id].ok"
+                        x-text="ruleTests[r.id] && `${ruleTests[r.id].matches} match${ruleTests[r.id].matches === 1 ? '' : 'es'}`"></span>
+                </div>
+
+                <button class="link danger" @click="removeRule(r)"
+                        x-text="armedRule === r.id ? 'Tap again to delete' : 'Delete this rule'"></button>
+              </div>
+            </template>
+            <button class="p-add" @click="addRule()">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plus"/></svg>
+              <span>Add a rule</span>
+            </button>
           </div>
         </div>
 
