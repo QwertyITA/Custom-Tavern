@@ -311,6 +311,22 @@
     </div>
   </div>
 
+  <!-- Something in the shape of a conversation while one is being fetched.
+       Bars of uneven width on alternating sides, because that is what the
+       column underneath actually looks like — a skeleton that does not match
+       what replaces it is just a different kind of flicker. -->
+  <div class="skeleton" x-show="loadingChat" x-cloak aria-hidden="true">
+    <template x-for="row in skeletonRows" :key="row.id">
+      <div class="sk-msg" :class="row.side">
+        <div class="sk-bubble">
+          <template x-for="w in row.lines" :key="w">
+            <div class="sk-line" :style="`width:${w}%`"></div>
+          </template>
+        </div>
+      </div>
+    </template>
+  </div>
+
   <template x-for="m in messages" :key="m.id">
     <article class="msg" :class="[m.role, sendingId === m.id ? 'sending' : '']">
       <!-- x-if for the same reason as the rows below, and one worse: an empty
@@ -512,8 +528,8 @@
      you pull. Impersonate is the thing you want exactly when you are at the
      bottom with nothing to say, which is the position this gesture starts
      from. -->
-<div class="reveal" :class="{ armed: revealArmed }"
-     :style="`--reveal:${reveal}`" x-show="reveal > 0.02" x-cloak>
+<div class="reveal" :class="{ armed: revealArmed, settling: revealSettling }"
+     :style="`--reveal:${reveal}`" x-show="reveal > 0.02 || revealSettling" x-cloak>
   <button class="reveal-btn" @click="impersonate()" :disabled="streaming">
     <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-impersonate"/></svg>
     <span x-text="revealArmed ? 'Release to write for me' : 'Keep pulling to write for me'"></span>

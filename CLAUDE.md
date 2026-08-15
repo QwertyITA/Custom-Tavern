@@ -81,13 +81,31 @@ The load-bearing ideas, each of which has a test protecting it:
   regenerate it if the rules change, and check both sides against it.
 - **Frontend:** vanilla JS + Alpine, no build step. Alpine is vendored at
   `static/vendor/`. Render model output with `textContent`, never `innerHTML`.
-- **Motion:** nothing moves linearly. Use `--ease-out`, `--ease-in-out` or
-  `--ease-back` from `:root`; do not write a bezier inline. A linear transition
-  is the one curve nothing physical follows, and it reads as a slide show
-  rather than as something moving. The only exception is a continuous rotation,
-  where easing makes the spinner hesitate once per turn. Anything that appears,
+- **Motion:** nothing moves linearly. Use `--ease-out`, `--ease-in-out`,
+  `--ease-back` or `--ease-spring` from `:root`; do not write a bezier inline.
+  A linear transition is the one curve nothing physical follows, and it reads
+  as a slide show rather than as something moving. Anything that appears,
   moves, grows or leaves gets a transition — including on the way out, which
   usually means keeping the element mounted until it has finished.
+  - `--ease-spring` is a real damped oscillator built with `linear()`, not a
+    bezier. Use it where something **lands** and comes to rest — the wheel, a
+    sent message, a switch knob, a released gesture. A bezier can pass its mark
+    once; this crosses back and settles, which is the difference between
+    arriving and landing. Never on a fold: a panel that bounces open reads as
+    broken.
+  - **Durations come from tokens too**: `--dur-fast` / `--dur-base` /
+    `--dur-slow`, plus five named ones the JS waits on. If JavaScript needs a
+    duration it calls `dur("name")`, which reads the token — never a literal.
+    The literals drifted last time: a 420ms animation was being waited on for
+    460ms.
+  - **Linear is right in exactly three places**, all continuous with no start
+    or end to ease between: the refresh spinner, the composing-label shimmer
+    and the skeleton sweep. Easing any of them makes it hesitate once per
+    cycle.
+  - **Reduced motion is a wildcard, not a list.** `@media
+    (prefers-reduced-motion: reduce)` stops everything with `*` and then names
+    the few exceptions. Do not add per-selector entries — the allowlist version
+    fell behind by two dozen animations before it was noticed.
 - **Icons:** one SVG sprite at the top of `index.html`, referenced with
   `<use href="#i-name">`. Never an emoji: it is drawn by whichever font the
   phone happens to ship, so a row of them arrives in several weights and will

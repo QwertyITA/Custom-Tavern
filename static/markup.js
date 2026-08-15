@@ -128,13 +128,34 @@
 
   // Renders runs into a container as styled spans. Text is set via textContent,
   // so model output can never inject markup into the page.
-  function render(container, text) {
+  //
+  // `revealFrom` is a character offset: everything at or past it is text that
+  // arrived since the last render, and gets `mk-new` so it can fade in. -1
+  // means "all of this is settled", which is the case for every finished
+  // message and for the first paint of a streaming one.
+  //
+  // A run can straddle the boundary — the tail of a sentence arriving inside
+  // dialogue that started three frames ago — so the run containing it is split
+  // rather than classed one way or the other.
+  function render(container, text, revealFrom = -1) {
     container.textContent = "";
+    let at = 0;
     for (const run of parse(text)) {
-      const span = document.createElement("span");
-      span.className = ["run"].concat(run.styles.map((s) => "mk-" + s)).join(" ");
-      span.textContent = run.text;
-      container.appendChild(span);
+      const styles = ["run"].concat(run.styles.map((s) => "mk-" + s));
+      const end = at + run.text.length;
+      const pieces =
+        revealFrom > at && revealFrom < end
+          ? [[run.text.slice(0, revealFrom - at), false],
+             [run.text.slice(revealFrom - at), true]]
+          : [[run.text, revealFrom >= 0 && at >= revealFrom]];
+      for (const [piece, fresh] of pieces) {
+        if (!piece) continue;
+        const span = document.createElement("span");
+        span.className = fresh ? styles.concat("mk-new").join(" ") : styles.join(" ");
+        span.textContent = piece;
+        container.appendChild(span);
+      }
+      at = end;
     }
     return container;
   }
@@ -150,16 +171,41 @@
   // would leave a message blank for a frame, and a message appearing empty and
   // then filling in is exactly the flicker this is meant to avoid.
   const pending = new WeakMap();
+  // What this container last showed, so an append can be told from a rewrite.
+  const shown = new WeakMap();
+
+  // Where the new text starts, or -1 if this is not an append.
+  //
+  // The test is `startsWith` rather than a length comparison, which matters
+  // because containers are reused: Alpine hands the same element to a
+  // different message when the list re-renders, and an edit or a swipe
+  // replaces the text wholesale. Only text that literally continues what is
+  // already on screen counts as having arrived — everything else is a rewrite
+  // and should appear without a flourish, because nothing is streaming.
+  function appendedAt(container, text) {
+    const before = shown.get(container);
+    shown.set(container, text);
+    // An empty previous value counts: a streaming bubble is painted empty
+    // first, so the very first tokens append onto "" and are exactly the ones
+    // that should be seen arriving.
+    return typeof before === "string" && text.startsWith(before)
+      && text.length > before.length
+      ? before.length
+      : -1;
+  }
 
   function schedule(container, text) {
-    if (!container.firstChild) return render(container, text);
+    if (!container.firstChild) {
+      shown.set(container, text);
+      return render(container, text);
+    }
     const queued = pending.get(container);
     pending.set(container, { text });
     if (queued) return container;      // a frame is already booked
     requestAnimationFrame(() => {
       const latest = pending.get(container);
       pending.delete(container);
-      if (latest) render(container, latest.text);
+      if (latest) render(container, latest.text, appendedAt(container, latest.text));
     });
     return container;
   }

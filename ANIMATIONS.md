@@ -1,8 +1,11 @@
 # Animation suggestions
 
 Research pass over what the app already does, what current practice says, and
-what is worth adding. **Nothing here is implemented** — this is the list to
-pick from.
+what is worth adding.
+
+**Status: §0 and §1.1–1.2 and §2.1–2.3 and §4.1 are built.** Each carries a
+note saying what shipped and what it measured. The rest is still a list to pick
+from — §1.3, §2.4–2.5, §3, §4.2 and §5 are untouched.
 
 ## What is already there
 
@@ -61,6 +64,15 @@ is worse than one that moves.
 This is a correctness gap, not a suggestion. I would do it before anything
 below.
 
+**Built.** Exactly the wildcard above, with two exceptions kept at their own
+durations — the refresh spinner and the ambient pass pulse, because a progress
+indicator that stops indicating is worse than one that moves, and neither
+travels. A third exception was needed once §2.2 landed: the shimmer cannot
+simply be stopped, because frozen it leaves the label painted with whatever
+slice of its gradient it halted on, so under reduced motion the gradient is
+removed and the text put back. Verified in both motion states — everything
+1ms, the two indicators still turning.
+
 ---
 
 ## 1. The motion system
@@ -99,6 +111,12 @@ exactly like this ([techqware](https://www.techqware.com/blog/motion-design-micr
 This is the highest-value item on the list and the cheapest. It also makes
 everything below easier to write.
 
+**Built**, and it caught a live drift on the way in: `.msg.sending` ran 420ms
+while `MESSAGE_SEND_MS` said 460. There are now three scale tokens plus five
+named ones for the durations JavaScript waits on, and `app.js` reads them
+through `dur(name)` — cached, since they cannot change without a stylesheet
+edit. The old constants are gone rather than kept in sync.
+
 ### 1.2 Real springs via `linear()`
 
 `--ease-back` is `cubic-bezier(.34,1.56,.64,1)` — a single overshoot, which is
@@ -129,6 +147,13 @@ the action wheel opening, the sent message arriving, the switch knob, the star
 pop. Leave `--ease-out` alone for the folds; a panel that bounces open is a
 panel that looks broken.
 
+**Built**, on exactly those five. The curve was generated from an actual damped
+oscillator rather than pasted from a preset — zeta 0.62, omega 13, 31 evenly
+spaced samples, chosen by modelling four dampings and reading off the
+overshoot. It peaks 8.3% past target, about what `--ease-back` does, so nothing
+looks bouncier; the difference is that it crosses back. Measured on the switch
+knob: **two crossings of its resting place** where `--ease-back` gave one.
+
 ### 1.3 Motion tokens on the theme panel
 
 The theme panel has 16 colour tokens and no motion control. One slider —
@@ -158,6 +183,17 @@ tokens unevenly enough that the difference is visible.
 Careful: animate only the new spans, never re-run it over the whole bubble, or
 every token re-animates the entire reply and the phone will cook.
 
+**Built.** `Markup.render` takes a reveal offset and splits the run that
+straddles it, so a sentence arriving inside dialogue that started three frames
+ago is marked correctly rather than classed one way or the other. `schedule`
+decides the offset with `startsWith` rather than a length comparison, which
+matters because Alpine reuses containers: only text that literally continues
+what is on screen counts as arriving — an edit, a swipe or a reused element is
+a rewrite and appears without a flourish. Opacity only, deliberately: text that
+slides is text you cannot read while it moves. Measured over a simulated token
+stream — each chunk marked exactly once, **12 distinct opacity steps** on a
+decelerating curve, nothing left marked once the reply settles.
+
 ### 2.2 A shimmer on the composing cue
 
 The cue is three bouncing dots and a label. Current practice for AI chat has
@@ -182,6 +218,14 @@ a HUD you have to open.
 @keyframes shimmer { to { background-position: -200% 0; } }
 ```
 
+**Built**, with two guards the sketch above lacks. It sits inside an
+`@supports` for `background-clip: text`, because the effect rests on `color:
+transparent` — without the clip that is not a label missing a shimmer, it is no
+label at all. And it is overridden under reduced motion rather than merely
+stopped, since a frozen gradient leaves the text painted with whatever slice it
+halted on. Verified: transparent fill and a 2s sweep normally, solid muted text
+with the animation stopped under `reduce`.
+
 ### 2.3 Switching chats has no transition and no loading state
 
 `openChat()` replaces `messages` wholesale. The old conversation vanishes and
@@ -198,6 +242,15 @@ screen at all. No skeleton, no shimmer, no crossfade — I checked.
   On a phone hosting its own database this is a real wait, not a hypothetical.
 - **Ambitious:** a View Transition (see 5.1) so the header name and portrait
   morph between chats instead of cutting.
+
+**Built** to the middle option. Four bubbles alternating sides with uneven line
+lengths — a skeleton that does not match what replaces it is just a different
+kind of flicker — sweeping on a linear gradient, each row a beat behind the one
+above. The shape is fixed rather than random: a placeholder that reshuffles
+draws attention to itself, and the one thing it must not do is look like
+content arriving. Raised only when the chat is actually changing, so reopening
+the one already on screen does not blank it. The View Transition version is
+still open.
 
 ### 2.4 The state bands never move
 
@@ -260,6 +313,17 @@ because that is what the gesture meant. Track `dy/dt` across the last few
 one place where springs genuinely beat curves — the settle should carry the
 finger's momentum, not restart from rest
 ([Google Chrome modern-web-guidance](https://github.com/GoogleChrome/modern-web-guidance/blob/main/skills/modern-web-guidance/guides/ui-behaviors/physics-based-easing.md)).
+
+**Built.** The last five touch samples are kept; a release above 520px/s
+commits, provided the pull had already passed 35% — a fast flick from a
+standing start at the bottom of the chat is a scroll that had nowhere to go,
+not a gesture. Samples older than 160ms are discarded, so a finger that moved
+fast and then held still counts as held. Releasing without committing now
+springs shut instead of snapping: `--reveal` is registered with `@property` so
+it can be interpolated at all, and the panel stays mounted through the settle,
+which is the "keep it mounted until it has finished" tax `CLAUDE.md` warns
+about. Measured: identical 52px pulls, **fast commits and slow does not**, and
+the settle traces 12 distinct heights with a visible rebound.
 
 ### 4.2 Haptics are used twice and could be used well
 

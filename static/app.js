@@ -33,19 +33,40 @@ function luminance(hex) {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
-// Transition timings. Kept in JS as well as CSS because the sequence has to
-// wait for each step; they must stay in step with styles.css.
-const TEXT_FADE_MS = 170;
-const BUBBLE_RESIZE_MS = 300;
+// Transition timings the sequences here have to wait on. Read from the
+// stylesheet rather than restated, because the restated version drifted: this
+// block used to hold its own numbers under a comment saying they "must stay in
+// step with styles.css", and `MESSAGE_SEND_MS` had become 460 against an
+// animation that ran 420. Two numbers that agree by hand eventually do not.
+//
+// Read once and cached: these are custom properties on :root, so they cannot
+// change without a stylesheet edit, and getComputedStyle is not something to
+// do inside an animation sequence.
+const durations = new Map();
+function dur(name, fallback = 0) {
+  if (!durations.has(name)) {
+    const raw = getComputedStyle(document.documentElement)
+      .getPropertyValue(`--dur-${name}`).trim();
+    // Tokens are authored in ms; seconds are accepted so a later edit to `.3s`
+    // does not silently become 0.3ms.
+    const value = raw.endsWith("s") && !raw.endsWith("ms")
+      ? parseFloat(raw) * 1000
+      : parseFloat(raw);
+    durations.set(name, Number.isFinite(value) && value > 0 ? value : fallback);
+  }
+  return durations.get(name);
+}
+
+const TEXT_FADE_MS = () => dur("text-fade", 170);
+const BUBBLE_RESIZE_MS = () => dur("bubble-resize", 300);
+const PANEL_LEAVE_MS = () => dur("panel-leave", 260);
+const MESSAGE_SEND_MS = () => dur("message-send", 420);
+const MESSAGE_LEAVE_MS = () => dur("message-leave", 220);
+
 // Size the bubble draws in to while the cue is showing, so a long reply does
 // not leave a screenful of empty card around three dots.
 const REGEN_PILL_WIDTH = 84;
 const REGEN_PILL_HEIGHT = 46;
-// Matches .sheet-leave in styles.css: how long a panel takes to slide away.
-const PANEL_LEAVE_MS = 260;
-// Matches .msg.sending and .bubble.leaving in styles.css.
-const MESSAGE_SEND_MS = 460;
-const MESSAGE_LEAVE_MS = 220;
 // How long an armed delete stays armed before giving up on the second tap.
 const CONFIRM_MS = 3000;
 // How long a one-line confirmation ("Copied") stays on screen.
@@ -89,6 +110,12 @@ const GESTURE_WINDOW_MS = 250;
 
 // Pull-up-past-the-end, which reveals the impersonate control.
 const PULL_DISTANCE = 96;      // travel past the bottom that fully reveals it
+// A flick completes the pull without going the full distance. 520px/s is about
+// where a deliberate throw separates from a drag that happened to end while
+// moving; the reveal floor stops a fast scroll at the bottom of the chat from
+// counting as one, since that gesture never committed to anything.
+const FLICK_SPEED = 520;
+const FLICK_MIN_REVEAL = 0.35;
 const PULL_SETTLE_MS = 220;    // a wheel has no "let go"; a pause stands in
 
 // Swipe thresholds, in CSS pixels.
@@ -222,6 +249,8 @@ function tavern() {
     panel: "",
     panelOpen: false,
     historyFor: "",
+    // Raised while a different chat's transcript is being fetched.
+    loadingChat: false,
     confirmChar: "",
     confirmChat: "",
     confirmMsg: "",
@@ -235,6 +264,7 @@ function tavern() {
     // now would fire it.
     reveal: 0,
     revealArmed: false,
+    revealSettling: false,
     composerMenu: false,
     impersonating: false,
     // The message currently playing the send animation. Held only long enough
@@ -352,6 +382,16 @@ function tavern() {
       }
     },
 
+    // The shape the skeleton draws. Fixed rather than random: a placeholder
+    // that reshuffles every time it appears draws attention to itself, and the
+    // one thing it must not do is look like content arriving.
+    skeletonRows: [
+      { id: 1, side: "assistant", lines: [92, 78, 54] },
+      { id: 2, side: "user", lines: [64] },
+      { id: 3, side: "assistant", lines: [88, 71] },
+      { id: 4, side: "user", lines: [46] },
+    ],
+
     // A fresh install, before there is anyone to talk to. Derived rather than
     // stored so it cannot disagree with the list after a create, an import or
     // a delete — every one of those already refreshes `characters`.
@@ -401,7 +441,22 @@ function tavern() {
     },
 
     async openChat(id) {
-      const data = await api.get(`/api/chats/${id}`);
+      // The transcript comes off a SQLite database on a phone, so this is a
+      // real wait rather than a hypothetical one. It used to cut: the old
+      // conversation vanished, nothing stood in for it, and the new one
+      // appeared whole. The skeleton is only raised when the chat is actually
+      // changing — reopening the one already on screen should not blank it.
+      const switching = this.chatId !== id;
+      if (switching) {
+        this.messages = [];
+        this.loadingChat = true;
+      }
+      let data;
+      try {
+        data = await api.get(`/api/chats/${id}`);
+      } finally {
+        this.loadingChat = false;
+      }
       this.chatId = id;
       this.character = data.character;
       this.characterId = data.chat.character_id;
@@ -487,7 +542,7 @@ function tavern() {
       this.confirmChat = "";
       // Drop the body only once the sheet has finished leaving, and only if
       // nothing has been opened in the meantime.
-      setTimeout(() => { if (!this.panelOpen) this.panel = ""; }, PANEL_LEAVE_MS);
+      setTimeout(() => { if (!this.panelOpen) this.panel = ""; }, PANEL_LEAVE_MS());
     },
 
     panelTitle() {
@@ -2050,7 +2105,7 @@ function tavern() {
       }
 
       this.fadingId = message.id;
-      await sleep(TEXT_FADE_MS);
+      await sleep(TEXT_FADE_MS());
 
       this.regenId = message.id;
       message.text = "";
@@ -2082,7 +2137,7 @@ function tavern() {
         requestAnimationFrame(() =>
           this.pinTo(bubble, `${natural.width}px`, `${natural.height}px`));
         // Release entirely so streaming text can keep growing the bubble.
-        setTimeout(() => this.releaseRegenPin(message.id), BUBBLE_RESIZE_MS);
+        setTimeout(() => this.releaseRegenPin(message.id), BUBBLE_RESIZE_MS());
       }));
     },
 
@@ -2142,7 +2197,7 @@ function tavern() {
               this.sendingId = event.message.id;
               setTimeout(() => {
                 if (this.sendingId === event.message.id) this.sendingId = "";
-              }, MESSAGE_SEND_MS);
+              }, MESSAGE_SEND_MS());
               this.scrollDown();
               break;
 
@@ -2319,7 +2374,7 @@ function tavern() {
         // Let it shrink out of the column rather than blinking away and
         // yanking everything below it up a bubble's height.
         el.classList.add("leaving");
-        await sleep(MESSAGE_LEAVE_MS);
+        await sleep(MESSAGE_LEAVE_MS());
       }
       this.messages = this.messages.filter((m) => m.id !== message.id);
     },
@@ -3171,19 +3226,51 @@ function tavern() {
       // travelled becomes how far the impersonate control is revealed. Touch
       // and wheel both feed it, so it works with a mouse as well as a thumb.
       let pullFrom = null;
+      // The last few samples of the drag, so the release can ask how fast the
+      // finger was still moving rather than only how far it got. A flick means
+      // the same thing as a long slow pull and should do the same thing;
+      // reading position alone makes a quick confident gesture fail while a
+      // hesitant one succeeds, which is backwards.
+      let track = [];
+      const sample = (y) => {
+        track.push({ y, t: performance.now() });
+        if (track.length > 5) track.shift();
+      };
+      // Pixels per second, upward positive, over the tail of the gesture.
+      const flickSpeed = () => {
+        if (track.length < 2) return 0;
+        const first = track[0];
+        const last = track[track.length - 1];
+        const dt = last.t - first.t;
+        // Samples older than ~120ms are not part of a flick; a finger that
+        // travelled fast and then held still has stopped, and releasing from
+        // a hold should mean release, not throw.
+        if (dt <= 0 || last.t - first.t > 160) return 0;
+        return ((first.y - last.y) / dt) * 1000;
+      };
+
       port.addEventListener("touchstart", (event) => {
         pullFrom = this.atVeryBottom() ? event.touches[0].clientY : null;
+        track = [];
+        if (pullFrom !== null) sample(pullFrom);
       }, { passive: true });
       port.addEventListener("touchmove", (event) => {
         if (pullFrom === null) return;
         if (!this.atVeryBottom()) { pullFrom = null; this.setReveal(0); return; }
+        const y = event.touches[0].clientY;
+        sample(y);
         // Finger moving up the screen means pulling the content up past its end.
-        this.setReveal((pullFrom - event.touches[0].clientY) / PULL_DISTANCE);
+        this.setReveal((pullFrom - y) / PULL_DISTANCE);
       }, { passive: true });
       const endPull = () => {
+        // A flick counts, but only once the gesture has committed to being one
+        // — a fast flick from a standing start at the bottom of the chat is
+        // just a scroll that had nowhere to go.
+        const flicked = this.reveal >= FLICK_MIN_REVEAL && flickSpeed() >= FLICK_SPEED;
         pullFrom = null;
-        if (this.revealArmed) this.impersonate();
-        else this.setReveal(0);
+        track = [];
+        if (this.revealArmed || flicked) this.impersonate();
+        else this.settleReveal();
       };
       port.addEventListener("touchend", endPull, { passive: true });
       port.addEventListener("touchcancel", endPull, { passive: true });
@@ -3198,7 +3285,7 @@ function tavern() {
         // A wheel has no "let go", so a pause in scrolling is the release.
         this._pullTimer = setTimeout(() => {
           if (this.revealArmed) this.impersonate();
-          else this.setReveal(0);
+          else this.settleReveal();
         }, PULL_SETTLE_MS);
       }, { passive: true });
 
@@ -3224,6 +3311,18 @@ function tavern() {
       const el = this.scrollPort;
       if (!el) return false;
       return el.scrollHeight - el.scrollTop - el.clientHeight <= 2;
+    },
+
+    // Let go and it springs shut rather than vanishing. `settling` is the only
+    // time the panel is allowed a transition — while the finger is down it has
+    // to track the thumb exactly, and a control that lags the thumb is worse
+    // than one that does not move at all.
+    settleReveal() {
+      this.revealSettling = true;
+      clearTimeout(this._settleTimer);
+      this._settleTimer = setTimeout(() => { this.revealSettling = false; },
+                                     dur("slow", 340) + 60);
+      this.setReveal(0);
     },
 
     setReveal(value) {

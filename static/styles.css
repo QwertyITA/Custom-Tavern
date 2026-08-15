@@ -46,6 +46,54 @@
   --ease-in-out: cubic-bezier(.65, 0, .35, 1);
   --ease-back: cubic-bezier(.34, 1.56, .64, 1);
 
+  /* A real spring, which a cubic-bezier cannot be: two control points can
+     express one overshoot and no more, so --ease-back arrives, passes its mark
+     once and stops. This settles the way a physical thing does — over, back,
+     over by less — and it is what should be used when something *lands*
+     rather than merely arrives. Generated once from a damped spring and
+     pasted; linear() has been Baseline since December 2023, which is what
+     makes it usable here at all: no build step, no dependency compiled on an
+     Android CPU.
+
+     Generated from an actual damped oscillator — zeta 0.62, omega 13, sampled
+     at 31 evenly spaced points, which is why there are no percentages: linear()
+     distributes evenly spaced stops for you. That damping was chosen by
+     measurement, not taste. It peaks 8.3% past its target, which is about what
+     --ease-back does, so nothing looks bouncier than before — but it then
+     crosses back and settles, where a bezier can only pass its mark once and
+     stop. That second crossing is the whole difference between something
+     arriving and something landing.
+
+     Not for the folds. A panel that bounces open reads as broken, not alive. */
+  --ease-spring: linear(
+    0, 0.0779, 0.2553, 0.4655, 0.6647, 0.8291, 0.9496, 1.0272, 1.0687,
+    1.0831, 1.0796, 1.0662, 1.0489, 1.0318, 1.0172, 1.0063, 0.999, 0.9949,
+    0.9932, 0.9932, 0.9942, 0.9956, 0.997, 0.9983, 0.9993, 1, 1.0004,
+    1.0006, 1.0006, 1.0005, 1
+  );
+
+  /* Durations. The easings had tokens from the start and these did not, so the
+     stylesheet grew about two dozen ad-hoc numbers and app.js grew eleven more
+     beside them. Three steps is enough for everything here.
+       --dur-fast   a colour, a border, a tap acknowledging itself
+       --dur-base   most things moving or changing size
+       --dur-slow   something large, or travelling the width of the screen */
+  --dur-fast: 140ms;
+  --dur-base: 240ms;
+  --dur-slow: 340ms;
+
+  /* The five that JavaScript has to wait on. These were duplicated as
+     constants in app.js with a comment admitting they "must stay in step with
+     styles.css" — and two of them had already fallen out of step: the send
+     animation ran 420ms while the code waited 460. app.js reads these values
+     from here now, so there is one number rather than two that agree by
+     hand. */
+  --dur-text-fade: 170ms;
+  --dur-bubble-resize: 300ms;
+  --dur-panel-leave: 260ms;
+  --dur-message-send: 420ms;
+  --dur-message-leave: 220ms;
+
   --radius: 10px;
   --font-size: 15px;
   --bubble-max: 86%;
@@ -401,7 +449,7 @@ body {
   white-space: pre-wrap;
   color: var(--c-default);
   /* Must match TEXT_FADE_MS in app.js — the regen sequence waits for it. */
-  transition: opacity 170ms var(--ease-out);
+  transition: opacity var(--dur-text-fade) var(--ease-out);
 }
 .body.fade-out { opacity: 0; }
 .body.regen {
@@ -510,7 +558,40 @@ body {
 }
 
 .composing { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+
+/* A light travelling through the words rather than a static grey label.
+   The distinction it draws is between *working* and *stuck*, and this app has
+   more to say there than most: the label is the name of the pass that is
+   running — "Typing…", "Looking it up…", "Reading…", or a custom pass's own
+   title — so the multi-pass engine becomes visible as motion instead of
+   something you have to open the HUD to see.
+
+   Linear on purpose, and one of only three places that is right: this is a
+   continuous sweep with no start and no end, like the spinner. Easing it would
+   make the highlight hesitate once per pass. */
 .composing-label { font-size: 12px; }
+
+/* Guarded, because the whole effect rests on `color: transparent` — if the
+   clip does not apply, that is not a label without a shimmer, it is no label
+   at all. Inside the @supports the two always arrive together. */
+@supports ((background-clip: text) or (-webkit-background-clip: text)) {
+  .composing-label {
+    background: linear-gradient(
+      90deg,
+      var(--muted) 35%,
+      color-mix(in srgb, var(--accent) 70%, var(--text)) 50%,
+      var(--muted) 65%
+    ) 0 0 / 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: label-shimmer 2s linear infinite;
+  }
+}
+@keyframes label-shimmer {
+  from { background-position: 150% 0; }
+  to   { background-position: -150% 0; }
+}
 
 .banner { padding: 8px 10px; border-radius: 8px; font-size: 13px; display: flex; gap: 10px; }
 .banner.error { background: color-mix(in srgb, var(--error) 18%, var(--bg)); color: var(--error); }
@@ -751,7 +832,8 @@ body {
 /* Alpine swaps these classes around x-show, which is what keeps the element
    mounted long enough to animate on the way out as well as in. */
 .sheet-enter { transition: transform 320ms var(--ease-out), opacity 200ms var(--ease-out); }
-.sheet-leave { transition: transform 260ms var(--ease-in-out), opacity 180ms var(--ease-in-out); }
+.sheet-leave { transition: transform var(--dur-panel-leave) var(--ease-in-out),
+                            opacity 180ms var(--ease-in-out); }
 .sheet-from { transform: translateY(100%); opacity: .4; }
 .sheet-to { transform: none; opacity: 1; }
 .sheet-head {
@@ -931,13 +1013,13 @@ body {
    text is cleared out from under it (it collapses onto the cue in one frame),
    and a minimum alone cannot hold it in once the new reply arrives. Pinned to
    the same number they fix the box at an exact size, which is what actually
-   animates. 300ms matches BUBBLE_RESIZE_MS. */
+   animates. --dur-bubble-resize is what app.js waits on. */
 .bubble {
   transition: transform .18s var(--ease-out),
-              min-width 300ms var(--ease-in-out),
-              max-width 300ms var(--ease-in-out),
-              min-height 300ms var(--ease-in-out),
-              max-height 300ms var(--ease-in-out);
+              min-width var(--dur-bubble-resize) var(--ease-in-out),
+              max-width var(--dur-bubble-resize) var(--ease-in-out),
+              min-height var(--dur-bubble-resize) var(--ease-in-out),
+              max-height var(--dur-bubble-resize) var(--ease-in-out);
 }
 /* Used to commit a start size before arming the transition (pinInstant). */
 .bubble.no-anim { transition: none !important; }
@@ -993,24 +1075,48 @@ body {
 /* Every animation here is decoration over something that also reads as a
    state change — the menu is open or closed, the bubble is a cue or a reply,
    the field is refreshing or it is not. Someone who has asked their phone to
-   stop moving things loses nothing by having them arrive instantly. */
+   stop moving things loses nothing by having them arrive instantly.
+
+   Written as "stop everything, then name the exceptions" rather than as a list
+   of what to stop. The list version was a maintenance trap: it named eleven
+   selectors against 33 animations and 43 transitions, and every animation
+   added after it was written quietly ignored the setting. A wildcard cannot
+   fall behind the thing it is meant to cover.
+
+   1ms rather than 0: a zero-length transition never fires `transitionend`, and
+   several sequences here wait on it before doing the next step. Instant to the
+   eye, still a completed transition to the code. */
 @media (prefers-reduced-motion: reduce) {
-  .menu-wrap,
-  .menu-btn,
-  .bubble,
-  .body,
-  .msg-tools {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
     transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* The exceptions, and why each earns one.
+
+     A progress indicator that stops indicating is worse than one that moves:
+     the spinner and the ambient pulse are the only signs that a pass is still
+     running, and both are continuous rotation or opacity in place — neither
+     travels, which is what the setting is actually about. */
+  .icon-btn.refresh.spinning { animation-duration: 1.1s !important; }
+  .anim-ambient::before { animation-duration: 1.6s !important; }
+
+  /* The shimmer is the one animation that cannot simply be stopped: frozen,
+     it leaves the label painted with whatever slice of the gradient it
+     happened to stop on. Put the text back instead. */
+  .composing-label {
+    background: none !important;
+    color: var(--muted) !important;
+    -webkit-text-fill-color: var(--muted) !important;
   }
   .icon-btn.refresh.spinning,
-  .field.refreshing .field-value,
-  .glyph-btn.armed,
-  .anim-cogs::before,
-  .anim-ambient::before,
-  .body.regen {
-    animation: none !important;
-  }
+  .anim-ambient::before { animation-iteration-count: infinite !important; }
 }
 
 /* ------------------------------------------------------- action wheel */
@@ -1043,7 +1149,7 @@ body {
   background: var(--accent);
   opacity: .9;
   transition: transform 180ms var(--ease-back), opacity 180ms var(--ease-out);
-  animation: hub-in 260ms var(--ease-back) both;
+  animation: hub-in var(--dur-panel-leave) var(--ease-spring) both;
 }
 /* Shrinks away as the finger commits to an option, so the centre reads as the
    place you came from rather than a sixth thing to pick. */
@@ -1163,12 +1269,12 @@ body {
   60%  { opacity: 1; }
   to   { transform: none; opacity: 1; }
 }
-.msg.sending .bubble { animation: message-send 420ms var(--ease-back) both; }
+.msg.sending .bubble { animation: message-send var(--dur-message-send) var(--ease-spring) both; }
 
 /* And deleted ones collapse out of the column rather than blinking away and
    yanking everything below them up a bubble's height. */
 .bubble.leaving {
-  animation: message-leave 220ms var(--ease-in-out) both;
+  animation: message-leave var(--dur-message-leave) var(--ease-in-out) both;
   transform-origin: center top;
 }
 @keyframes message-leave {
@@ -1408,9 +1514,23 @@ body {
 .composer-item:disabled { opacity: .4; }
 .composer-item.soon .icon { opacity: .5; }
 
+/* Registered so it can be interpolated. An unregistered custom property is a
+   string as far as the engine is concerned and transitions between two strings
+   by swapping them; with a syntax it becomes a number, and everything computed
+   from it below animates for free. */
+@property --reveal {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
 /* Revealed in proportion to how far the chat has been pulled past its end.
    --reveal runs 0 to 1 and drives height, opacity and the lift, so the
-   control tracks the finger instead of appearing at a threshold. */
+   control tracks the finger instead of appearing at a threshold.
+
+   No transition while the finger is down — a control that lags the thumb is
+   worse than one that does not move. `.settling` is added only on release, so
+   letting go springs the panel shut instead of snapping it. */
 .reveal {
   flex: none;
   overflow: hidden;
@@ -1435,6 +1555,8 @@ body {
   transition: color 160ms var(--ease-out), border-color 160ms var(--ease-out),
               background 160ms var(--ease-out);
 }
+.reveal.settling { transition: --reveal var(--dur-slow) var(--ease-spring); }
+
 .reveal.armed .reveal-btn {
   color: var(--on-accent);
   background: var(--accent);
@@ -1654,7 +1776,8 @@ input.mono {
   height: 17px;
   border-radius: 50%;
   background: var(--muted);
-  transition: transform 260ms var(--ease-back), background 240ms var(--ease-out);
+  transition: transform var(--dur-panel-leave) var(--ease-spring),
+              background var(--dur-base) var(--ease-out);
 }
 .p-switch.on .p-knob { transform: translateX(17px); background: var(--bg); }
 
@@ -1756,7 +1879,7 @@ input.mono {
   border-radius: 50%;
   background: var(--accent);
   vertical-align: middle;
-  animation: sampler-live 300ms var(--ease-back) both;
+  animation: sampler-live var(--dur-bubble-resize) var(--ease-spring) both;
 }
 @keyframes sampler-live {
   from { transform: scale(0); }
@@ -1879,7 +2002,7 @@ input.mono {
 .glyph-btn.star.on .icon-btn-glyph { fill: currentColor; }
 /* The moment of starring gets a small pop, so the row that is about to move
    acknowledges the tap before it travels. */
-.glyph-btn.star.on .icon-btn-glyph { animation: star-pop 320ms var(--ease-back) both; }
+.glyph-btn.star.on .icon-btn-glyph { animation: star-pop 320ms var(--ease-spring) both; }
 @keyframes star-pop {
   from { transform: scale(.6); }
   to   { transform: scale(1); }
@@ -2057,3 +2180,74 @@ input.mono {
 }
 .contrast-ratio { color: var(--muted); font-variant-numeric: tabular-nums; }
 .contrast-warn .kind-note { margin-top: 6px; }
+
+
+/* ------------------------------------------------- text as it streams in */
+
+/* Text that arrived since the last frame. The reply used to appear a token at
+   a time, fully opaque, with no motion at all — the most-watched surface in
+   the app and the only one with nothing happening on it. A local model on a
+   phone delivers tokens unevenly enough that the difference between text
+   arriving and text jumping is visible.
+
+   Only the new run carries this. `render()` splits the tail off and marks it,
+   and the previous tail is plain text by the next frame, so each chunk fades
+   once and then holds still. Re-running it over the whole bubble would
+   re-animate the entire reply on every token, which on a phone that is also
+   running the model is the difference between a smooth reply and a hot one.
+
+   Deliberately not a translate: text that slides is text you cannot read while
+   it moves, and this lands under the reader's eye. */
+.mk-new {
+  animation: token-in 180ms var(--ease-out) both;
+}
+@keyframes token-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ------------------------------------------------------ loading skeleton */
+
+/* Stands in for the transcript while it is fetched. A moving gradient reads as
+   working where a blank column reads as broken, and the shape has to match
+   what replaces it — bubbles alternating sides, uneven line lengths, the last
+   line of each short — or the swap itself becomes the flicker.
+
+   The sweep is linear, like the other two continuous animations here: it has
+   no start and no end to ease between. */
+.skeleton { display: flex; flex-direction: column; gap: 10px; }
+.sk-msg { display: flex; }
+.sk-msg.user { justify-content: flex-end; }
+.sk-bubble {
+  max-width: 78%;
+  min-width: 42%;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sk-msg.user .sk-bubble { background: var(--panel-2); }
+.sk-line {
+  height: 10px;
+  border-radius: 5px;
+  background: linear-gradient(
+    90deg,
+    var(--line) 25%,
+    color-mix(in srgb, var(--line) 45%, var(--panel-2)) 50%,
+    var(--line) 75%
+  ) 0 0 / 260% 100%;
+  animation: sk-sweep 1.4s linear infinite;
+}
+@keyframes sk-sweep {
+  from { background-position: 130% 0; }
+  to   { background-position: -130% 0; }
+}
+
+/* Each row a beat behind the one above, so the placeholder reads down the
+   column the way the eye does rather than pulsing as one slab. */
+.skeleton .sk-msg { animation: nobody-in 320ms var(--ease-out) backwards; }
+.skeleton .sk-msg:nth-child(2) { animation-delay: 60ms; }
+.skeleton .sk-msg:nth-child(3) { animation-delay: 120ms; }
+.skeleton .sk-msg:nth-child(4) { animation-delay: 180ms; }
