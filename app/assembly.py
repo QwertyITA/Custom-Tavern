@@ -26,6 +26,7 @@ from .lorebook import render as render_lore
 from .lorebook import scan as scan_lore
 from .markup import to_plain
 from . import macros
+from . import prompt_layout
 from .models import AuthorsNote, Character, VariableSchema
 from .providers.base import estimate_tokens
 from .state import SLICE_SCENE, SLICE_VARS, initial_values, load_schema, read_slice
@@ -137,35 +138,50 @@ def build_reply_context(
     def expand(text: str) -> str:
         return macros.substitute(text, macro_ctx)
 
-    # ---- stable prefix -------------------------------------------------
-    prefix: list[str] = []
-    if character.system_prompt:
-        prefix.append(expand(character.system_prompt).strip())
-    else:
-        prefix.append(
-            f"You are {character.name}. Stay in character and reply only as "
-            f"{character.name}, in prose. Use \"quotes\" for speech and *asterisks* for "
-            "actions and narration."
-        )
-    if character.persona:
-        prefix.append(f"## {character.name}\n{expand(character.persona).strip()}")
-    if character.scenario:
-        prefix.append(f"## Scenario\n{expand(character.scenario).strip()}")
+    # Which sections are built, and in what order inside each band (§14). The
+    # bands themselves never move, which is what keeps the cache rule (§7.1)
+    # structural rather than a warning the user is asked to remember.
+    layout = prompt_layout.normalise(settings.prompt_sections)
 
+    def custom_text(section: dict) -> str:
+        body = expand(section["text"]).strip()
+        return f"## {section['label']}\n{body}" if body else ""
+
+    # ---- stable prefix -------------------------------------------------
+    default_instruction = (
+        f"You are {character.name}. Stay in character and reply only as "
+        f"{character.name}, in prose. Use \"quotes\" for speech and *asterisks* for "
+        "actions and narration."
+    )
     # Who the character is talking to. In the stable prefix because it changes
     # about as often as the character does — switching persona mid-chat costs
     # one cache rebuild, which is the right price for a rare deliberate act.
     persona = repo.active_persona(db, chat)
-    if persona and (persona.get("description") or "").strip():
-        prefix.append(
-            f"## {persona['name']}\n{expand(persona['description']).strip()}"
-        )
-
     constant_lore = [e for e in character.lorebook if e.constant and e.enabled]
-    if constant_lore:
-        prefix.append("## World\n" + expand(render_lore(constant_lore)))
-    if character.example_dialogue:
-        prefix.append(f"## Example dialogue\n{expand(character.example_dialogue).strip()}")
+
+    prefix_parts: dict[str, str] = {
+        "instruction": expand(character.system_prompt).strip()
+        if character.system_prompt
+        else default_instruction,
+        "character": f"## {character.name}\n{expand(character.persona).strip()}"
+        if character.persona
+        else "",
+        "scenario": f"## Scenario\n{expand(character.scenario).strip()}"
+        if character.scenario
+        else "",
+        "user_persona": f"## {persona['name']}\n{expand(persona['description']).strip()}"
+        if persona and (persona.get("description") or "").strip()
+        else "",
+        "world": "## World\n" + expand(render_lore(constant_lore)) if constant_lore else "",
+        "examples": f"## Example dialogue\n{expand(character.example_dialogue).strip()}"
+        if character.example_dialogue
+        else "",
+    }
+
+    prefix = [
+        custom_text(s) if s["custom"] else prefix_parts.get(s["id"], "")
+        for s in prompt_layout.order_for(layout, "prefix")
+    ]
 
     assembled.system = "\n\n".join(p for p in prefix if p)
     _section(assembled, "prefix", assembled.system)
@@ -185,41 +201,65 @@ def build_reply_context(
         (m["text"] for m in reversed(window) if m["role"] == "user"), ""
     )
 
-    middle: list[str] = []
+    middle_order = prompt_layout.order_for(layout, "middle")
+    wanted = {s["id"] for s in middle_order}
+    middle_parts: dict[str, str] = {}
 
-    triggered = [
-        e
-        for e in scan_lore(
-            character.lorebook,
-            recent_texts,
-            scan_depth=settings.lorebook_scan_depth,
-            total_budget=settings.lorebook_total_budget,
+    # Only scanned if the section is on: the scan itself costs time on a phone,
+    # and a section that is switched off has nothing to show for it.
+    if "lore" in wanted:
+        triggered = [
+            e
+            for e in scan_lore(
+                character.lorebook,
+                recent_texts,
+                scan_depth=settings.lorebook_scan_depth,
+                total_budget=settings.lorebook_total_budget,
+            )
+            if not e.constant
+        ]
+        if triggered:
+            text = render_lore(triggered)
+            middle_parts["lore"] = f"## Relevant lore\n{text}"
+            assembled.lore_hits = [e.keys[0] if e.keys else "" for e in triggered]
+            _section(assembled, "lorebook", text)
+
+    if "memories" in wanted:
+        memories = memory_store.retrieve(
+            db, character.id, latest_user or "\n".join(recent_texts[-2:]),
+            limit=settings.memory_max_injected,
         )
-        if not e.constant
-    ]
-    if triggered:
-        text = render_lore(triggered)
-        middle.append(f"## Relevant lore\n{text}")
-        assembled.lore_hits = [e.keys[0] if e.keys else "" for e in triggered]
-        _section(assembled, "lorebook", text)
+        if memories:
+            text = memory_store.render(memories)
+            middle_parts["memories"] = f"## Remembered\n{text}"
+            assembled.memories = memories
+            _section(assembled, "memory", text)
 
-    memories = memory_store.retrieve(
-        db, character.id, latest_user or "\n".join(recent_texts[-2:]),
-        limit=settings.memory_max_injected,
-    )
-    if memories:
-        text = memory_store.render(memories)
-        middle.append(f"## Remembered\n{text}")
-        assembled.memories = memories
-        _section(assembled, "memory", text)
+    if "summary" in wanted:
+        summary = repo.get_summary(db, chat["id"])
+        if summary["text"]:
+            middle_parts["summary"] = f"## Story so far\n{summary['text']}"
+            _section(assembled, "summary", summary["text"])
 
-    summary = repo.get_summary(db, chat["id"])
-    if summary["text"]:
-        middle.append(f"## Story so far\n{summary['text']}")
-        _section(assembled, "summary", summary["text"])
+    # Everything before the conversation goes into one system message; anything
+    # a user has dragged *below* it follows the transcript. Being able to put a
+    # block after the history and before the volatile band is most of the
+    # reason to have custom blocks at all.
+    before_conversation: list[str] = []
+    after_conversation: list[str] = []
+    bucket = before_conversation
+    for section in middle_order:
+        if section["id"] == "conversation":
+            bucket = after_conversation
+            continue
+        text = custom_text(section) if section["custom"] else middle_parts.get(section["id"], "")
+        if text:
+            bucket.append(text)
 
-    if middle:
-        assembled.messages.append({"role": "system", "content": "\n\n".join(middle)})
+    if before_conversation:
+        assembled.messages.append(
+            {"role": "system", "content": "\n\n".join(before_conversation)}
+        )
 
     turn_messages: list[Message] = []
     for message in window:
@@ -241,25 +281,31 @@ def build_reply_context(
             _section(assembled, "authors_note", text)
     assembled.messages.extend(turn_messages)
 
+    if after_conversation:
+        assembled.messages.append(
+            {"role": "system", "content": "\n\n".join(after_conversation)}
+        )
+
     # ---- volatile suffix (LAST — the cache rule) -------------------------
-    volatile: list[str] = []
     values = current_values(db, chat["id"], schema)
     bands = render_bands(schema, values)
-    if bands:
-        volatile.append(f"## {character.name}'s current state\n{bands}")
-    if scene := scene_line(db, chat["id"]):
-        volatile.append(f"## Setting\n{scene}")
-    for injection in toggle_injections or []:
-        volatile.append(injection)
-    # The card's own last word. It belongs after the history — that is the
-    # whole point of the field, and where a card puts the instruction it wants
-    # obeyed over whatever the conversation has drifted into — and it is stable
-    # per character, so it sits at the end of the volatile block rather than
-    # before the parts that change every turn.
-    if character.post_history_instructions.strip():
-        volatile.append(expand(character.post_history_instructions).strip())
+    volatile_parts: dict[str, str] = {
+        "state": f"## {character.name}'s current state\n{bands}" if bands else "",
+        "setting": f"## Setting\n{scene}" if (scene := scene_line(db, chat["id"])) else "",
+        "toggles": "\n\n".join(toggle_injections or []),
+        # The card's own last word. It belongs after the history — that is the
+        # whole point of the field, and where a card puts the instruction it
+        # wants obeyed over whatever the conversation has drifted into.
+        "final": expand(character.post_history_instructions).strip()
+        if character.post_history_instructions.strip()
+        else "",
+    }
+    volatile = [
+        custom_text(s) if s["custom"] else volatile_parts.get(s["id"], "")
+        for s in prompt_layout.order_for(layout, "volatile")
+    ]
 
-    assembled.volatile = "\n\n".join(volatile)
+    assembled.volatile = "\n\n".join(v for v in volatile if v)
     if assembled.volatile:
         assembled.messages.append({"role": "system", "content": assembled.volatile})
         _section(assembled, "volatile", assembled.volatile)

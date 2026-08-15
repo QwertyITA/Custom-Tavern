@@ -11,12 +11,6 @@ from fastapi.testclient import TestClient
 from app.main import app
 
 
-@pytest.fixture
-def client(db):
-    with TestClient(app) as test_client:
-        yield test_client
-
-
 def sse_events(response) -> list[dict]:
     out = []
     for line in response.iter_lines():
@@ -53,18 +47,6 @@ def test_settings_never_leak_api_keys(client):
     body = client.get("/api/settings").json()
     for backend in body["backends"]:
         assert backend["api_key"] in ("", "***")
-
-
-@pytest.fixture
-def isolated_settings(tmp_path, monkeypatch):
-    """Point the save path at a temp file — never the developer's real one."""
-    from app import config
-
-    original = config.SETTINGS
-    path = tmp_path / "settings.json"
-    monkeypatch.setattr(config, "settings_path", lambda: path)
-    yield path
-    config.apply_settings(original)
 
 
 def test_saving_settings_writes_the_file_and_takes_effect(client, isolated_settings):

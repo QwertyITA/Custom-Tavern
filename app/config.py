@@ -267,6 +267,11 @@ class Settings:
     # Rendering / hygiene.
     strip_user_turn_leakage: bool = True
 
+    # Which prompt sections are built and in what order inside each band (§14).
+    # Empty means "the defaults", so a settings file written before this existed
+    # keeps working and every section arrives switched on.
+    prompt_sections: list[dict[str, Any]] = field(default_factory=list)
+
     # Appearance overrides: CSS variable -> value. Only keys in THEME_TOKENS,
     # only values matching that token's shape (§12, §18.4).
     theme: dict[str, str] = field(default_factory=dict)
@@ -499,7 +504,19 @@ def build_settings(payload: dict[str, Any], current: Settings) -> Settings:
     if not 0 <= dim <= 100:
         raise SettingsError("background_dim must be between 0 and 100")
     settings.background_dim = dim
+    settings.prompt_sections = _prompt_sections(
+        payload["prompt_sections"] if "prompt_sections" in payload else current.prompt_sections
+    )
     return settings
+
+
+def _prompt_sections(raw: Any) -> list[dict[str, Any]]:
+    """Normalised through the layout module, so a hand-edited file cannot make
+    a band jump, resurrect a section that no longer exists, or switch off one
+    the assembler needs."""
+    from . import prompt_layout
+
+    return prompt_layout.to_storage(prompt_layout.normalise(raw))
 
 
 def settings_path() -> Path:

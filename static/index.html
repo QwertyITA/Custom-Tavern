@@ -110,6 +110,10 @@
     <g id="i-close"><path d="M6 6l12 12M18 6 6 18"/></g>
     <g id="i-back"><path d="M14.6 5.4 8 12l6.6 6.6"/></g>
     <g id="i-plus"><path d="M12 5v14M5 12h14"/></g>
+    <!-- Reordering a prompt section. Chevrons rather than filled triangles:
+         next to a row of text they read as direction, not as a warning. -->
+    <g id="i-up"><path d="M5.4 15 12 8.4l6.6 6.6"/></g>
+    <g id="i-down"><path d="M5.4 9 12 15.6 18.6 9"/></g>
     <g id="i-scales">
       <path d="M12 4v16M7 20h10"/>
       <path d="M12 6.6 5 9M12 6.6 19 9"/>
@@ -632,6 +636,84 @@
             <p class="kind-note" x-text="n.note"></p>
           </div>
         </template>
+
+        <h3>What goes into the prompt</h3>
+        <p class="note">
+          Three groups, in this order. Sections move within a group; the groups
+          themselves do not move, and that is deliberate — see below.
+        </p>
+        <button class="disclose" :class="{ open: promptOpen }"
+                @click="promptOpen = !promptOpen" :aria-expanded="promptOpen">
+          <svg class="disclose-arrow" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-back"/></svg>
+          <span x-text="promptOpen ? 'Hide the sections' : 'Show the sections'"></span>
+        </button>
+        <div class="fold" :class="{ open: promptOpen }">
+          <div class="fold-clip">
+            <template x-for="band in settings.prompt_bands || []" :key="band.id">
+              <section class="p-band">
+                <div class="p-band-head">
+                  <h4 x-text="band.label"></h4>
+                  <span class="p-count" x-text="bandSummary(band.id)"></span>
+                </div>
+                <p class="kind-note" x-text="band.note"></p>
+
+                <template x-for="s in sectionsIn(band.id)" :key="s.id">
+                  <div class="p-row" :data-sid="s.id" :class="{ off: !s.enabled, fixed: isFixed(s) }">
+                    <div class="p-move">
+                      <button class="glyph-btn" @click="moveSection(s, -1)"
+                              :aria-label="`Move ${s.label} up`" title="Move up">
+                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-up"/></svg>
+                      </button>
+                      <button class="glyph-btn" @click="moveSection(s, 1)"
+                              :aria-label="`Move ${s.label} down`" title="Move down">
+                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-down"/></svg>
+                      </button>
+                    </div>
+                    <div class="p-body">
+                      <button class="p-name" @click="s.custom ? (openBlock = openBlock === s.id ? '' : s.id) : toggleSection(s)">
+                        <span x-text="s.label"></span>
+                      </button>
+                      <span class="kind-note" x-text="s.note"></span>
+                    </div>
+                    <!-- Fixed sections show the switch in its on position and
+                         say why rather than hiding it: an absent control is a
+                         thing you look for, a disabled one is an answer. -->
+                    <button class="p-switch" :class="{ on: s.enabled }" @click="toggleSection(s)"
+                            :aria-pressed="s.enabled"
+                            :aria-label="`${s.enabled ? 'Leave out' : 'Include'} ${s.label}`"
+                            :title="isFixed(s) ? 'Always included' : (s.enabled ? 'Leave this out' : 'Include this')">
+                      <span class="p-knob"></span>
+                    </button>
+                  </div>
+                </template>
+
+                <!-- A custom block's own editor, opened by tapping its name. -->
+                <template x-for="s in sectionsIn(band.id).filter(x => x.custom)" :key="`e-${s.id}`">
+                  <div class="fold" :class="{ open: openBlock === s.id }">
+                    <div class="fold-clip">
+                      <label class="col-field tight">
+                        <span class="row-label wide-label">Title</span>
+                        <input x-model="s.label" spellcheck="false" placeholder="What this block is">
+                      </label>
+                      <label class="col-field tight">
+                        <span class="row-label wide-label">Text</span>
+                        <textarea rows="4" x-model="s.text"
+                                  placeholder="Goes in exactly as written. {{char}} and {{user}} work here."></textarea>
+                      </label>
+                      <button class="link danger" @click="removeBlock(s)"
+                              x-text="armedBlock === s.id ? 'Tap again to delete' : 'Delete this block'"></button>
+                    </div>
+                  </div>
+                </template>
+
+                <button class="p-add" @click="addBlock(band.id)">
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plus"/></svg>
+                  <span>Add a block here</span>
+                </button>
+              </section>
+            </template>
+          </div>
+        </div>
 
         <!-- Everything below is right at its default until there is a specific
              reason it is not, so it is one tap away rather than in the way. -->

@@ -39,6 +39,8 @@ const CONFIRM_MS = 3000;
 const HINT_MS = 1900;
 // Quiet time after the last keystroke before the template preview re-renders.
 const PREVIEW_DEBOUNCE_MS = 200;
+// How long a prompt section takes to slide past its neighbour when reordered.
+const SECTION_MOVE_MS = 260;
 
 // Hold-to-open action wheel.
 const HOLD_MS = 380;          // press this long and the wheel opens
@@ -208,6 +210,10 @@ function tavern() {
     previewText: "",
     previewStop: "",
     previewTimer: 0,
+    openBlock: "",
+    armedBlock: "",
+    armedBlockTimer: 0,
+    promptOpen: false,
     personas: [],
     note: { text: "", depth: 0, frequency: 1 },
     noteFromChat: false,
@@ -492,6 +498,107 @@ function tavern() {
         this.previewText = String(e.message || e);
         this.previewStop = "";
       }
+    },
+
+    // ---- prompt manager ----
+
+    sectionsIn(band) {
+      return (this.settings.prompt_sections || []).filter((s) => s.band === band);
+    },
+
+    isFixed(section) {
+      return (this.settings.prompt_fixed || []).includes(section.id);
+    },
+
+    toggleSection(section) {
+      if (this.isFixed(section)) {
+        this.flashHint(`${section.label} is what makes it a conversation`);
+        return;
+      }
+      section.enabled = !section.enabled;
+    },
+
+    // A section only ever moves inside its own band. Bands do not move at all:
+    // the last one changes every turn, and anything that ends up above a
+    // changing section is recomputed along with it on every reply. Enforcing
+    // that here rather than warning about it means there is no arrangement of
+    // these controls that produces a slow prompt.
+    moveSection(section, direction) {
+      const all = this.settings.prompt_sections;
+      const siblings = this.sectionsIn(section.band);
+      const at = siblings.indexOf(section);
+      const target = siblings[at + direction];
+      if (!target) {
+        this.flashHint(direction < 0 ? "Already first in its group" : "Already last in its group");
+        return;
+      }
+      const from = all.indexOf(section);
+      const to = all.indexOf(target);
+      this.flipSections(() => {
+        all.splice(from, 1);
+        all.splice(to, 0, section);
+      });
+    },
+
+    // Read every row's position, let Alpine reorder them, then put each one
+    // back where it started and release it. The rows travel to their new
+    // places instead of teleporting, which is the only way the swap reads as
+    // one thing moving past another rather than as two rows blinking.
+    flipSections(mutate) {
+      const rows = [...document.querySelectorAll(".p-row")];
+      const before = new Map(rows.map((r) => [r.dataset.sid, r.getBoundingClientRect().top]));
+      mutate();
+      this.$nextTick(() => {
+        for (const row of document.querySelectorAll(".p-row")) {
+          const was = before.get(row.dataset.sid);
+          if (was === undefined) continue;
+          const delta = was - row.getBoundingClientRect().top;
+          if (!delta) continue;
+          row.style.transition = "none";
+          row.style.transform = `translateY(${delta}px)`;
+          requestAnimationFrame(() => {
+            row.style.transition = `transform ${SECTION_MOVE_MS}ms var(--ease-out)`;
+            row.style.transform = "";
+            setTimeout(() => { row.style.transition = ""; }, SECTION_MOVE_MS);
+          });
+        }
+      });
+    },
+
+    addBlock(band) {
+      const all = this.settings.prompt_sections;
+      const siblings = this.sectionsIn(band);
+      const last = siblings[siblings.length - 1];
+      const block = {
+        id: `custom:${Math.random().toString(36).slice(2, 10)}`,
+        band, label: "New block", text: "", enabled: true, custom: true,
+        note: "Your own text, expanded like the rest of the card.",
+      };
+      // At the end of its own band, which is where someone looking at the
+      // group they just pressed expects it to appear.
+      all.splice(last ? all.indexOf(last) + 1 : all.length, 0, block);
+      this.openBlock = block.id;
+    },
+
+    removeBlock(section) {
+      if (this.armedBlock !== section.id) {
+        this.armedBlock = section.id;
+        clearTimeout(this.armedBlockTimer);
+        this.armedBlockTimer = setTimeout(() => { this.armedBlock = ""; }, CONFIRM_MS);
+        return;
+      }
+      this.armedBlock = "";
+      const all = this.settings.prompt_sections;
+      this.flipSections(() => all.splice(all.indexOf(section), 1));
+    },
+
+    // How many sections in this band are actually on, for the collapsed
+    // summary — the whole panel is long, and "4 of 6" is the thing you came
+    // to check.
+    bandSummary(band) {
+      const rows = this.sectionsIn(band);
+      const on = rows.filter((s) => s.enabled).length;
+      return on === rows.length ? `All ${rows.length}` : `${on} of ${rows.length}`;
     },
 
     // ---- author's note ----

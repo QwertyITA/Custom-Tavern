@@ -21,6 +21,25 @@ from app.passes.scheduler import PassScheduler  # noqa: E402
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
+@pytest.fixture(autouse=True)
+def pristine_settings(monkeypatch):
+    """Every test starts from stock settings, not the developer's own file.
+
+    `config.SETTINGS` is loaded from `data/settings.json` at import, so without
+    this a suite that calls itself hermetic quietly depends on whatever the
+    person running it last saved in the GUI — which is how a prompt-layout
+    change made in a browser ends up failing an unrelated assembly test on one
+    machine and passing on every other.
+    """
+    from app import config
+
+    original = config.SETTINGS
+    config.apply_settings(config.Settings())
+    monkeypatch.setattr(config, "settings_path", lambda: Path("/nonexistent/settings.json"))
+    yield config.SETTINGS
+    config.apply_settings(original)
+
+
 @pytest.fixture
 def db(tmp_path):
     database = Database(tmp_path / "test.db")
@@ -61,6 +80,28 @@ def chat(db, character) -> dict:
 @pytest.fixture
 def sched(db) -> PassScheduler:
     return PassScheduler(db, SETTINGS)
+
+
+@pytest.fixture
+def client(db):
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+@pytest.fixture
+def isolated_settings(tmp_path, monkeypatch):
+    """Point the save path at a temp file — never the developer's real one."""
+    from app import config
+
+    original = config.SETTINGS
+    path = tmp_path / "settings.json"
+    monkeypatch.setattr(config, "settings_path", lambda: path)
+    yield path
+    config.apply_settings(original)
 
 
 def sync(coro):

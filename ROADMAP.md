@@ -56,7 +56,7 @@ Everything else leans on these.
       prefix/suffix, user and assistant sequences, stop strings — presented so
       someone who has never heard the phrase "instruct template" can tell what
       each box does. Live preview of an assembled prompt.
-- [ ] **14. Prompt Manager.** Reorder and enable/disable prompt sections, and
+- [x] **14. Prompt Manager.** Reorder and enable/disable prompt sections, and
       inject custom blocks at a chosen position. Must not break the KV-cache
       rule (§7.1): the volatile suffix stays last, and the UI has to say so.
 - [ ] **15. Prompt itemisation.** What was actually sent, section by section

@@ -151,6 +151,37 @@ the story survive the cut. Impersonate deliberately does not use the
 character's — that is your line, and a sequence that ends their replies has no
 business cutting off yours.
 
+### What goes into the prompt
+
+Under ☰ → brain. The prompt is built in three groups, always in this order:
+
+| Group | Holds | Why there |
+| --- | --- | --- |
+| **Who they are** | instruction, character, scenario, your persona, always-on lore, examples | Rarely changes, so the model keeps it cached between turns. |
+| **What has happened** | recalled lore, memories, the summary, the conversation | Changes as the story does. |
+| **Right now** | their state, the setting, toggles, the card's last word | Different every turn. |
+
+Each section can be switched off, and moved **within its group**. The groups
+themselves do not move, and that is the one restriction worth explaining: a
+model caches the prompt from the front, and everything after the first changed
+byte is recomputed. The last group changes on every turn — so anything you put
+above it would be recomputed with it, every reply, forever. On a phone hosting
+its own model that is the difference between a reply starting now and a reply
+starting after the whole prefix is rebuilt.
+
+Sorting them into groups rather than warning about it means there is no
+arrangement of these controls that produces a slow prompt. Two sections cannot
+be switched off at all — the main instruction and the conversation — and the
+switch says so rather than being hidden.
+
+**Add a block here** puts your own text into a group. It takes a title and a
+body, `{{char}}` and `{{user}}` work in it like anywhere else, and it can go
+anywhere in its group — including below *the conversation*, which is how you
+get a standing instruction that the model reads after the transcript rather
+than before it.
+
+Layout is global, not per character: it describes how you like prompts built.
+
 ### Writing your own instruct template
 
 Most models are covered by picking `chatml`, `llama3`, `mistral` or `plain` in

@@ -17,7 +17,8 @@ from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import assembly, cards, config, macros, memory as memory_store, providers, repo, state as state_mod
+from . import assembly, cards, config, macros, memory as memory_store, prompt_layout
+from . import providers, repo, state as state_mod
 from .config import DATA_DIR, SETTINGS, STATIC_DIR, reload_settings
 from .db import get_db
 from .events import BUS
@@ -118,6 +119,12 @@ async def get_settings() -> dict:
         "theme_tokens": config.theme_tokens(),
         "template_fields": _template_fields(),
         "template_presets": _template_presets(),
+        # The full layout, not the sparse stored form: the panel needs each
+        # section's band, label and note, and shipping them means the frontend
+        # never holds a second copy of the section list to drift from this one.
+        "prompt_sections": prompt_layout.normalise(config.SETTINGS.prompt_sections),
+        "prompt_bands": prompt_layout.BANDS,
+        "prompt_fixed": sorted(prompt_layout.FIXED_IDS),
         "backgrounds": config.available_backgrounds(),
         "path": str(config.settings_path()),
     }
@@ -166,7 +173,12 @@ async def put_settings(payload: dict = Body(...)) -> dict:
     _adopt(settings)
     # Cached providers hold connections built from the old config.
     await close_all()
-    return {"ok": True, "settings": settings.to_dict()}
+    saved = settings.to_dict()
+    # Same shape the GET hands out — the panel merges this straight into its
+    # own state, and the sparse stored form would leave it with rows that have
+    # no label and no band to sit in.
+    saved["prompt_sections"] = prompt_layout.normalise(settings.prompt_sections)
+    return {"ok": True, "settings": saved}
 
 
 @app.post("/api/settings/test")
