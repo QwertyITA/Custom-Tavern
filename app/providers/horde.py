@@ -14,6 +14,7 @@ import asyncio
 
 import httpx
 
+from .. import samplers
 from .base import GenRequest, GenResult, Provider, ProviderError, estimate_tokens
 
 ANON_KEY = "0000000000"
@@ -92,15 +93,18 @@ class HordeProvider(Provider):
         sampling = request.sampling
 
         stops = [s for s in self.stop_strings(sampling) if s][:LIMITS["stop_sequences"]]
-        params = {
-            "temperature": _clamp(sampling.temp, *LIMITS["temperature"]),
-            "top_p": _clamp(sampling.top_p, *LIMITS["top_p"]),
-            "top_k": int(_clamp(sampling.top_k, *LIMITS["top_k"])),
-            "rep_pen": _clamp(sampling.rep_penalty, *LIMITS["rep_pen"]),
+        # Only the samplers Horde's schema documents, only when moved off
+        # neutral (§17). An undocumented key is not ignored here, it fails the
+        # whole request.
+        params = samplers.params_for(self.kind, sampling)
+        for name, bounds in LIMITS.items():
+            if name in params and isinstance(bounds, tuple):
+                params[name] = type(params[name])(_clamp(params[name], *bounds))
+        params.update({
             "max_length": int(_clamp(sampling.max_tokens, *LIMITS["max_length"])),
             "max_context_length": int(_clamp(self.context_length, *LIMITS["max_context_length"])),
             "n": 1,
-        }
+        })
         if stops:
             params["stop_sequence"] = stops
 

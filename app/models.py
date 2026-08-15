@@ -26,12 +26,47 @@ class Trigger(BaseModel):
 
 
 class Sampling(BaseModel):
+    """What to ask the backend for (§17).
+
+    Every field below has a neutral value at which it does nothing, and is left
+    out of the request entirely while it sits there — see `app/samplers.py`,
+    which is the one place the ranges, the neutral values and the per-backend
+    names are written down.
+
+    The first four are deliberately *not* at neutral: they are the conventional
+    defaults this app has always sent, and moving them to neutral would change
+    everyone's output on upgrade for no reason anybody asked for. Everything
+    added after them starts neutral and stays off until it is moved.
+    """
+
     temp: float = 0.8
     top_p: float = 0.95
     top_k: int = 40
     rep_penalty: float = 1.1
     max_tokens: int = 512
     stop: list[str] = Field(default_factory=list)
+
+    # Truncation, beyond top-p/top-k.
+    min_p: float = 0.0
+    typical_p: float = 1.0
+    tfs: float = 1.0
+
+    # Repetition, beyond the plain penalty.
+    rep_range: int = 0
+    freq_penalty: float = 0.0
+    presence_penalty: float = 0.0
+
+    # DRY — penalises repeated sequences rather than repeated words.
+    dry_multiplier: float = 0.0
+    dry_base: float = 1.75
+    dry_allowed_length: int = 2
+    dry_range: int = 0
+
+    # XTC — sometimes drops the most obvious candidate.
+    xtc_probability: float = 0.0
+    xtc_threshold: float = 0.1
+
+    seed: int = -1
 
 
 class PassOutput(BaseModel):

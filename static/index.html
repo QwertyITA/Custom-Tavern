@@ -770,6 +770,46 @@
                            :aria-label="`${p.label || p.id} ${f.label}`">
                   </div>
                 </template>
+
+                <!-- Everything else is off until it is moved, and stays out of
+                     the request while it is. The count is what is actually
+                     being sent beyond the defaults. -->
+                <button class="disclose" :class="{ open: advancedFor === p.id }"
+                        @click="advancedFor = advancedFor === p.id ? '' : p.id"
+                        :aria-expanded="advancedFor === p.id">
+                  <svg class="disclose-arrow" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-back"/></svg>
+                  <span>More samplers</span>
+                  <span class="p-count" x-show="changedCount(p)"
+                        x-text="`${changedCount(p)} on`"></span>
+                </button>
+                <div class="fold" :class="{ open: advancedFor === p.id }">
+                  <div class="fold-clip">
+                    <template x-for="g in samplerBook.groups || []" :key="g.id">
+                      <section class="s-group" x-show="samplersIn(g.id).length">
+                        <h5 x-text="g.label"></h5>
+                        <p class="kind-note" x-show="g.note" x-text="g.note"></p>
+                        <template x-for="s in samplersIn(g.id)" :key="s.key">
+                          <div class="num-field"
+                               :class="{ inert: !samplerSupported(p, s), live: sentHere(p, s) }">
+                            <div class="num-head">
+                              <span class="num-label" x-text="s.label"></span>
+                              <input class="num-box" type="number" :min="s.min" :max="s.max" :step="s.step"
+                                     :value="p.sampling[s.key]"
+                                     @input="setSampling(p, s, $event.target.value)"
+                                     :aria-label="`${p.label || p.id} ${s.label}`">
+                            </div>
+                            <input class="num-slider" type="range" :min="s.min" :max="s.max" :step="s.step"
+                                   :value="Math.min(s.max, Math.max(s.min, p.sampling[s.key]))"
+                                   @input="setSampling(p, s, $event.target.value)"
+                                   :aria-label="`${p.label || p.id} ${s.label}`">
+                            <p class="kind-note" x-text="samplerNote(p, s)"></p>
+                          </div>
+                        </template>
+                      </section>
+                    </template>
+                    <button class="link" @click="resetSamplers(p)">Turn the extras off</button>
+                  </div>
+                </div>
               </div>
             </template>
             <span class="save-msg" x-text="passMsg"></span>

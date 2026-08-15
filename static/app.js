@@ -41,6 +41,10 @@ const HINT_MS = 1900;
 const PREVIEW_DEBOUNCE_MS = 200;
 // How long a prompt section takes to slide past its neighbour when reordered.
 const SECTION_MOVE_MS = 260;
+// The four samplers every pass ships with a tuned value for. "Turn the extras
+// off" leaves these alone: a pass's own temperature is a decision, not leftover
+// tinkering, and resetting it would be a trap under that label.
+const SAMPLING_DEFAULTS = { temp: 0.8, top_p: 0.95, top_k: 40, rep_penalty: 1.1 };
 
 // Hold-to-open action wheel.
 const HOLD_MS = 380;          // press this long and the wheel opens
@@ -210,6 +214,8 @@ function tavern() {
     previewText: "",
     previewStop: "",
     previewTimer: 0,
+    samplerBook: {},
+    advancedFor: "",
     sent: null,
     sentError: "",
     openPart: "",
@@ -362,6 +368,9 @@ function tavern() {
           this.passMsg = "";
           await this.loadSettings();
           this.passes = await api.get("/api/passes");
+          // Served rather than duplicated here: a slider for a parameter no
+          // backend is sent would be worse than no slider.
+          this.samplerBook = await api.get("/api/samplers");
         } else if (name === "theme") {
           this.bgMsg = "";
           await this.loadSettings();
@@ -2180,12 +2189,93 @@ function tavern() {
     // Ranges chosen for where the values are worth being, not where they are
     // legal. Temperature above ~1.4 is noise on every model worth using, and
     // top_p below 0.5 makes a roleplay model repeat itself.
+    // The two everyone reaches for, plus the length cap. Their ranges come
+    // from the catalogue rather than being written again here, so the basic
+    // slider and the advanced one for the same parameter cannot disagree.
     samplingFields() {
+      const book = this.samplerBook.samplers || [];
+      const from = (key, label) => {
+        const s = book.find((x) => x.key === key);
+        return s ? { ...s, label } : { key, label, min: 0, max: 1, step: 0.01 };
+      };
       return [
-        { key: "temp", label: "Temperature", min: 0, max: 1.5, step: 0.05 },
-        { key: "top_p", label: "Top p", min: 0.5, max: 1, step: 0.01 },
+        from("temp", "Temperature"),
+        from("top_p", "Top p"),
+        // Not in the catalogue: it has no neutral value and nobody tunes it
+        // for taste, so it is not one of the samplers that can be left unsent.
         { key: "max_tokens", label: "Max tokens", min: 32, max: 2048, step: 16 },
       ];
+    },
+
+    // ---- advanced samplers (§17) ----
+
+    samplersIn(group) {
+      return (this.samplerBook.samplers || []).filter(
+        (s) => s.group === group && !["temp", "top_p"].includes(s.key),
+      );
+    },
+
+    // Which backend this pass's tier actually resolves to. A sampler is a
+    // property of the backend, not of the pass, so the same slider is real for
+    // one pass and inert for another.
+    backendFor(definition) {
+      const name = (this.settings.tiers || {})[definition.model_tier];
+      return (this.settings.backends || []).find((b) => b.name === name) || null;
+    },
+
+    samplerSupported(definition, sampler) {
+      const backend = this.backendFor(definition);
+      if (!backend) return false;
+      return ((this.samplerBook.supported || {})[backend.kind] || []).includes(sampler.key);
+    },
+
+    // Moved off the value at which it does nothing — which is exactly the
+    // condition under which it gets sent at all.
+    samplerActive(definition, sampler) {
+      const value = (definition.sampling || {})[sampler.key];
+      if (value === undefined) return false;
+      const gate = (this.samplerBook.gates || {})[sampler.group];
+      if (gate && gate !== sampler.key) {
+        const gateValue = (definition.sampling || {})[gate];
+        const gateSpec = (this.samplerBook.samplers || []).find((s) => s.key === gate);
+        return !!gateSpec && Number(gateValue) !== Number(gateSpec.neutral);
+      }
+      return Number(value) !== Number(sampler.neutral);
+    },
+
+    // Active *and* accepted here — the badge answers "what am I sending beyond
+    // the two sliders above", so a knob that has been moved but goes nowhere
+    // does not count, and neither do the basics shown separately.
+    sentHere(definition, sampler) {
+      return this.samplerActive(definition, sampler) && this.samplerSupported(definition, sampler);
+    },
+
+    changedCount(definition) {
+      return (this.samplerBook.groups || [])
+        .flatMap((g) => this.samplersIn(g.id))
+        .filter((s) => this.sentHere(definition, s)).length;
+    },
+
+    samplerNote(definition, sampler) {
+      if (this.samplerSupported(definition, sampler)) return sampler.note;
+      const backend = this.backendFor(definition);
+      return `${sampler.note} Not sent to ${backend ? backend.kind : "this backend"}.`;
+    },
+
+    // Only the extras. Temperature, top-p, top-k and the repetition penalty are
+    // left exactly as they are: each pass ships with its own tuned values for
+    // those, and a button labelled "turn the extras off" that quietly retuned
+    // the reply pass would be a trap.
+    resetSamplers(definition) {
+      let turned = 0;
+      for (const sampler of this.samplerBook.samplers || []) {
+        if (sampler.key in SAMPLING_DEFAULTS) continue;
+        if (Number(definition.sampling[sampler.key]) !== Number(sampler.neutral)) turned += 1;
+        definition.sampling[sampler.key] = sampler.neutral;
+      }
+      if (!turned) return this.flashHint("Nothing extra was on");
+      this.queuePassSave(definition);
+      this.flashHint(turned === 1 ? "Turned one off" : `Turned ${turned} off`);
     },
 
     // Sampling is saved per pass as it is edited. It lives in the pass registry,
@@ -2196,7 +2286,12 @@ function tavern() {
       const key = typeof field === "string" ? field : field.key;
       const value = parseFloat(raw);
       if (Number.isNaN(value)) return;
-      definition.sampling[key] = key === "max_tokens" ? Math.round(value) : value;
+      const integer = key === "max_tokens" || (typeof field === "object" && field.integer);
+      definition.sampling[key] = integer ? Math.round(value) : value;
+      this.queuePassSave(definition);
+    },
+
+    queuePassSave(definition) {
       clearTimeout(this._passSaveTimer);
       this._passSaveTimer = setTimeout(async () => {
         try {

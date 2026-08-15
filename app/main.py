@@ -250,6 +250,18 @@ PREVIEW_SAMPLE = [
 ]
 
 
+@app.get("/api/samplers")
+async def sampler_catalogue() -> dict:
+    """What can be tuned, what it does, and which backends take it (§17).
+
+    Served rather than duplicated in the frontend: a slider that exists for a
+    parameter no backend is sent is worse than no slider.
+    """
+    from . import samplers
+
+    return samplers.catalogue()
+
+
 @app.post("/api/settings/template/preview")
 async def preview_template(payload: dict = Body(...)) -> dict:
     """Show what a prompt would actually look like through this template.

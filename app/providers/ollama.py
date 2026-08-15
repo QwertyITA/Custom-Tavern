@@ -14,15 +14,19 @@ import httpx
 
 from ..models import Sampling
 from . import templates
+from .. import samplers
 from .base import GenRequest, GenResult, Provider, ProviderError, _copy_into, estimate_tokens
 
 
-def _options(sampling: Sampling, stop: list[str]) -> dict:
+def _options(sampling: Sampling, stop: list[str], kind: str = "ollama") -> dict:
+    """Ollama's `options` block: the samplers it takes, under its own names.
+
+    Only what has been moved off neutral (§17) — Ollama ignores an option it
+    does not know, but a request carrying a dozen parameters nobody set is how
+    output changes for reasons nobody can account for.
+    """
     return {
-        "temperature": sampling.temp,
-        "top_p": sampling.top_p,
-        "top_k": sampling.top_k,
-        "repeat_penalty": sampling.rep_penalty,
+        **samplers.params_for(kind, sampling),
         "num_predict": sampling.max_tokens,
         "stop": stop,
     }
@@ -194,12 +198,12 @@ class LlamaCppProvider(OllamaProvider):
         if template == "messages":
             template = templates.guess_template(self.model)
         sampling = request.sampling
+        # Flat, not nested in `options` — and this is the one backend that
+        # takes DRY and XTC, which llama.cpp gained well before Ollama exposed
+        # them.
         return "/completion", {
             "prompt": request.prompt_text(template, self.config.template_spec),
-            "temperature": sampling.temp,
-            "top_p": sampling.top_p,
-            "top_k": sampling.top_k,
-            "repeat_penalty": sampling.rep_penalty,
+            **samplers.params_for(self.kind, sampling),
             "n_predict": sampling.max_tokens,
             "stop": self.stop_strings(sampling),
             "stream": stream,

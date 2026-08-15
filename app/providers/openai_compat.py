@@ -11,6 +11,7 @@ from collections.abc import AsyncIterator
 
 import httpx
 
+from .. import samplers
 from .base import GenRequest, GenResult, Provider, ProviderError, _copy_into, estimate_tokens
 
 
@@ -41,11 +42,14 @@ class OpenAICompatProvider(Provider):
         if request.prefill:
             messages.append({"role": "assistant", "content": request.prefill})
         sampling = request.sampling
+        # The official parameter set only (§17). Plenty of local servers wearing
+        # this API accept top_k and min_p, but sending them to the real one is a
+        # 400 — and a backend failing on a setting you cannot see is the worst
+        # version of this.
         payload = {
             "model": self.model,
             "messages": messages,
-            "temperature": sampling.temp,
-            "top_p": sampling.top_p,
+            **samplers.params_for(self.kind, sampling),
             "max_tokens": sampling.max_tokens,
             "stream": stream,
         }

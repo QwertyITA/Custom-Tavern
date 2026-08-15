@@ -61,7 +61,7 @@ Everything else leans on these.
       rule (§7.1): the volatile suffix stays last, and the UI has to say so.
 - [x] **15. Prompt itemisation.** What was actually sent, section by section
       with token counts. Reached from the message's long-press wheel.
-- [ ] **17. Advanced samplers.** min-p, top-k, typical-p, repetition/frequency/
+- [x] **17. Advanced samplers.** min-p, top-k, typical-p, repetition/frequency/
       presence penalty, DRY, XTC, seed. Per pass, only where the backend
       supports them.
 - [ ] **16. Regex rules.** User-defined find/replace, scoped to input, output

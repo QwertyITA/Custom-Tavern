@@ -151,6 +151,37 @@ the story survive the cut. Impersonate deliberately does not use the
 character's — that is your line, and a sequence that ends their replies has no
 business cutting off yours.
 
+### Samplers
+
+Under ☰ → brain, per pass. Temperature, top-p and the length cap are on the
+front; **More samplers** opens the rest: min-p, top-k, typical-p, tail-free,
+the three repetition penalties, DRY, XTC and a seed.
+
+Two things govern all of them.
+
+**Neutral means off.** Every sampler has a value at which it does nothing, and
+while it sits there it is left out of the request entirely rather than sent as
+a no-op. So a backend is never handed a stack of parameters nobody set — which
+is how output starts changing for reasons no one can account for. The badge on
+*More samplers* counts what is actually going out; **Turn the extras off**
+returns them to neutral, and deliberately leaves temperature, top-p, top-k and
+the repetition penalty alone, since each pass ships with its own tuned values
+for those.
+
+**Support is declared, not attempted.** A sampler the pass's backend does not
+accept is dimmed and says so, rather than being sent hopefully. Horde validates
+its parameters and fails the whole request on an unknown one, and the official
+OpenAI API 400s on `top_k`, so "send it and see" is not available. Change which
+backend a tier points at and the dimming follows.
+
+Only llama.cpp's own server takes DRY and XTC today. Ollama, Horde and
+OpenAI-compatible backends each take their own subset — the panel is the
+authority on which.
+
+If you are reaching for one of these for the first time: **min-p** is the one.
+It scales with how confident the model is, which is what top-p and top-k both
+fail to do, and it usually replaces both.
+
 ### What was sent
 
 Hold a reply, pick **What was sent**. It breaks that reply's prompt into its
