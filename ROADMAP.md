@@ -92,6 +92,25 @@ Everything else leans on these.
 - [x] **24. Web search.** Inject search results into context. Toggleable, off
       by default.
 
+## The UX pass
+
+- [x] **Audit.** Drive the finished app on a phone-sized screen and find where
+      it is bad. Nine findings, written up in [UX-AUDIT.md](UX-AUDIT.md) with
+      how to reproduce each one.
+- [ ] **1. First run is a dead end.** Empty install offers a live composer that
+      answers `404`, a header button that does nothing, and advice to restart.
+- [ ] **2. Closed folds keep 419 controls in the tab order.**
+- [ ] **3. Deleting a character or chat arms forever.** The other six armed
+      actions disarm after 3s.
+- [ ] **4. A failed turn cannot be retried,** and Regenerate silently re-rolls
+      the wrong reply.
+- [ ] **5. Touch targets under 44px nearly everywhere.** Worst: the prompt
+      layout's reorder arrows at 32×19.
+- [ ] **6. The world line truncates to nothing** and carries no title.
+- [ ] **7. Missing portraits fetch the directory** and 404 on every render.
+- [ ] **8. Raw HTTP status codes reach the user.**
+- [ ] **9. Sixteen colour pickers, no contrast check.**
+
 ## Not wanted
 
 Recorded so they are not proposed again: checkpoints/branches (9), vector
