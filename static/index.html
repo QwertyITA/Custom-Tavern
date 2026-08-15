@@ -1416,13 +1416,13 @@
         </div>
         <div class="num-field">
           <div class="num-head">
-            <span class="num-label">How often</span>
+            <span class="num-label">Repeated</span>
             <span class="num-unit" x-text="note.frequency === 1 ? 'every turn' :
               `every ${note.frequency} turns`"></span>
           </div>
           <input class="num-slider" type="range" min="1" max="6" :value="note.frequency"
                  @input="note.frequency = +$event.target.value" @change="saveNote()"
-                 aria-label="How often">
+                 aria-label="How often the note is repeated">
         </div>
         <p class="kind-note" x-show="noteMsg" x-text="noteMsg"></p>
         <p class="kind-note" x-show="!noteFromChat && note.text">
@@ -1510,6 +1510,23 @@
           </template>
         </div>
         <p class="kind-note" x-text="policyNote()"></p>
+
+        <h3>Unplanned things</h3>
+        <p class="note">
+          Occasionally the world does something on its own — a knock at the
+          door, the rain starting, a stranger sitting down. It is invented in
+          the background after a turn and woven into the next one, so it costs
+          the reply no waiting. At zero it never happens.
+        </p>
+        <div class="num-field">
+          <div class="num-head">
+            <span class="num-label">Chance per turn</span>
+            <span class="num-unit" x-text="eventChance ? `${Math.round(eventChance * 100)}%` : 'never'"></span>
+          </div>
+          <input class="num-slider" type="range" min="0" max="0.5" step="0.01"
+                 :value="eventChance" @input="setEventChance($event.target.value)"
+                 aria-label="Chance of something happening each turn">
+        </div>
 
         <h3>Summary</h3>
         <p class="summary" x-text="summary.text || 'Nothing summarised yet'"></p>

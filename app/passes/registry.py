@@ -16,7 +16,8 @@ import sqlite3
 
 from ..db import Database
 from ..models import PassDef, PassOutput, Sampling, Toggle, Trigger
-from ..state import SLICE_BACKGROUND, SLICE_EXPRESSION, SLICE_SCENE, SLICE_VARS
+from ..state import SLICE_BACKGROUND, SLICE_EVENT, SLICE_EXPRESSION, SLICE_SCENE
+from ..state import SLICE_VARS
 
 CANONICAL_PASSES: list[PassDef] = [
     PassDef(
@@ -108,6 +109,34 @@ CANONICAL_PASSES: list[PassDef] = [
             'Reply with JSON only: {"background": "<one id from the allowed list>"}\n'
             "Choose only from the allowed list given in the context. If nothing fits, "
             "repeat the current background."
+        ),
+    ),
+    PassDef(
+        id="random_event",
+        kind="canonical",
+        label="Something happens",
+        blocking=False,
+        model_tier="background",
+        # A dice roll, not a model call: on the turns it does not fire this
+        # costs nothing at all. Setting the probability to zero switches the
+        # whole thing off, which is why there is no second on/off flag to
+        # disagree with it.
+        trigger=Trigger(type="chance", probability=0.12),
+        sampling=Sampling(temp=0.95, top_p=0.95, max_tokens=120),
+        output=PassOutput(type="state_modifier", target=SLICE_EVENT),
+        writes_slice=SLICE_EVENT,
+        # It reads the setting to avoid proposing weather indoors.
+        depends_on=["scene"],
+        prompt=(
+            "You introduce one small unplanned thing into a roleplay scene.\n"
+            "It must be something the world does, not something either person "
+            "decides: a knock at the door, the rain starting, a stranger sitting "
+            "down, a dropped glass, the power going. One sentence, physical and "
+            "specific, and plausible for the setting given.\n"
+            "Never resolve it, never say how anyone reacts, and never contradict "
+            "what just happened.\n"
+            'Reply with JSON only: {"event": "<one sentence>"}\n'
+            'Reply {"event": ""} if nothing would plausibly intrude right now.'
         ),
     ),
     PassDef(

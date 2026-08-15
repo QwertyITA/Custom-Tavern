@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import random
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -104,6 +105,23 @@ class PassScheduler:
     def _rewrite_reply(self, reply: str) -> str:
         return regex_rules.apply(self.settings.regex_rules, reply, "output", "assistant")
 
+    async def _consume_event(self, ctx: TurnContext) -> None:
+        """Mark a pending random event as spent, once a reply has used it."""
+        stored = state_mod.read_slice(self.db, ctx.chat_id, state_mod.SLICE_EVENT)
+        if not stored or not isinstance(stored["value"], dict):
+            return
+        value = stored["value"]
+        if value.get("used") or not str(value.get("event") or "").strip():
+            return
+        await state_mod.write_slice(
+            self.db,
+            ctx.chat_id,
+            state_mod.SLICE_EVENT,
+            {**value, "used": True},
+            source_turn=ctx.turn,
+            source_pass="consumed",
+        )
+
     # ----------------------------------------------------------- pass runs
 
     def _record_run(
@@ -178,6 +196,10 @@ class PassScheduler:
             return True
         if trigger.type == "every_n":
             return trigger.n > 0 and ctx.turn % trigger.n == 0
+        if trigger.type == "chance":
+            # Free: a dice roll, no model call. The whole point of gating a pass
+            # this way is that it costs nothing on the turns it does not fire.
+            return random.random() < max(0.0, min(1.0, trigger.probability))
         if trigger.type == "on_signal":
             level = ctx.signals.get(trigger.signal, "none")
             threshold = trigger.threshold
@@ -476,6 +498,11 @@ class PassScheduler:
             provisional=True,
         )
 
+        # The event has now been written into a reply, so it stops being
+        # pending. Marked rather than deleted: a swipe on this same turn should
+        # see the same intrusion, and the write only loses to a *newer* turn.
+        await self._consume_event(ctx)
+
         yield {
             "type": "reply",
             "message": {**message, "text": reply},
@@ -719,6 +746,13 @@ class PassScheduler:
                 return True
 
             value = _clean_panel_payload(payload)
+            # A pass that came back with nothing usable has nothing to say, and
+            # writing its empty result would destroy whatever the slice already
+            # held. That is not hypothetical: the random-event pass returning
+            # no JSON wiped the `used` flag off a pending event, which made the
+            # same knock at the door arrive on every turn afterwards.
+            if not value:
+                return False
             write = await state_mod.write_slice(
                 self.db,
                 ctx.chat_id,

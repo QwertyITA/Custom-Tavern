@@ -31,7 +31,8 @@ from . import macros
 from . import prompt_layout
 from .models import AuthorsNote, Character, VariableSchema
 from .providers.base import estimate_tokens
-from .state import SLICE_SCENE, SLICE_VARS, initial_values, load_schema, read_slice
+from .state import SLICE_EVENT, SLICE_SCENE, SLICE_VARS
+from .state import initial_values, load_schema, read_slice
 from .state import slice_for
 from .state import render_bands
 from . import memory as memory_store
@@ -134,6 +135,22 @@ def authors_note_for(chat: dict, character: Character) -> AuthorsNote:
         except ValueError:
             pass
     return character.authors_note
+
+
+def pending_event(db: Database, chat_id: str) -> str:
+    """An unplanned thing the world is about to do, if one is waiting.
+
+    Written by a background pass after the previous turn, so it costs the reply
+    no latency at all — and the model gets a whole turn to weave it in rather
+    than having it dropped on the turn it was invented.
+    """
+    stored = read_slice(db, chat_id, SLICE_EVENT)
+    if not stored or not isinstance(stored["value"], dict):
+        return ""
+    value = stored["value"]
+    if value.get("used"):
+        return ""
+    return str(value.get("event") or "").strip()
 
 
 def scene_line(db: Database, chat_id: str) -> str:
@@ -380,6 +397,10 @@ def build_reply_context(
         "state": f"## {character.name}'s current state\n{bands}" if bands else "",
         "setting": f"## Setting\n{scene}" if (scene := scene_line(db, chat["id"])) else "",
         "toggles": "\n\n".join(toggle_injections or []),
+        "event": f"## Something is happening\n{event}\n"
+        "Work it into your reply as it happens. Do not resolve it in one line."
+        if (event := pending_event(db, chat["id"]))
+        else "",
         # The card's own last word. It belongs after the history — that is the
         # whole point of the field, and where a card puts the instruction it
         # wants obeyed over whatever the conversation has drifted into.

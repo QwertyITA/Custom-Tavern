@@ -222,6 +222,7 @@ function tavern() {
     policies: [],
     policy: "natural",
     nextSpeaker: "",
+    eventChance: 0,
     chatQuery: "",
     chatHits: [],
     searching: false,
@@ -396,6 +397,7 @@ function tavern() {
           await this.loadBackdrops();
         } else if (name === "story") {
           await this.loadNote();
+          await this.loadEventChance();
         } else if (name === "chats") {
           this.characters = await api.get("/api/characters");
           this.chats = await api.get("/api/chats");
@@ -1079,6 +1081,35 @@ function tavern() {
         this.policy = previous;
         this.flashHint(String(e.message || e));
       }
+    },
+
+    // How often the world intrudes. It lives on the pass's own trigger rather
+    // than in settings, so there is one number rather than a setting and a
+    // trigger that have to agree.
+    async loadEventChance() {
+      try {
+        const passes = await api.get("/api/passes");
+        const found = passes.find((p) => p.id === "random_event");
+        this.eventChance = found ? (found.trigger.probability || 0) : 0;
+      } catch { /* the slider just stays where it is */ }
+    },
+
+    setEventChance(raw) {
+      const value = parseFloat(raw);
+      if (Number.isNaN(value)) return;
+      this.eventChance = value;
+      clearTimeout(this._eventTimer);
+      this._eventTimer = setTimeout(async () => {
+        try {
+          const passes = await api.get("/api/passes");
+          const found = passes.find((p) => p.id === "random_event");
+          if (!found) return;
+          found.trigger = { ...found.trigger, type: "chance", probability: value };
+          await api.put(`/api/passes/${found.id}`, found);
+        } catch (e) {
+          this.error = String(e.message || e);
+        }
+      }, PREVIEW_DEBOUNCE_MS);
     },
 
     // ---- attachments (§19) ----

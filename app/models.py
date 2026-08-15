@@ -17,12 +17,18 @@ SIGNAL_LEVELS = ("none", "minor", "major")
 class Trigger(BaseModel):
     """When a pass is eligible to run (§5.2)."""
 
-    type: Literal["every_turn", "every_n", "on_signal", "timer", "manual"] = "every_turn"
+    type: Literal[
+        "every_turn", "every_n", "on_signal", "timer", "manual", "chance"
+    ] = "every_turn"
     n: int = 1
     signal: str = ""
     op: Literal[">=", ">", "==", "!=", "<", "<="] = ">="
     threshold: str | float = "minor"
     seconds: float = 0.0
+    # For `chance`: how often it fires, 0..1. Zero is off, which is the honest
+    # way to switch a pass like this off — the alternative is a second flag
+    # that has to agree with the frequency.
+    probability: float = 0.0
 
 
 class Sampling(BaseModel):

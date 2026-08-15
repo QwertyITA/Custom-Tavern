@@ -84,7 +84,7 @@ Everything else leans on these.
 
 ## Phase 6 — passes that use the engine
 
-- [ ] **NEW. Random events pass.** Occasionally introduces something into the
+- [x] **NEW. Random events pass.** Occasionally introduces something into the
       scene — a knock at the door, weather turning, a stranger. Gated on a
       cheap signal so it costs nothing most turns, with frequency in settings.
 - [ ] **23. Translation.** Translate the reply into the reading language and

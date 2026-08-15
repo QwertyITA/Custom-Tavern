@@ -151,6 +151,23 @@ the story survive the cut. Impersonate deliberately does not use the
 character's — that is your line, and a sequence that ends their replies has no
 business cutting off yours.
 
+### Unplanned things
+
+Under ☰ → story. Occasionally the world does something on its own — a knock at
+the door, the rain starting, a stranger sitting down. **Chance per turn** sets
+how often; at zero it never happens, which is the whole off switch (there is no
+second flag that could disagree with the frequency).
+
+Two things about how it is built. The gate is a dice roll, not a model call, so
+on the turns it does not fire it costs nothing at all. And when it does fire,
+the event is invented in the background *after* a turn and woven into the
+**next** one — so the reply never waits for it, and the model gets a whole turn
+to work it in rather than having it dropped on the turn it was invented.
+
+An event is used exactly once. The pass is told to introduce something the
+world does rather than something either person decides, never to resolve it,
+and to return nothing if nothing would plausibly intrude.
+
 ### Group chats
 
 Several characters in one conversation. **☰ → story → Who is here** adds them,

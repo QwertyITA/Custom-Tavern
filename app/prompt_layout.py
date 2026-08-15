@@ -80,6 +80,8 @@ BUILTIN: list[dict[str, Any]] = [
      "note": "Trust, mood and the rest, as guidance rather than numbers."},
     {"id": "setting", "band": "volatile", "label": "Setting",
      "note": "Place, weather and time, as the scene pass last saw them."},
+    {"id": "event", "band": "volatile", "label": "Something happening",
+     "note": "An unplanned intrusion the world made, waiting to be used once."},
     {"id": "toggles", "band": "volatile", "label": "Toggle injections",
      "note": "Text from whichever story toggles are on."},
     {"id": "final", "band": "volatile", "label": "The card's last word",
