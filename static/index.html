@@ -260,10 +260,41 @@
      loading, and anything added later, without each of them having to
      remember to scroll (see initScroll). -->
 <div class="chat-inner" x-init="initScroll($el)">
+  <!-- A fresh install. Not an error state — this is what the app is supposed
+       to look like before anyone is in it, so it says what to do next and
+       offers the two things that do it, rather than a red banner naming a
+       directory. Both buttons are the same ones the chats panel carries; this
+       is the shortcut, not a second implementation. -->
+  <div class="nobody" x-show="nobodyYet" x-cloak>
+    <svg class="nobody-glyph" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-person"/></svg>
+    <p class="nobody-head">Nobody here yet</p>
+    <p class="nobody-note">
+      Make someone up, or bring in a character card you already have —
+      a <code>.json</code>, or a <code>.png</code> with the character inside it.
+    </p>
+    <div class="nobody-row">
+      <button class="wide" @click="newCharacter()">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plus"/></svg>
+        <span>New character</span>
+      </button>
+      <label class="wide file-btn">
+        <input type="file" accept=".json,.png,image/png,application/json"
+               @change="importCard($event)" hidden>
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-import"/></svg>
+        <span x-text="importing ? 'Importing…' : 'Import a card'"></span>
+      </label>
+    </div>
+  </div>
+
   <template x-for="m in messages" :key="m.id">
     <article class="msg" :class="[m.role, sendingId === m.id ? 'sending' : '']">
-      <img class="pfp" x-show="m.role === 'assistant' && portrait" :src="portrait" alt=""
-           @error="$el.style.visibility = 'hidden'">
+      <!-- x-if for the same reason as the rows below, and one worse: an empty
+           `src` is not "no image", it is the current page, which the browser
+           re-fetches once per bubble. -->
+      <template x-if="m.role === 'assistant' && portrait">
+        <img class="pfp" :src="portrait" alt=""
+             @error="$el.style.visibility = 'hidden'">
+      </template>
       <!-- Swipe the message itself to change variant: left forward, right back
            (§9). touch-action: pan-y leaves vertical scrolling to the chat. -->
       <div class="bubble" :data-mid="m.id"
@@ -385,13 +416,27 @@
   <!-- Only for a brand-new reply. Regenerating shows the cue inside the
        existing bubble instead, so nothing appears underneath it. -->
   <article class="msg assistant" x-show="composing && !regenId" x-cloak>
-    <img class="pfp" x-show="portrait" :src="portrait" alt="">
+    <template x-if="portrait">
+      <img class="pfp" :src="portrait" alt="">
+    </template>
     <div class="bubble composing">
       <span class="anim anim-typing" x-show="composingKind === 'typing'"><i></i><i></i><i></i></span>
       <span class="anim anim-cogs" x-show="composingKind !== 'typing'"></span>
       <span class="composing-label" x-text="composingLabel"></span>
     </div>
   </article>
+
+  <!-- A turn whose reply failed leaves the transcript ending on a question
+       nobody answered. Sending it again would put the same words in twice, and
+       regenerating re-rolls the *previous* reply rather than writing the
+       missing one — so without this there is no way back. It sits where the
+       reply would have been, because that is the gap it fills. -->
+  <div class="msg assistant retry-row" x-show="unanswered" x-cloak>
+    <button class="retry-btn" @click="retryTurn()">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-refresh"/></svg>
+      <span>No reply came — try again</span>
+    </button>
+  </div>
 
   <div class="banner error" x-show="error" x-cloak>
     <span x-text="error"></span>
@@ -486,10 +531,14 @@
          @change="attachFiles($event)">
   <button class="icon-btn composer-more" :class="{ on: composerMenu }"
           @click="composerMenu = !composerMenu" :aria-expanded="composerMenu"
+          :disabled="nobodyYet"
           aria-label="More actions" title="More actions">
     <svg class="icon" viewBox="0 0 24 24"><use href="#i-plus"/></svg>
   </button>
-  <textarea x-model="draft" rows="1" placeholder="Say something…"
+  <!-- Before there is anyone to talk to the box says so rather than inviting a
+       message it would have to throw away. -->
+  <textarea x-model="draft" rows="1" :disabled="nobodyYet"
+            :placeholder="nobodyYet ? 'Nobody to talk to yet' : 'Say something…'"
             @keydown.enter.prevent="if (!$event.shiftKey) send()"
             @input="autosize($event.target)" x-ref="input"></textarea>
   <!-- The same button in two states, not two buttons: while a reply is coming
@@ -498,7 +547,7 @@
        that appears somewhere else. -->
   <button class="send" :class="{ stop: streaming }"
           @click="streaming ? stopGenerating() : send()"
-          :disabled="!streaming && !draft.trim()"
+          :disabled="!streaming && (!draft.trim() || !chatId)"
           :aria-label="streaming ? 'Stop generating' : 'Send'"
           :title="streaming ? 'Stop generating' : 'Send'">
     <svg class="icon" viewBox="0 0 24 24" x-show="!streaming"><use href="#i-send"/></svg>
@@ -1191,8 +1240,14 @@
               <svg class="char-pfp-generic" viewBox="0 0 24 24" aria-hidden="true">
                 <use href="#i-person"/>
               </svg>
-              <img x-show="pn.avatar" :src="`/avatars/${pn.avatar}`" alt=""
-                   @error="$el.style.display = 'none'">
+              <!-- x-if, not x-show: `display: none` hides an image from the
+                   eye and not from the network, so a persona with no avatar
+                   was fetching `/avatars/` — the directory — and 404-ing on
+                   every render. Same in the two places below. -->
+              <template x-if="pn.avatar">
+                <img :src="`/avatars/${pn.avatar}`" alt=""
+                     @error="$el.style.display = 'none'">
+              </template>
             </span>
             <div class="char-id">
               <span class="char-name" x-text="pn.name"></span>
@@ -1239,8 +1294,10 @@
                 <svg class="char-pfp-generic" viewBox="0 0 24 24" aria-hidden="true">
                   <use href="#i-person"/>
                 </svg>
-                <img x-show="c.pfp" :src="`/static/characters/${c.pfp}`" alt=""
-                     @error="$el.style.display = 'none'">
+                <template x-if="c.pfp">
+                  <img :src="`/static/characters/${c.pfp}`" alt=""
+                       @error="$el.style.display = 'none'">
+                </template>
               </span>
               <div class="char-id">
                 <span class="char-name" x-text="c.name"></span>
@@ -1412,8 +1469,10 @@
             <svg class="char-pfp-generic" viewBox="0 0 24 24" aria-hidden="true">
               <use href="#i-person"/>
             </svg>
-            <img x-show="draftPersona.avatar" :src="`/avatars/${draftPersona.avatar}`" alt=""
-                 @error="$el.style.display = 'none'">
+            <template x-if="draftPersona.avatar">
+              <img :src="`/avatars/${draftPersona.avatar}`" alt=""
+                   @error="$el.style.display = 'none'">
+            </template>
           </span>
           <label class="wide file-btn">
             <input type="file" accept="image/*" @change="uploadAvatar($event)" hidden>

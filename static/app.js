@@ -99,9 +99,31 @@ const SWIPE_MAX = 130;    // furthest the bubble travels
 // FastAPI puts a rejection's reason in `detail`; our own handlers use `error`.
 // Without this a 400 that says exactly what is wrong — "a character needs a
 // name" — reaches the user as "Bad Request".
+// What a failed request says when the server did not say anything itself.
+// "404 Not Found" is true and useless: it names the protocol's problem rather
+// than the reader's. Anything the server does explain travels through
+// untouched — those messages were written on purpose and are better than these.
+const STATUS_TEXT = {
+  404: "That is not there any more — it may have been deleted in another tab.",
+  409: "Something else changed that first. Reopen it and try again.",
+  413: "That file is too big.",
+  422: "The server would not accept that. Check the fields and try again.",
+  500: "The server hit an error. The log on the phone will say what.",
+  502: "No answer from the model backend.",
+  503: "The server is busy. Try that again in a moment.",
+  504: "The model backend took too long to answer.",
+};
+
 async function apiError(response) {
   const body = await response.json().catch(() => ({}));
-  return new Error(body.detail || body.error || response.statusText);
+  const said = body.detail || body.error;
+  if (said) return new Error(said);
+  return new Error(
+    STATUS_TEXT[response.status] ||
+    (response.status >= 500
+      ? "The server could not do that."
+      : "That request was refused.")
+  );
 }
 
 const jsonRequest = (method) => async function (path, body) {
@@ -306,7 +328,11 @@ function tavern() {
       try {
         this.characters = await api.get("/api/characters");
         if (!this.characters.length) {
-          this.error = "No characters. Drop a card in data/characters/ and restart.";
+          // Not an error — a new install is supposed to look like this. It
+          // used to raise a red banner telling the user to put a file in a
+          // directory and restart, which was both alarming and wrong: the two
+          // buttons that actually work are in the app, and neither needs a
+          // restart. The empty state offers them instead.
           return;
         }
         this.characterId = this.characters[0].id;
@@ -321,6 +347,22 @@ function tavern() {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register("/sw.js").catch(() => {});
       }
+    },
+
+    // A fresh install, before there is anyone to talk to. Derived rather than
+    // stored so it cannot disagree with the list after a create, an import or
+    // a delete — every one of those already refreshes `characters`.
+    get nobodyYet() {
+      return !this.characters.length;
+    },
+
+    // The transcript ends on something nobody answered — the reply failed, or
+    // was stopped before a single token arrived. Not while a reply is on its
+    // way, or the offer to retry would appear under every message as it is
+    // being sent.
+    get unanswered() {
+      if (this.streaming || this.composing || !this.messages.length) return false;
+      return this.messages[this.messages.length - 1].role === "user";
     },
 
     // Whether the scene pass has produced anything yet. Before it has, the
@@ -1540,6 +1582,11 @@ function tavern() {
         this.altGreetings = (this.draftCharacter.alternate_greetings || []).join("\n\n");
         this.stopStrings = (this.draftCharacter.stop_strings || []).join("\n");
         this.panel = "character";
+        // Usually reached from the chats panel, where the sheet is already up
+        // — but not from the first-run empty state, which is on the chat screen
+        // with nothing open. Setting the panel without opening it left that
+        // path creating a character and then appearing to do nothing.
+        this.panelOpen = true;
       } catch (e) {
         this.error = String(e.message || e);
       }
@@ -1577,10 +1624,16 @@ function tavern() {
 
     // Two taps rather than a confirm dialog: a modal over a sheet on a phone is
     // its own problem, and the second tap is the same finger in the same place.
+    //
+    // It also disarms after CONFIRM_MS, like every other armed action here.
+    // These two were the exception, and they are the two that do the most
+    // damage — deleting a character takes its chats with it. An armed delete
+    // that waits indefinitely is one you meet again after scrolling away and
+    // coming back, by which time the first tap has been forgotten and the
+    // second one reads as the first.
     async deleteCharacter(character) {
       if (this.confirmChar !== character.id) {
-        this.confirmChar = character.id;
-        this.confirmChat = "";
+        this.arm("confirmChar", character.id);
         return;
       }
       this.confirmChar = "";
@@ -1598,8 +1651,7 @@ function tavern() {
 
     async deleteChat(chat) {
       if (this.confirmChat !== chat.id) {
-        this.confirmChat = chat.id;
-        this.confirmChar = "";
+        this.arm("confirmChat", chat.id);
         return;
       }
       this.confirmChat = "";
@@ -1611,6 +1663,22 @@ function tavern() {
       } catch (e) {
         this.error = String(e.message || e);
       }
+    },
+
+    // Arm one destructive row, disarming the other and setting the same
+    // timeout every other armed action in the app uses. Two rows rather than
+    // one shared field because a character row and a chat row can be on screen
+    // together, and arming one must visibly cancel the other rather than
+    // leaving two buttons that both look ready.
+    arm(field, id) {
+      this.confirmChar = "";
+      this.confirmChat = "";
+      this[field] = id;
+      clearTimeout(this._armTimer);
+      this._armTimer = setTimeout(() => {
+        this.confirmChar = "";
+        this.confirmChat = "";
+      }, CONFIRM_MS);
     },
 
     // Land on something after deleting whatever was open.
@@ -1845,6 +1913,16 @@ function tavern() {
       });
     },
 
+    // Answer a message whose reply never came. Deliberately not "send it
+    // again": that would put the same words in the transcript twice, and the
+    // message is already stored — only the reply is missing.
+    async retryTurn() {
+      if (this.streaming || !this.chatId) return;
+      this.error = "";
+      this.scrollDown();
+      await this.runStream(`/api/chats/${this.chatId}/retry`, {});
+    },
+
     async swipe(message) {
       if (this.streaming) return;
       this.error = "";
@@ -1992,7 +2070,10 @@ function tavern() {
           body: JSON.stringify(body),
           signal: this.streamAbort.signal,
         });
-        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+        // Through apiError like every other request. This used to format its
+        // own "404 Not Found", which is the one path where a bare status code
+        // still reached the screen after the rest were given sentences.
+        if (!response.ok) throw await apiError(response);
 
         for await (const event of sseStream(response)) {
           switch (event.type) {
@@ -2011,6 +2092,17 @@ function tavern() {
               setTimeout(() => {
                 if (this.sendingId === event.message.id) this.sendingId = "";
               }, MESSAGE_SEND_MS);
+              this.scrollDown();
+              break;
+
+            // A retry. The user message is already on screen and already in
+            // the transcript, so this carries the same payload as turn_start
+            // without appending a second copy of it.
+            case "turn_resume":
+              this.turn = event.turn;
+              if (event.speaker && this.cast.length > 1) {
+                this.composingLabel = `${event.speaker.name} is typing…`;
+              }
               this.scrollDown();
               break;
 

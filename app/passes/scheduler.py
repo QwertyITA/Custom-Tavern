@@ -320,6 +320,75 @@ class PassScheduler:
                 translation.set_translation(self.db, user_message["variant_id"], crossed)
                 user_message["translation"] = crossed
 
+        async for event in self._answer(chat, character, user_message, user_text):
+            yield event
+
+    async def retry_turn(self, chat_id: str) -> AsyncIterator[dict]:
+        """Answer a user message that never got a reply.
+
+        A turn whose reply failed — the backend was down, the phone lost the
+        network — leaves the transcript ending on a question nobody answered.
+        Sending it again would put the same words in twice, and regenerating
+        re-rolls the previous reply rather than writing the missing one, so
+        without this there is no way back except to live with the gap.
+
+        Everything after the user message is the same as an ordinary turn, and
+        runs through the same code — the split is exactly at the point where a
+        normal turn has just stored what you typed.
+        """
+        awaited = await self.await_pending(chat_id)
+        if awaited:
+            yield {"type": "awaited_passes", "count": awaited}
+
+        chat = repo.get_chat(self.db, chat_id)
+        if chat is None:
+            yield {"type": "error", "error": "unknown chat"}
+            return
+
+        history = repo.list_messages(self.db, chat_id)
+        if not history or history[-1]["role"] != "user":
+            # Nothing is dangling. Refusing is better than inventing a second
+            # reply to a message that already has one.
+            yield {"type": "error", "error": "nothing waiting for a reply"}
+            return
+        user_message = history[-1]
+
+        groups.ensure_member(self.db, chat_id, chat["character_id"])
+        chosen = groups.choose_speaker(
+            self.db,
+            chat_id,
+            policy=(chat.get("settings") or {}).get("policy") or groups.DEFAULT_POLICY,
+            user_text=user_message["text"],
+            last_speaker=groups.last_speaker(self.db, chat_id),
+        )
+        character = repo.get_character(self.db, chosen["character_id"]) if chosen else None
+        if character is None:
+            yield {"type": "error", "error": "chat has no character"}
+            return
+
+        async for event in self._answer(
+            chat, character, user_message, user_message["text"], announce=False
+        ):
+            yield event
+
+    async def _answer(
+        self,
+        chat: dict,
+        character: Character,
+        user_message: dict,
+        user_text: str,
+        *,
+        announce: bool = True,
+    ) -> AsyncIterator[dict]:
+        """Everything a turn does once the user's message exists.
+
+        Shared by `run_turn` and `retry_turn` so a retry cannot drift from a
+        first attempt — the state decay, the nudges, the search and the
+        background passes all have to happen exactly once per answered message,
+        whichever route got there.
+        """
+        chat_id = chat["id"]
+        turn = user_message["turn"]
         ctx = TurnContext(
             chat=chat,
             character=character,
@@ -334,7 +403,9 @@ class PassScheduler:
         ctx.toggle_states = registry.toggle_states(self.db, character.id, chat_id)
 
         yield {
-            "type": "turn_start",
+            # A retry's message is already on screen, so it says so rather than
+            # asking the frontend to append a second copy of it.
+            "type": "turn_start" if announce else "turn_resume",
             "turn": turn,
             "message": user_message,
             # Who is about to answer, so the placeholder can carry their name

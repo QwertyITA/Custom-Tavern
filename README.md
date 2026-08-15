@@ -675,7 +675,7 @@ Two things enforce this rather than relying on memory:
 ## Tests
 
 ```bash
-python3 -m pytest        # 757 tests, hermetic, no network, no extra deps
+python3 -m pytest        # 769 tests, hermetic, no network, no extra deps
 ```
 
 The JS tokenizer is checked against the same fixtures as the Python one:

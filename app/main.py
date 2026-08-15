@@ -792,6 +792,14 @@ async def chat_events(chat_id: str, request: Request):
 # ---------------------------------------------------------------- messages
 
 
+@app.post("/api/chats/{chat_id}/retry")
+async def retry_turn(chat_id: str):
+    """Answer a message whose reply failed, without sending it twice."""
+    if repo.get_chat(get_db(), chat_id) is None:
+        raise HTTPException(404, "chat not found")
+    return await _stream(scheduler().retry_turn(chat_id))
+
+
 @app.post("/api/chats/{chat_id}/impersonate")
 async def impersonate(chat_id: str):
     """Draft the user's next message. Streams like a turn, but writes nothing."""

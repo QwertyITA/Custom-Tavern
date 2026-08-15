@@ -9,6 +9,15 @@ measured. Nothing here is a guess about what might be wrong.
 
 Ordered by how much damage it does, not by how hard it is to fix.
 
+**Status:** 1, 2, 3, 4, 7 and 8 are fixed — see the note at the end of each.
+5, 6 and 9 are still open.
+
+**Two claims in the first draft of this file were wrong** and are corrected
+below, in 1. The ⟳ button and the character-name button *are* correctly
+disabled on a fresh install; the 404 I attributed to them was a stale error
+value left over from the previous step of the same probe. The finding still
+stands on its other three legs, but it was smaller than first written.
+
 ---
 
 ## 1. The first run is a dead end
@@ -27,19 +36,26 @@ A brand-new install has no characters. What happens:
 - The composer is fully live. It says *Say something…*, the send button works,
   and sending produces **`404 Not Found`** in the same red banner. The user
   typed into a box the app offered them and got an HTTP status code back.
-- The **⟳** button in the header is live too, and also answers `404 Not Found`.
-- The character name in the header is a button labelled *Characters*. On first
-  run it does nothing at all — no panel, no message, no response.
 - Dismissing the banner leaves an empty tavern illustration, a text box, and no
   indication that anything is wrong or what to do.
 
+~~The ⟳ button is live too and also answers 404.~~ ~~The character-name button
+does nothing.~~ **Both wrong.** Re-checked: `⟳` carries `:disabled="!chatId"`
+and `.who` carries `:disabled="!character"`, so both are correctly dead on a
+fresh install. The 404 I attributed to them was the error from the *send* in
+the previous step of the same probe, still sitting in `error` when I read it.
+
 So the one screen where a new user has no idea what they are doing is the one
-screen with no guidance, three controls that fail, and one instruction that is
+screen with no guidance, one control that fails, and one instruction that is
 incorrect.
 
-**What it should be:** an empty state where the chat would go — "No characters
-yet" with the two buttons that actually work (*New character*, *Import a card*)
-— and the composer disabled until there is somewhere to send to.
+**Fixed.** `boot()` no longer raises a red banner; a *Nobody here yet* empty
+state sits where the conversation would be, with the two buttons that actually
+work (*New character*, *Import a card*) — the same ones the chats panel
+carries, not a second implementation. The composer, its **+** menu and Send are
+disabled until there is somewhere to send to, and the placeholder says
+*Nobody to talk to yet* rather than inviting a message it would throw away.
+The four parts of the empty state arrive in sequence on `--ease-back`.
 
 ## 2. 419 invisible controls are in the tab order
 
@@ -62,9 +78,12 @@ a screen reader, has to walk past every sampler for all eight passes — twice
 over, since the sampling section itself is folded inside another fold — to get
 from the top of the Brain panel to the Save button.
 
-**Fix:** `.fold:not(.open) .fold-clip { visibility: hidden; }` with a
-`transition-delay` matching the 300ms so it does not clip the closing
-animation, or `inert` on the clip. One rule, eleven folds, and the menu row.
+**Fixed.** `.fold:not(.open) > .fold-clip` and `.menu-wrap:not(.open) >
+.menu-clip` go `visibility: hidden`, with a `transition-delay` matching the
+collapse so the closing animation still plays in full — 300ms for a fold, 415ms
+for the menu row, which has to cover the buttons' own staggered exit as well.
+Verified: 662 controls inside closed folds, none of them focusable, and
+`focus()` on the first no longer moves `document.activeElement`.
 
 ## 3. Deleting a character stays armed forever
 
@@ -84,7 +103,11 @@ takes every chat it has with it, and the button's own tooltip says so. They are
 the only two that stay live indefinitely. Tap delete, get distracted, scroll,
 come back, tap what looks like a fresh first tap, and it fires.
 
-**Fix:** the same `setTimeout(..., CONFIRM_MS)` the other six already use.
+**Fixed.** Both go through one `arm()` helper that sets the same
+`CONFIRM_MS` timeout the other six use, and disarms the other row while it is
+at it — a character row and a chat row can be on screen together, and arming
+one should visibly cancel the other rather than leaving two buttons that both
+look ready.
 
 ## 4. A failed turn cannot be retried
 
@@ -104,9 +127,14 @@ asked.
 The only real recovery is to type the message a second time, which leaves the
 first one sitting in the transcript forever.
 
-**Fix:** when the last message is an unanswered user turn, the reply cue should
-become a *try again* affordance on that message, and Regenerate should either
-answer it or say why it will not.
+**Fixed.** `POST /api/chats/{id}/retry` answers the dangling message without
+sending it again, and a quiet dashed *No reply came — try again* pill appears
+where the reply would have been. The route reuses the reply half of `run_turn`
+— extracted as `_answer()` — so a retry cannot drift from a first attempt: same
+state decay, same nudges, same web search, same background passes. It refuses
+when nothing is waiting rather than inventing a second reply. Twelve tests in
+`tests/test_retry.py`, including one pinning that the message is not stored
+twice.
 
 ## 5. Touch targets are too small, nearly everywhere
 
@@ -174,8 +202,11 @@ The `@error` handler hides the broken image afterwards, which is why nothing
 looks wrong. It is still a wasted request per row per render, on a phone, plus
 a log full of 404s that will hide a real one.
 
-**Fix:** `<template x-if="c.pfp">` around the `<img>` instead of `x-show` on
-it, in all three places (character rows, persona rows, persona editor).
+**Fixed.** `<template x-if>` instead of `x-show` in all five places —
+character rows, persona rows, the persona editor, and both message portraits.
+The last two were worse than the rest: `portrait` can be empty, and an empty
+`src` is not "no image", it is the current page, which the browser re-fetches
+once per bubble. A fresh load now makes zero 404s.
 
 ## 8. Raw HTTP status codes reach the user
 
@@ -184,8 +215,12 @@ it, in all three places (character rows, persona rows, persona editor).
 connection attempts failed"* — shows the effort that went into the ones that
 were written deliberately, which makes the bare ones stand out more.
 
-**Fix:** a default in `api.*` that turns a bare status into a sentence, keeping
-the specific messages that already exist.
+**Fixed.** `apiError` falls back to a sentence per status, and to one of two
+generic sentences otherwise. Anything the server explained itself still travels
+through untouched — those messages were written on purpose and are better than
+these. `runStream` was formatting its own `${status} ${statusText}` and is now
+routed through the same function; it was the one path where a bare code still
+reached the screen after the others were given sentences.
 
 ## 9. Sixteen colour pickers and no contrast check
 

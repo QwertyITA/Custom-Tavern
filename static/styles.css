@@ -157,6 +157,14 @@ body {
    overflow has to be hidden — otherwise the buttons stay visible at full size
    while the track collapses around them. */
 .menu-clip { overflow: hidden; min-height: 0; }
+/* Shut to the keyboard as well as to the eye — see the note on `.fold-clip`.
+   The delay covers the collapse *and* the buttons' own staggered exit, the
+   last of which starts 135ms in. */
+.menu-wrap:not(.open) > .menu-clip {
+  visibility: hidden;
+  transition: visibility 0s linear 415ms;
+}
+.menu-wrap.open > .menu-clip { transition: visibility 0s; }
 
 .menu-row { display: flex; gap: 6px; padding: 8px 2px 4px; }
 .menu-btn {
@@ -597,6 +605,77 @@ body {
 .chat-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-when { color: var(--muted); font-size: 11px; flex: none; }
 .chat-empty { color: var(--muted); font-size: 12px; padding: 8px; }
+
+/* The offer to answer a message whose reply never came. It sits where the
+   reply would have been and is quiet about it — a failed turn is already one
+   piece of bad news, and a second loud one underneath it does not help. */
+.retry-row { padding-left: 42px; animation: retry-in 300ms var(--ease-out) backwards; }
+.retry-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  transition: color 180ms var(--ease-out), border-color 180ms var(--ease-out),
+              transform 180ms var(--ease-back);
+}
+.retry-btn:hover { color: var(--text); border-color: var(--accent); }
+.retry-btn:active { transform: scale(.97); }
+@keyframes retry-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* The fresh install. It sits in the message column where the conversation
+   would be, because that is where the eye already is and because it is not an
+   error — it is the first thing the app has to say. */
+.nobody {
+  margin: auto;
+  padding: 32px 22px;
+  max-width: 320px;
+  text-align: center;
+  color: var(--muted);
+}
+.nobody-glyph {
+  width: 44px;
+  height: 44px;
+  /* Same drawing as every other person in the app: stroked, not filled. */
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  opacity: .45;
+  margin-bottom: 12px;
+}
+.nobody-head { color: var(--text); font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+.nobody-note { font-size: 13px; line-height: 1.5; margin-bottom: 18px; }
+.nobody-note code {
+  font-size: 12px;
+  background: var(--panel);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+.nobody-row { display: flex; flex-direction: column; gap: 8px; }
+.nobody-row .wide { display: flex; align-items: center; justify-content: center; gap: 8px; }
+
+/* Each part arrives after the one above it. The whole thing settles in under
+   half a second, which is short enough to read as one movement rather than as
+   a queue, and the slight overshoot keeps it from stopping dead. */
+.nobody > * { animation: nobody-in 420ms var(--ease-back) backwards; }
+.nobody-glyph { animation-delay: 40ms; }
+.nobody-head  { animation-delay: 100ms; }
+.nobody-note  { animation-delay: 160ms; }
+.nobody-row   { animation-delay: 220ms; }
+@keyframes nobody-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
 
 .band { padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
 .band-var { color: var(--text); }
@@ -1108,6 +1187,24 @@ body {
 }
 .fold.open { grid-template-rows: 1fr; }
 .fold-clip { overflow: hidden; min-height: 0; }
+
+/* A fold that is shut must be shut to the keyboard and the screen reader too.
+   Clipping to zero height hides things from the eye and from nothing else:
+   before this, thirteen closed folds in the Brain panel between them held 419
+   focusable controls, so reaching Save from the top meant tabbing through
+   every sampler of all eight passes — twice, since sampling is folded inside
+   a fold.
+
+   `visibility: hidden` takes them out of the tab order and out of the
+   accessibility tree, and unlike `display: none` it is animatable — the delay
+   is what keeps it from cutting the closing animation off at the first frame.
+   Opening restores it immediately, so the content is there for the whole way
+   out and the whole way in. */
+.fold:not(.open) > .fold-clip {
+  visibility: hidden;
+  transition: visibility 0s linear 300ms;
+}
+.fold.open > .fold-clip { transition: visibility 0s; }
 
 /* ------------------------------------------------------------- backdrops */
 
