@@ -139,7 +139,32 @@
     return container;
   }
 
-  const api = { parse, render, DIALOGUE, ACTION, STRONG };
+  // Rendering rebuilds the whole subtree, which is right for a finished
+  // message and quadratic for a streaming one: a token arrives, the entire
+  // reply so far is re-parsed and re-created, and the reply keeps growing.
+  // Tokens arrive faster than frames, so coalescing to one render per frame
+  // is both cheaper and indistinguishable — nothing can be seen between
+  // frames anyway.
+  //
+  // The first render of an empty container is done immediately: deferring it
+  // would leave a message blank for a frame, and a message appearing empty and
+  // then filling in is exactly the flicker this is meant to avoid.
+  const pending = new WeakMap();
+
+  function schedule(container, text) {
+    if (!container.firstChild) return render(container, text);
+    const queued = pending.get(container);
+    pending.set(container, { text });
+    if (queued) return container;      // a frame is already booked
+    requestAnimationFrame(() => {
+      const latest = pending.get(container);
+      pending.delete(container);
+      if (latest) render(container, latest.text);
+    });
+    return container;
+  }
+
+  const api = { parse, render, schedule, DIALOGUE, ACTION, STRONG };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.Markup = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);

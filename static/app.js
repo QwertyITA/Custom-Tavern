@@ -43,6 +43,16 @@ const HOLD_MS = 380;          // press this long and the wheel opens
 const HOLD_SLOP = 10;         // finger movement that cancels the hold instead
 const WHEEL_RADIUS = 78;      // how far the options sit from the press point
 const WHEEL_PICK_MIN = 34;    // drag at least this far before a release picks
+// Magnet. Within this distance an option starts leaning towards the finger,
+// travelling at most WHEEL_MAGNET_MAX px from where it sits. It is what makes
+// the wheel feel like it is reaching for the thumb rather than waiting to be
+// hit exactly, and it is a much bigger help on a phone than the extra few
+// pixels of hit area would be.
+const WHEEL_MAGNET_RANGE = 96;
+const WHEEL_MAGNET_MAX = 14;
+// How long the fly-out runs before the options are left to the magnet. Matches
+// the animation plus the last option's stagger in styles.css.
+const WHEEL_SETTLE_MS = 340 + 34 * 5;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -173,6 +183,7 @@ function tavern() {
     // carries the message, where it was opened, and which option the finger
     // is currently over.
     wheel: null,
+    wheelSettled: false,
     wheelHint: "",
     // How far the pull-up control is revealed, 0 to 1, and whether letting go
     // now would fire it.
@@ -1496,8 +1507,20 @@ function tavern() {
     dragStart: null,
     hold: null,
 
+    // Only the newest reply can be re-rolled. Regenerating an older one would
+    // rewrite history the conversation has already been built on: every reply
+    // after it was written in response to the version being replaced, and the
+    // state that came with it has already been folded in and decayed. The
+    // engine has no way to unwind that, so the honest thing is not to offer it.
+    isLastReply(message) {
+      if (!message || message.role !== "assistant") return false;
+      const last = this.lastReply();
+      return !!last && last.id === message.id;
+    },
+
+    // The arrows and the swipe are the same act, so they agree on when.
     swipeable(message) {
-      return message.role === "assistant" && this.editing !== message.id && !this.streaming;
+      return this.isLastReply(message) && this.editing !== message.id && !this.streaming;
     },
 
     // One press does three different things depending on what happens next:
@@ -1573,7 +1596,7 @@ function tavern() {
     // Everything a message can have done to it, in one place. Regenerate is
     // deliberately absent: the arrows and the swipe already cover it.
     wheelOptions(message) {
-      const isReply = message && message.role === "assistant";
+      const isReply = this.isLastReply(message);
       const hidden = !!(message && message.hidden);
       return [
         { id: "edit", label: "Edit", icon: "#i-edit" },
@@ -1630,6 +1653,47 @@ function tavern() {
       };
       this.hold = null;
       if (navigator.vibrate) navigator.vibrate(12);
+
+      // The fly-out is a keyframe animation holding its end state, which would
+      // override any transform the magnet sets. Once it has finished the wheel
+      // is marked settled and the same transform becomes a transition.
+      clearTimeout(this._wheelSettleTimer);
+      this.wheelSettled = false;
+      this._wheelNodes = null;
+      this._wheelSettleTimer = setTimeout(() => { this.wheelSettled = true; }, WHEEL_SETTLE_MS);
+    },
+
+    // Each option leans towards the finger in proportion to how close it is.
+    // Written straight to the element rather than through Alpine: this runs on
+    // every pointermove, and a reactive re-render per frame is exactly the kind
+    // of work that costs frames on a phone.
+    magnetise(x, y) {
+      const wheel = this.wheel;
+      if (!wheel) return;
+      const nodes = this._wheelNodes || (this._wheelNodes = document.querySelectorAll(".wheel-opt"));
+      wheel.options.forEach((option, i) => {
+        const node = nodes[i];
+        if (!node) return;
+        const ox = wheel.cx + option.dx;
+        const oy = wheel.cy + option.dy;
+        const distance = Math.hypot(x - ox, y - oy);
+        const pull = Math.max(0, 1 - distance / WHEEL_MAGNET_RANGE);
+        // Eased so the lean builds as the finger closes rather than tracking
+        // it linearly, which reads as the option being dragged.
+        const eased = pull * pull;
+        const scale = distance > 1 ? (WHEEL_MAGNET_MAX * eased) / distance : 0;
+        node.style.setProperty("--mx", `${(x - ox) * scale}px`);
+        node.style.setProperty("--my", `${(y - oy) * scale}px`);
+        node.style.setProperty("--pull", eased.toFixed(3));
+      });
+    },
+
+    clearMagnet() {
+      for (const node of document.querySelectorAll(".wheel-opt")) {
+        node.style.setProperty("--mx", "0px");
+        node.style.setProperty("--my", "0px");
+        node.style.setProperty("--pull", "0");
+      }
     },
 
     // Which option the finger is over, or -1 for none. Near the centre is
@@ -1652,6 +1716,7 @@ function tavern() {
 
     trackWheel(event) {
       this.wheel.active = this.wheelIndexAt(event.clientX, event.clientY);
+      this.magnetise(event.clientX, event.clientY);
     },
 
     // Letting go is the first of the two ways to choose. If the finger moved
@@ -1662,10 +1727,14 @@ function tavern() {
       if (index >= 0) return this.pickWheel(this.wheel.options[index]);
       this.wheel.released = true;
       this.wheel.active = -1;
+      this.clearMagnet();
     },
 
     closeWheel() {
+      clearTimeout(this._wheelSettleTimer);
       this.wheel = null;
+      this.wheelSettled = false;
+      this._wheelNodes = null;
     },
 
     flashHint(text) {
@@ -2169,10 +2238,19 @@ function tavern() {
     },
 
     // Follow the bottom, but only while the user has not scrolled away.
+    //
+    // Coalesced to one write per frame. The observer fires on every token, and
+    // reading scrollHeight to write scrollTop forces a layout each time — a
+    // hundred times a second during a fast stream, for a position that can
+    // only be seen once per frame.
     pinBottom() {
-      const el = this.scrollPort;
-      if (!el || !this.stick) return;
-      el.scrollTop = el.scrollHeight;
+      if (!this.scrollPort || !this.stick || this._pinQueued) return;
+      this._pinQueued = true;
+      requestAnimationFrame(() => {
+        this._pinQueued = false;
+        const el = this.scrollPort;
+        if (el && this.stick) el.scrollTop = el.scrollHeight;
+      });
     },
 
     // For the deliberate moves: opening a chat, sending, regenerating. These

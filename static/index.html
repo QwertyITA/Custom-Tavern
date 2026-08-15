@@ -274,7 +274,7 @@
           <span class="anim anim-typing"><i></i><i></i><i></i></span>
         </div>
         <div class="body" :class="{ 'fade-out': fadingId === m.id }"
-             x-effect="Markup.render($el, m.text)"
+             x-effect="Markup.schedule($el, m.text)"
              x-show="editing !== m.id && !isRegenerating(m)"></div>
         <textarea class="edit-box" x-show="editing === m.id" x-model="editText"
                   :style="editHeight ? `min-height:${editHeight}px` : ''"
@@ -297,18 +297,22 @@
                       aria-label="Delete">
                 <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-delete"/></svg>
               </button>
-              <!-- Always shown on a reply, even at 1/1. The right arrow past
-                   the last variant is what generates another, so hiding these
-                   until a second one exists left the first reply with no way
-                   to be re-rolled except the swipe. -->
-              <span class="variants" x-show="m.role === 'assistant'">
-                <button class="glyph-btn" @click="goToVariant(m, -1)"
+              <!-- Only on the newest reply, and there even at 1/1: the right
+                   arrow past the last variant is what generates another, so
+                   hiding these until a second variant exists would leave a
+                   fresh reply with no way to be re-rolled but the swipe.
+                   Older replies show their counter without the arrows, because
+                   which variant they landed on is still worth knowing. -->
+              <span class="variants" x-show="m.role === 'assistant'"
+                    :class="{ frozen: !swipeable(m) }">
+                <button class="glyph-btn" x-show="swipeable(m)" @click="goToVariant(m, -1)"
                         :disabled="(m.variant_index || 0) === 0"
                         title="Previous variant" aria-label="Previous variant">
                   <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-back"/></svg>
                 </button>
-                <span class="variant-count" x-text="`${(m.variant_index||0)+1}/${m.variant_count}`"></span>
-                <button class="glyph-btn flip" @click="goToVariant(m, 1)"
+                <span class="variant-count" x-show="m.variant_count > 1 || swipeable(m)"
+                      x-text="`${(m.variant_index||0)+1}/${m.variant_count}`"></span>
+                <button class="glyph-btn flip" x-show="swipeable(m)" @click="goToVariant(m, 1)"
                         title="Next variant" aria-label="Next variant">
                   <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-back"/></svg>
                 </button>
@@ -364,7 +368,7 @@
 <div class="wheel-layer" x-show="wheel" x-cloak
      @pointerup.self="closeWheel()" @click.self="closeWheel()">
   <template x-if="wheel">
-    <div class="wheel" :class="{ released: wheel.released }"
+    <div class="wheel" :class="{ released: wheel.released, settled: wheelSettled }"
          :style="`left:${wheel.cx}px; top:${wheel.cy}px`">
       <span class="wheel-hub" :class="{ dimmed: wheel.active >= 0 }"></span>
       <template x-for="(o, i) in wheel.options" :key="o.id">
@@ -434,8 +438,12 @@
 
 <!-- The composer's own menu. Rises from the composer rather than dropping from
      the top, because that is where the button is and where the eye already is. -->
+<!-- Any tap outside an option closes it, including on the text box, which is
+     the obvious place to reach for when you have changed your mind. `.self`
+     was not enough: the menu's own bottom padding is what sits over the
+     composer, so a tap there landed on the padding rather than on the scrim. -->
 <div class="composer-sheet" x-show="composerMenu" x-cloak
-     @click.self="composerMenu = false">
+     @click="composerMenu = false">
   <div class="composer-menu">
     <template x-for="(a, i) in composerActions()" :key="a.id">
       <button class="composer-item" :class="{ soon: a.soon }" :style="`--i:${i}`"

@@ -890,7 +890,10 @@ body {
   position: fixed;
   inset: 0;
   z-index: 40;
-  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  /* Barely there. The message being acted on has to stay readable — deciding
+     what to do with it usually means re-reading it — so this only has to
+     separate the wheel from the text, not hide the text. */
+  background: color-mix(in srgb, var(--bg) 18%, transparent);
   animation: scrim-in 200ms var(--ease-out) both;
   /* The finger is mid-gesture on top of this; letting the page scroll under
      it would drag the conversation out from under the wheel. */
@@ -929,14 +932,33 @@ body {
   border: 0;
   background: none;
   color: var(--muted);
-  /* Flies out from the hub rather than fading in where it will end up. The
+  /* --pull is set per option from JS as the finger approaches: 0 at rest, up
+     to 1 when the finger is on it. It leans the option towards the finger, so
+     the wheel reaches for the thumb instead of waiting to be hit exactly.
+     Flies out from the hub rather than fading in where it will end up; the
      keyframes carry the offset, so `both` is what leaves it there. */
+  --pull: 0;
   animation: wheel-out 340ms var(--ease-back) both;
   animation-delay: calc(var(--i) * 34ms);
 }
 @keyframes wheel-out {
   from { transform: translate(-50%, -50%) scale(.2); opacity: 0; }
-  to   { transform: translate(-50%, -50%) translate(var(--dx), var(--dy)) scale(1); opacity: 1; }
+  to {
+    transform: translate(-50%, -50%)
+               translate(calc(var(--dx) + var(--mx, 0px)), calc(var(--dy) + var(--my, 0px)))
+               scale(calc(1 + var(--pull) * .12));
+    opacity: 1;
+  }
+}
+/* Once the fly-out has finished the animation holds the end state, so the
+   magnet is applied by re-declaring that same transform as a transition. */
+.wheel.settled .wheel-opt {
+  animation: none;
+  transform: translate(-50%, -50%)
+             translate(calc(var(--dx) + var(--mx, 0px)), calc(var(--dy) + var(--my, 0px)))
+             scale(calc(1 + var(--pull) * .12));
+  opacity: 1;
+  transition: transform 140ms var(--ease-out);
 }
 
 .wheel-disc {
@@ -1315,4 +1337,22 @@ body {
 @keyframes hidden-in {
   from { transform: scale(.4) rotate(-12deg); opacity: 0; }
   to { transform: none; opacity: 1; }
+}
+
+/* A long conversation is a long list of boxes the browser would otherwise lay
+   out and paint in full on every frame. content-visibility lets it skip the
+   ones that are off-screen entirely; the intrinsic size is a guess at a
+   bubble's height so the scrollbar does not jump as they are skipped and
+   un-skipped. This is the single biggest thing standing between a hundred-
+   message chat and a phone's full refresh rate. */
+.msg {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 96px;
+}
+/* Never the one being animated: skipping work for an element mid-transition is
+   how a bubble ends up jumping instead of moving. */
+.msg.sending,
+.msg:has(.bubble.leaving),
+.msg:has(.bubble.clipping) {
+  content-visibility: visible;
 }
