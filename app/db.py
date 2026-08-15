@@ -126,7 +126,7 @@ class Database:
             for version, steps in sorted(MIGRATIONS.items()):
                 if version > current:
                     for step in steps:
-                        conn.execute(step)
+                        _run_migration_step(conn, step)
                     current = version
             conn.execute(
                 "INSERT INTO meta(key, value) VALUES('schema_version', ?) "
@@ -145,11 +145,35 @@ class Database:
             self._writer_thread.join(timeout=5)
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+def _run_migration_step(conn: sqlite3.Connection, step: str) -> None:
+    """Apply one migration statement, tolerating one that has already landed.
+
+    schema.sql is the create-from-nothing path and carries every column, so on
+    a fresh database the `ADD COLUMN` migrations that exist for older installs
+    are describing a column that is already there. SQLite has no
+    `ADD COLUMN IF NOT EXISTS`, so the duplicate is recognised and skipped —
+    and only that one error, because any other failure is a real one.
+    """
+    try:
+        conn.execute(step)
+    except sqlite3.OperationalError as exc:
+        if "duplicate column name" not in str(exc).lower():
+            raise
+
 
 # version -> list of statements applied when upgrading past it. schema.sql is
 # always CREATE-IF-NOT-EXISTS, so these only carry ALTERs for existing installs.
-MIGRATIONS: dict[int, list[str]] = {}
+MIGRATIONS: dict[int, list[str]] = {
+    # Personas, and the per-chat and per-character bindings that point at them.
+    # schema.sql creates the table for a fresh install; these carry the columns
+    # onto a database that already exists.
+    2: [
+        "ALTER TABLE chats ADD COLUMN persona_id TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE characters ADD COLUMN persona_id TEXT NOT NULL DEFAULT ''",
+    ],
+}
 
 
 def now() -> float:

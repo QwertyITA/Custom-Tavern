@@ -142,6 +142,11 @@ NO_BACKGROUND = "none"
 USER_BACKGROUND_DIR = DATA_DIR / "backgrounds"
 MAX_BACKGROUND_BYTES = 12 * 1024 * 1024
 
+# Persona portraits. Same reasoning as backdrops — user images belong in the
+# gitignored data directory, not in the tracked static tree.
+AVATAR_DIR = DATA_DIR / "avatars"
+MAX_AVATAR_BYTES = 4 * 1024 * 1024
+
 
 def _listing(directory: Path) -> list[str]:
     if not directory.is_dir():
@@ -194,6 +199,19 @@ def validate_background(raw: Any) -> str:
     if value in available_backgrounds():
         return value
     raise SettingsError(f"unknown background {value!r}")
+
+
+def user_avatars() -> list[str]:
+    return sorted(_listing(AVATAR_DIR))
+
+
+def avatar_path(name: str) -> Path | None:
+    """Resolve an avatar name to a file. Matched against the listing rather
+    than joined onto a path, so a name is only ever a name."""
+    if name not in user_avatars():
+        return None
+    path = AVATAR_DIR / name
+    return path if path.is_file() else None
 
 
 @dataclass

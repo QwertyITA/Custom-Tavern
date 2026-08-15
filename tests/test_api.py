@@ -853,3 +853,136 @@ def test_the_editor_accepts_alternates_as_paragraphs(client):
     back = client.get(f"/api/characters/{character_id}").json()
     assert back["alternate_greetings"] == ["First one.", "Second one.", "Third one."]
     assert back["post_history_instructions"] == "Stay in scene."
+
+
+# ---------------------------------------------------------------- personas
+
+
+def make_persona(client, name: str, description: str = "", **extra) -> dict:
+    response = client.post(
+        "/api/personas", json={"name": name, "description": description, **extra}
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_the_first_persona_becomes_the_default(client):
+    """There has to be something for {{user}} to fall back to."""
+    assert client.get("/api/personas").json()["personas"] == []
+    tomas = make_persona(client, "Tomas", "A quiet cartographer.")
+    assert tomas["is_default"] == 1
+    assert client.get("/api/personas").json()["default"]["name"] == "Tomas"
+
+
+def test_only_one_persona_is_ever_the_default(client):
+    make_persona(client, "Tomas")
+    make_persona(client, "Wren", is_default=True)
+    personas = client.get("/api/personas").json()["personas"]
+    assert [p["name"] for p in personas if p["is_default"]] == ["Wren"]
+
+
+def test_a_persona_needs_a_name(client):
+    assert client.post("/api/personas", json={"name": "  "}).status_code == 400
+
+
+def test_user_resolves_to_the_default_persona(client):
+    make_persona(client, "Tomas", "A quiet cartographer.")
+    character_id = import_card(client, MACRO_CARD, "macro-persona.json")
+    chat_id = client.post("/api/chats", json={"character_id": character_id}).json()["id"]
+    assert "There you are, Tomas." in client.get(f"/api/chats/{chat_id}/messages").json()[0]["text"]
+
+
+def test_a_chat_can_use_a_different_persona_from_the_default(client):
+    tomas = make_persona(client, "Tomas")
+    wren = make_persona(client, "Wren")
+    character_id = import_card(client, MACRO_CARD, "macro-chat-persona.json")
+    chat_id = client.post("/api/chats", json={"character_id": character_id}).json()["id"]
+
+    assert client.post(
+        f"/api/chats/{chat_id}/persona", json={"persona_id": wren["id"]}
+    ).json()["persona"]["name"] == "Wren"
+    assert client.get(f"/api/chats/{chat_id}").json()["persona"]["name"] == "Wren"
+
+    # Clearing it falls back to the default rather than to nothing.
+    client.post(f"/api/chats/{chat_id}/persona", json={"persona_id": ""})
+    assert client.get(f"/api/chats/{chat_id}").json()["persona"]["id"] == tomas["id"]
+
+
+def test_a_character_can_carry_its_own_persona(client):
+    make_persona(client, "Tomas")
+    wren = make_persona(client, "Wren")
+    character_id = import_card(client, MACRO_CARD, "macro-char-persona.json")
+    client.post(f"/api/characters/{character_id}/persona", json={"persona_id": wren["id"]})
+
+    chat_id = client.post("/api/chats", json={"character_id": character_id}).json()["id"]
+    assert client.get(f"/api/chats/{chat_id}").json()["persona"]["name"] == "Wren"
+
+
+def test_the_chats_choice_beats_the_characters(client):
+    """Most specific wins: chat, then character, then global default."""
+    make_persona(client, "Default")
+    character_persona = make_persona(client, "ForThisCharacter")
+    chat_persona = make_persona(client, "JustThisChat")
+    character_id = import_card(client, MACRO_CARD, "macro-precedence.json")
+    client.post(
+        f"/api/characters/{character_id}/persona", json={"persona_id": character_persona["id"]}
+    )
+    chat_id = client.post("/api/chats", json={"character_id": character_id}).json()["id"]
+    client.post(f"/api/chats/{chat_id}/persona", json={"persona_id": chat_persona["id"]})
+    assert client.get(f"/api/chats/{chat_id}").json()["persona"]["name"] == "JustThisChat"
+
+
+def test_the_persona_description_reaches_the_prompt(client):
+    from app.assembly import build_reply_context
+    from app.config import SETTINGS
+    from app.db import get_db
+    from app import repo
+
+    make_persona(client, "Tomas", "Maps the coast. Speaks little.")
+    character_id = import_card(client, MACRO_CARD, "macro-desc.json")
+    chat_id = client.post("/api/chats", json={"character_id": character_id}).json()["id"]
+    send(client, chat_id, "I unroll the chart.")
+
+    db = get_db()
+    assembled = build_reply_context(
+        db, repo.get_chat(db, chat_id), repo.get_character(db, character_id), SETTINGS
+    )
+    assert "## Tomas" in assembled.system
+    assert "Maps the coast." in assembled.system
+
+
+def test_deleting_the_persona_in_use_falls_back_rather_than_breaking(client):
+    """An old chat pointing at a deleted persona must still open."""
+    tomas = make_persona(client, "Tomas")
+    wren = make_persona(client, "Wren")
+    character_id = import_card(client, MACRO_CARD, "macro-delete.json")
+    chat_id = client.post("/api/chats", json={"character_id": character_id}).json()["id"]
+    client.post(f"/api/chats/{chat_id}/persona", json={"persona_id": wren["id"]})
+
+    assert client.delete(f"/api/personas/{wren['id']}").status_code == 200
+    body = client.get(f"/api/chats/{chat_id}").json()
+    assert body["persona"]["id"] == tomas["id"]
+    assert body["persona_id"] == wren["id"], "the chat keeps its choice, dangling or not"
+
+
+def test_deleting_the_default_promotes_another(client):
+    tomas = make_persona(client, "Tomas")
+    make_persona(client, "Wren")
+    client.delete(f"/api/personas/{tomas['id']}")
+    assert client.get("/api/personas").json()["default"]["name"] == "Wren"
+
+
+def test_with_no_personas_at_all_user_is_still_readable(client):
+    character_id = import_card(client, MACRO_CARD, "macro-none.json")
+    chat_id = client.post("/api/chats", json={"character_id": character_id}).json()["id"]
+    greeting = client.get(f"/api/chats/{chat_id}/messages").json()[0]["text"]
+    assert "{{" not in greeting
+    assert "There you are, You." in greeting
+
+
+def test_editing_a_persona_updates_what_user_resolves_to(client):
+    tomas = make_persona(client, "Tomas")
+    client.put(f"/api/personas/{tomas['id']}", json={"name": "Tomás", "description": "Renamed."})
+    character_id = import_card(client, MACRO_CARD, "macro-edit.json")
+    chat_id = client.post("/api/chats", json={"character_id": character_id}).json()["id"]
+    assert "There you are, Tomás." in client.get(f"/api/chats/{chat_id}/messages").json()[0]["text"]

@@ -761,8 +761,22 @@ body {
   align-items: center;
 }
 .wide.primary { background: var(--accent); color: var(--on-accent); border-color: transparent; font-weight: 600; }
-.wide { width: 100%; background: var(--panel-2); color: var(--text);
-        border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+.wide {
+  width: 100%;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  /* Centred as a pair when there is an icon, so the glyph sits against the
+     label rather than pinned to the far edge of the button. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: transform 200ms var(--ease-back), background 160ms var(--ease-out);
+}
+.wide:active { transform: scale(.985); }
 .save-msg { font-size: 12px; color: var(--ok); }
 .save-msg.bad { color: var(--error); }
 .kind-note {
@@ -1248,3 +1262,29 @@ body {
   background: var(--accent);
   border-color: var(--accent);
 }
+
+/* ---------------------------------------------------------------- personas */
+
+/* Same shape as a character row, because it is the same kind of thing: a face,
+   a name, and what you can do to it. Tappable as a whole — choosing who you
+   are is the row's main verb, so it should not need a button of its own. */
+.persona {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  margin-bottom: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-2);
+  width: 100%;
+  text-align: left;
+  transition: border-color 160ms var(--ease-out), transform 200ms var(--ease-back);
+}
+.persona.current { border-color: var(--accent); }
+.persona:active { transform: scale(.985); }
+.persona .glyph-btn.on { color: var(--accent); }
+/* The star fills in when it is the one new chats will use. */
+.persona .glyph-btn.on .icon-btn-glyph { fill: currentColor; }
+.char-pfp.big { width: 56px; height: 56px; }
+.char-pfp.big .char-pfp-generic { width: 32px; height: 32px; }

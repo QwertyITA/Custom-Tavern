@@ -36,7 +36,7 @@ Everything else leans on these.
 - [x] **2. Card fields we currently drop.** `alternate_greetings` (pick the
       opening message, swipeable on the greeting) and
       `post_history_instructions` (injected after the history).
-- [ ] **3. User personas.** Name, avatar, description. Several of them,
+- [x] **3. User personas.** Name, avatar, description. Several of them,
       switchable, one bindable as default per character. `{{user}}` resolves to
       the active one.
 

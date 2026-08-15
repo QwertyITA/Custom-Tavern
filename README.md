@@ -133,6 +133,21 @@ Editing only rewrites the text fields; portraits, backgrounds, lorebook and
 state schema come from the card and are left alone. Deleting a character
 deletes its chats with it, which is why both deletes take two taps.
 
+### Who you are
+
+A **persona** is your side of the conversation: a name, a description and a
+portrait. `{{user}}` resolves to the name, and the description is given to the
+model the same way the character's own is. Set them up under **chats → You**.
+
+Three places are asked, most specific first — the chat's own choice, then the
+persona this character is usually played with, then the global default marked
+with the star. Each falls through if it names something deleted, so removing a
+persona degrades old chats to the default rather than breaking them. With no
+personas at all the character simply calls you "You".
+
+Tapping a persona plays as them *in the current chat*; the star is what changes
+who new chats get.
+
 ### Opening messages
 
 A card may offer several. They arrive as **swipe variants of the opening

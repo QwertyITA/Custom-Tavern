@@ -83,15 +83,112 @@ def list_characters(db: Database) -> list[dict]:
     return out
 
 
+# ----------------------------------------------------------------- personas
+
+
+def list_personas(db: Database) -> list[dict]:
+    return [
+        dict(row)
+        for row in db.query(
+            "SELECT id, name, description, avatar, is_default FROM personas "
+            "ORDER BY is_default DESC, name"
+        )
+    ]
+
+
+def get_persona(db: Database, persona_id: str) -> dict | None:
+    if not persona_id:
+        return None
+    row = db.query_one(
+        "SELECT id, name, description, avatar, is_default FROM personas WHERE id=?",
+        (persona_id,),
+    )
+    return dict(row) if row else None
+
+
+def default_persona(db: Database) -> dict | None:
+    row = db.query_one(
+        "SELECT id, name, description, avatar, is_default FROM personas "
+        "ORDER BY is_default DESC, created_at LIMIT 1"
+    )
+    return dict(row) if row else None
+
+
+def save_persona(db: Database, persona: dict) -> dict:
+    persona_id = persona.get("id") or new_id()
+    timestamp = now()
+
+    def _save(conn: sqlite3.Connection) -> None:
+        conn.execute(
+            "INSERT INTO personas(id, name, description, avatar, is_default, created_at, "
+            "updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
+            "name=excluded.name, description=excluded.description, avatar=excluded.avatar, "
+            "is_default=excluded.is_default, updated_at=excluded.updated_at",
+            (
+                persona_id,
+                str(persona.get("name") or "").strip(),
+                str(persona.get("description") or ""),
+                str(persona.get("avatar") or ""),
+                int(bool(persona.get("is_default"))),
+                timestamp,
+                timestamp,
+            ),
+        )
+        # Exactly one default, enforced here rather than trusted to the caller:
+        # two defaults means the fallback depends on row order.
+        if persona.get("is_default"):
+            conn.execute("UPDATE personas SET is_default=0 WHERE id != ?", (persona_id,))
+
+    db.write_sync(_save)
+    return get_persona(db, persona_id) or {}
+
+
+def delete_persona(db: Database, persona_id: str) -> None:
+    """Chats keep the id. A dangling one falls back the same way an unset one
+    does, so deleting the persona you were using does not break old chats."""
+    db.write_sync(lambda conn: conn.execute("DELETE FROM personas WHERE id=?", (persona_id,)))
+
+
+def set_chat_persona(db: Database, chat_id: str, persona_id: str) -> None:
+    db.write_sync(
+        lambda conn: conn.execute(
+            "UPDATE chats SET persona_id=?, updated_at=? WHERE id=?",
+            (persona_id, now(), chat_id),
+        )
+    )
+
+
+def set_character_persona(db: Database, character_id: str, persona_id: str) -> None:
+    db.write_sync(
+        lambda conn: conn.execute(
+            "UPDATE characters SET persona_id=?, updated_at=? WHERE id=?",
+            (persona_id, now(), character_id),
+        )
+    )
+
+
+def character_persona_id(db: Database, character_id: str) -> str:
+    row = db.query_one("SELECT persona_id FROM characters WHERE id=?", (character_id,))
+    return (row["persona_id"] if row else "") or ""
+
+
 def active_persona(db: Database, chat: dict) -> dict | None:
     """Who `{{user}}` is in this chat.
 
-    A seam rather than a stub: personas are their own feature, and until they
-    exist this correctly reports that nobody has been chosen — which is what
-    makes `{{user}}` resolve to a readable default instead of a literal
+    Three places to look, most specific first: the chat's own choice, then the
+    persona this character is usually played with, then the global default.
+    Each falls through when it names something that no longer exists, so
+    deleting a persona degrades to the default rather than to a literal
     placeholder reaching the model.
     """
-    return None
+    for candidate in (
+        chat.get("persona_id") or "",
+        character_persona_id(db, chat.get("character_id", "")),
+    ):
+        persona = get_persona(db, candidate)
+        if persona:
+            return persona
+    return default_persona(db)
 
 
 def delete_character(db: Database, character_id: str) -> None:

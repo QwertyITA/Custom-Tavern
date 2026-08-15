@@ -31,6 +31,14 @@ SECRET_PATHS = [
     "secrets.json",
 ]
 
+# Not credentials, but not ours to publish either: a persona portrait is a
+# picture of a person and a backdrop is someone's photograph, and this
+# repository is public.
+PRIVATE_PATHS = [
+    "data/avatars/me.png",
+    "data/backgrounds/holiday.jpg",
+]
+
 
 def git(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
@@ -50,6 +58,16 @@ needs_git = pytest.mark.skipif(not repo_is_git(), reason="not a git checkout")
 def test_secret_paths_are_gitignored(path):
     assert git("check-ignore", "-q", path).returncode == 0, (
         f"{path} is NOT gitignored — it could be committed to a public repo"
+    )
+
+
+@needs_git
+@pytest.mark.parametrize("path", PRIVATE_PATHS)
+def test_uploaded_images_are_gitignored(path):
+    """Uploads land in data/. If that stopped being ignored, a personal photo
+    would be one `git add -A` away from a public repository."""
+    assert git("check-ignore", "-q", path).returncode == 0, (
+        f"{path} is NOT gitignored — an uploaded image could be committed"
     )
 
 

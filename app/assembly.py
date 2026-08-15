@@ -136,6 +136,15 @@ def build_reply_context(
     if character.scenario:
         prefix.append(f"## Scenario\n{expand(character.scenario).strip()}")
 
+    # Who the character is talking to. In the stable prefix because it changes
+    # about as often as the character does — switching persona mid-chat costs
+    # one cache rebuild, which is the right price for a rare deliberate act.
+    persona = repo.active_persona(db, chat)
+    if persona and (persona.get("description") or "").strip():
+        prefix.append(
+            f"## {persona['name']}\n{expand(persona['description']).strip()}"
+        )
+
     constant_lore = [e for e in character.lorebook if e.constant and e.enabled]
     if constant_lore:
         prefix.append("## World\n" + expand(render_lore(constant_lore)))

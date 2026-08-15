@@ -410,6 +410,8 @@ async def get_chat(chat_id: str) -> dict:
         "slices": state_mod.read_all_slices(db, chat_id),
         "summary": repo.get_summary(db, chat_id),
         "toggles": registry.toggle_states(db, chat["character_id"], chat_id),
+        "persona": repo.active_persona(db, chat),
+        "persona_id": chat.get("persona_id", ""),
     }
 
 
@@ -556,6 +558,130 @@ async def remove_pass(pass_id: str) -> dict:
     return {"deleted": deleted, "disabled": not deleted}
 
 
+def _safe_upload_name(filename: str, taken: set[str], fallback: str) -> str:
+    """A filename rebuilt from scratch, never overwriting an existing one.
+
+    Rebuilt rather than sanitised: the stem is reduced to characters that
+    cannot escape a directory however they are combined, so there is no
+    traversal to get wrong. Two photos called IMG_0001 are two images.
+    """
+    suffix = Path(filename).suffix.lower()
+    stem = "".join(c for c in Path(filename).stem if c.isalnum() or c in "-_ ").strip()
+    stem = stem.replace(" ", "-")[:60] or fallback
+    name = f"{stem}{suffix}"
+    counter = 2
+    while name in taken:
+        name = f"{stem}-{counter}{suffix}"
+        counter += 1
+    return name
+
+
+# --------------------------------------------------------------- personas
+
+
+@app.get("/api/personas")
+async def list_personas() -> dict:
+    db = get_db()
+    return {"personas": repo.list_personas(db), "default": repo.default_persona(db)}
+
+
+@app.post("/api/personas")
+async def create_persona(payload: dict = Body(default={})) -> dict:
+    db = get_db()
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        raise HTTPException(400, "a persona needs a name")
+    # The first one is the default by definition — there is nothing else for
+    # {{user}} to fall back to.
+    is_default = bool(payload.get("is_default")) or not repo.list_personas(db)
+    return repo.save_persona(db, {**payload, "name": name, "is_default": is_default})
+
+
+@app.put("/api/personas/{persona_id}")
+async def update_persona(persona_id: str, payload: dict = Body(...)) -> dict:
+    db = get_db()
+    existing = repo.get_persona(db, persona_id)
+    if existing is None:
+        raise HTTPException(404, "persona not found")
+    merged = {**existing, **payload, "id": persona_id}
+    if not str(merged.get("name") or "").strip():
+        raise HTTPException(400, "a persona needs a name")
+    return repo.save_persona(db, merged)
+
+
+@app.delete("/api/personas/{persona_id}")
+async def remove_persona(persona_id: str) -> dict:
+    db = get_db()
+    if repo.get_persona(db, persona_id) is None:
+        raise HTTPException(404, "persona not found")
+    repo.delete_persona(db, persona_id)
+    # Something has to be the default, or {{user}} silently loses its name.
+    if not repo.default_persona(db):
+        return {"ok": True, "default": None}
+    remaining = repo.list_personas(db)
+    if not any(p["is_default"] for p in remaining):
+        repo.save_persona(db, {**remaining[0], "is_default": True})
+    return {"ok": True, "default": repo.default_persona(db)}
+
+
+@app.post("/api/chats/{chat_id}/persona")
+async def choose_chat_persona(chat_id: str, payload: dict = Body(...)) -> dict:
+    """Who you are in this one conversation."""
+    db = get_db()
+    if repo.get_chat(db, chat_id) is None:
+        raise HTTPException(404, "chat not found")
+    persona_id = str(payload.get("persona_id") or "")
+    if persona_id and repo.get_persona(db, persona_id) is None:
+        raise HTTPException(404, "persona not found")
+    repo.set_chat_persona(db, chat_id, persona_id)
+    return {"ok": True, "persona": repo.active_persona(db, repo.get_chat(db, chat_id))}
+
+
+@app.post("/api/characters/{character_id}/persona")
+async def choose_character_persona(character_id: str, payload: dict = Body(...)) -> dict:
+    """Who you usually are with this character — used by new chats with them."""
+    db = get_db()
+    if repo.get_character(db, character_id) is None:
+        raise HTTPException(404, "character not found")
+    persona_id = str(payload.get("persona_id") or "")
+    if persona_id and repo.get_persona(db, persona_id) is None:
+        raise HTTPException(404, "persona not found")
+    repo.set_character_persona(db, character_id, persona_id)
+    return {"ok": True, "persona_id": persona_id}
+
+
+@app.get("/avatars/{filename}")
+async def serve_avatar(filename: str) -> FileResponse:
+    path = config.avatar_path(filename)
+    if path is None:
+        raise HTTPException(404, "avatar not found")
+    return FileResponse(path)
+
+
+@app.post("/api/avatars")
+async def upload_avatar(request: Request, filename: str = Query(...)) -> dict:
+    """Add a persona portrait. Body is the raw image, as everywhere else."""
+    suffix = Path(filename).suffix.lower()
+    if suffix not in config.BACKGROUND_SUFFIXES:
+        allowed = ", ".join(config.BACKGROUND_SUFFIXES)
+        raise HTTPException(400, f"unsupported image type {suffix or '(none)'} — use {allowed}")
+
+    payload = await request.body()
+    if not payload:
+        raise HTTPException(400, "empty upload")
+    if len(payload) > config.MAX_AVATAR_BYTES:
+        limit = config.MAX_AVATAR_BYTES // (1024 * 1024)
+        raise HTTPException(400, f"image is larger than {limit} MB")
+
+    config.AVATAR_DIR.mkdir(parents=True, exist_ok=True)
+    name = _safe_upload_name(filename, set(config.user_avatars()), "avatar")
+    try:
+        (config.AVATAR_DIR / name).write_bytes(payload)
+    except OSError as exc:
+        raise HTTPException(500, f"could not save image: {exc}") from exc
+    return {"name": name, "url": f"/avatars/{name}"}
+
+
 # -------------------------------------------------------------- backdrops
 
 
@@ -600,18 +726,9 @@ async def upload_background(request: Request, filename: str = Query(...)) -> dic
         limit = config.MAX_BACKGROUND_BYTES // (1024 * 1024)
         raise HTTPException(400, f"image is larger than {limit} MB")
 
-    stem = "".join(c for c in Path(filename).stem if c.isalnum() or c in "-_ ").strip()
-    stem = stem.replace(" ", "-")[:60] or "backdrop"
     directory = config.USER_BACKGROUND_DIR
     directory.mkdir(parents=True, exist_ok=True)
-
-    # Never overwrite: two photos called IMG_0001 are two backdrops.
-    name = f"{stem}{suffix}"
-    taken = set(config.available_backgrounds())
-    counter = 2
-    while name in taken:
-        name = f"{stem}-{counter}{suffix}"
-        counter += 1
+    name = _safe_upload_name(filename, set(config.available_backgrounds()), "backdrop")
 
     try:
         (directory / name).write_bytes(payload)

@@ -188,6 +188,14 @@ function tavern() {
     // in the editor. Held separately so the textarea can be edited freely —
     // splitting on every keystroke would renumber the list under the cursor.
     altGreetings: "",
+    personas: [],
+    persona: null,
+    draftPersona: { id: "", name: "", description: "", avatar: "", is_default: false },
+    savingPersona: false,
+    personaMsg: "",
+    personaError: "",
+    uploadingAvatar: false,
+    confirmPersona: "",
     savingCharacter: false,
     charMsg: "",
     charError: "",
@@ -279,6 +287,7 @@ function tavern() {
       this.bands = data.state.bands || [];
       this.summary = data.summary;
       this.toggleStates = data.toggles || {};
+      this.persona = data.persona || null;
       this.turn = this.messages.length ? this.messages[this.messages.length - 1].turn : 0;
       this.sceneBackgroundFile = "";
       this.applyTheme();
@@ -328,6 +337,7 @@ function tavern() {
         } else if (name === "chats") {
           this.characters = await api.get("/api/characters");
           this.chats = await api.get("/api/chats");
+          await this.loadPersonas();
           // Every history starts closed: a roster of characters is the thing
           // being looked at, and one of them unrolled pushes the rest down.
           this.historyFor = "";
@@ -352,6 +362,7 @@ function tavern() {
         theme: "Appearance",
         chats: "Characters & chats",
         character: "Edit character",
+        persona: "Edit persona",
         story: "Story state",
       }[this.panel] || "";
     },
@@ -378,6 +389,132 @@ function tavern() {
       const current = this.characterId;
       await this.openPanel("chats");
       this.historyFor = current;
+    },
+
+    // ---- personas ----
+
+    async loadPersonas() {
+      try {
+        this.personas = (await api.get("/api/personas")).personas;
+      } catch (e) {
+        this.error = String(e.message || e);
+      }
+    },
+
+    // Tapping a persona is "be this person here", not "be this person always" —
+    // the star is the one that changes what new chats get.
+    async usePersona(persona) {
+      if (!this.chatId) return this.makeDefaultPersona(persona);
+      try {
+        const result = await api.post(`/api/chats/${this.chatId}/persona`,
+                                      { persona_id: persona.id });
+        this.persona = result.persona;
+        this.flashHint(`Playing as ${persona.name}`);
+      } catch (e) {
+        this.error = String(e.message || e);
+      }
+    },
+
+    async makeDefaultPersona(persona) {
+      try {
+        await api.put(`/api/personas/${persona.id}`, { is_default: true });
+        await this.loadPersonas();
+        this.flashHint(`New chats will use ${persona.name}`);
+      } catch (e) {
+        this.error = String(e.message || e);
+      }
+    },
+
+    newPersona() {
+      this.draftPersona = {
+        id: "", name: "", description: "", avatar: "",
+        // The first one has to be the default; there is nothing else for
+        // {{user}} to fall back to.
+        is_default: !this.personas.length,
+      };
+      this.personaMsg = "";
+      this.personaError = "";
+      this.panel = "persona";
+    },
+
+    editPersona(persona) {
+      this.draftPersona = { ...persona, is_default: !!persona.is_default };
+      this.personaMsg = "";
+      this.personaError = "";
+      this.panel = "persona";
+    },
+
+    async savePersona() {
+      this.savingPersona = true;
+      this.personaMsg = "";
+      this.personaError = "";
+      const draft = this.draftPersona;
+      try {
+        const body = {
+          name: draft.name,
+          description: draft.description,
+          avatar: draft.avatar,
+          is_default: !!draft.is_default,
+        };
+        const saved = draft.id
+          ? await api.put(`/api/personas/${draft.id}`, body)
+          : await api.post("/api/personas", body);
+        this.draftPersona = { ...saved, is_default: !!saved.is_default };
+        await this.loadPersonas();
+        // The one in use may be the one just renamed.
+        if (this.chatId) await this.refreshPersona();
+        this.personaMsg = "Saved";
+      } catch (e) {
+        this.personaError = String(e.message || e);
+      } finally {
+        this.savingPersona = false;
+      }
+    },
+
+    async deletePersona(persona) {
+      if (this.confirmPersona !== persona.id) {
+        this.confirmPersona = persona.id;
+        clearTimeout(this._personaTimer);
+        this._personaTimer = setTimeout(() => { this.confirmPersona = ""; }, CONFIRM_MS);
+        return;
+      }
+      this.confirmPersona = "";
+      try {
+        await api.del(`/api/personas/${persona.id}`);
+        await this.loadPersonas();
+        if (this.chatId) await this.refreshPersona();
+      } catch (e) {
+        this.error = String(e.message || e);
+      }
+    },
+
+    // Ask the server rather than guessing: which persona is active depends on
+    // the chat, the character and the global default, and that resolution
+    // lives in one place on purpose.
+    async refreshPersona() {
+      try {
+        this.persona = (await api.get(`/api/chats/${this.chatId}`)).persona;
+      } catch (_) { /* the chat may have just been deleted */ }
+    },
+
+    async uploadAvatar(event) {
+      const file = (event.target.files || [])[0];
+      if (!file) return;
+      this.uploadingAvatar = true;
+      this.personaError = "";
+      try {
+        const response = await fetch(
+          `/api/avatars?filename=${encodeURIComponent(file.name)}`,
+          { method: "POST", body: file },
+        );
+        if (!response.ok) throw await apiError(response);
+        this.draftPersona.avatar = (await response.json()).name;
+      } catch (e) {
+        this.personaError = String(e.message || e);
+      } finally {
+        this.uploadingAvatar = false;
+        event.target.value = "";
+      }
     },
 
     // ---- composer actions ----

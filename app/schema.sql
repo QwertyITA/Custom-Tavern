@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS characters (
     name        TEXT NOT NULL,
     version     INTEGER NOT NULL DEFAULT 1,
     data        TEXT NOT NULL,          -- json: persona, state_schema, pfp_set, backgrounds, ...
+    persona_id  TEXT NOT NULL DEFAULT '',  -- the persona new chats with them use
     created_at  REAL NOT NULL,
     updated_at  REAL NOT NULL
 );
@@ -15,6 +16,7 @@ CREATE TABLE IF NOT EXISTS chats (
     title        TEXT NOT NULL DEFAULT '',
     version      INTEGER NOT NULL DEFAULT 1,
     settings     TEXT NOT NULL DEFAULT '{}',   -- json: colours, toggle overrides
+    persona_id   TEXT NOT NULL DEFAULT '',     -- who {{user}} is here; '' = default
     created_at   REAL NOT NULL,
     updated_at   REAL NOT NULL
 );
@@ -142,4 +144,18 @@ CREATE TABLE IF NOT EXISTS lorebooks (
 CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
+);
+
+-- Who "you" are. A person can keep several — one for each way they like to
+-- play — and {{user}} resolves to whichever is active. Deleting a persona
+-- leaves chats alone: they carry the id, and an id with nothing behind it
+-- falls back to the default the same way an unset one does.
+CREATE TABLE IF NOT EXISTS personas (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    avatar      TEXT NOT NULL DEFAULT '',
+    is_default  INTEGER NOT NULL DEFAULT 0,
+    created_at  REAL NOT NULL,
+    updated_at  REAL NOT NULL
 );

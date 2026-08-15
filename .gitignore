@@ -26,6 +26,8 @@ data/tavern.db-wal
 data/tavern.db-shm
 data/music/
 data/backgrounds/
+# Persona portraits — pictures of a person, in a public repository.
+data/avatars/
 data/models/
 *.gguf
 

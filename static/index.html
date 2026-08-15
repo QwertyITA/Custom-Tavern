@@ -89,6 +89,9 @@
     </g>
     <g id="i-import"><path d="M12 3.6v10.8M7.8 10.2 12 14.4l4.2-4.2"/><path d="M4.4 16.4v2.2a1.8 1.8 0 0 0 1.8 1.8h11.6a1.8 1.8 0 0 0 1.8-1.8v-2.2"/></g>
     <g id="i-export"><path d="M12 14.4V3.6M7.8 7.8 12 3.6l4.2 4.2"/><path d="M4.4 16.4v2.2a1.8 1.8 0 0 0 1.8 1.8h11.6a1.8 1.8 0 0 0 1.8-1.8v-2.2"/></g>
+    <g id="i-star">
+      <path d="M12 3.8l2.6 5.3 5.8.85-4.2 4.1 1 5.8L12 17.1l-5.2 2.75 1-5.8-4.2-4.1 5.8-.85z"/>
+    </g>
     <g id="i-check"><path d="M4.8 12.6 9.6 17.4 19.2 6.6"/></g>
     <g id="i-close"><path d="M6 6l12 12M18 6 6 18"/></g>
     <g id="i-back"><path d="M14.6 5.4 8 12l6.6 6.6"/></g>
@@ -427,8 +430,10 @@
          x-transition:leave="sheet-leave" x-transition:leave-start="sheet-to"
          x-transition:leave-end="sheet-from">
   <header class="sheet-head">
-    <button class="icon-btn" x-show="panel === 'character'" @click="panel = 'chats'"
-            aria-label="Back">‹</button>
+    <button class="icon-btn" x-show="panel === 'character' || panel === 'persona'"
+            @click="panel = 'chats'" aria-label="Back">
+      <svg class="icon" viewBox="0 0 24 24"><use href="#i-back"/></svg>
+    </button>
     <h2 x-text="panelTitle()"></h2>
     <button class="icon-btn" @click="closePanel()" aria-label="Close">✕</button>
   </header>
@@ -720,6 +725,51 @@
     <!-- ----------------------------------------------------------- chats -->
     <template x-if="panel === 'chats'">
       <div>
+        <!-- Who you are comes first: it is the shorter list, it changes less
+             often, and every character below is talked to as this person. -->
+        <h3>You</h3>
+        <p class="note" x-show="!personas.length">
+          Nobody set up yet, so the character calls you "You". Add a persona and
+          <code>{{user}}</code> becomes your name.
+        </p>
+        <template x-for="pn in personas" :key="pn.id">
+          <div class="persona" :class="{ current: (persona || {}).id === pn.id }"
+               @click="usePersona(pn)">
+            <span class="char-pfp">
+              <svg class="char-pfp-generic" viewBox="0 0 24 24" aria-hidden="true">
+                <use href="#i-person"/>
+              </svg>
+              <img x-show="pn.avatar" :src="`/avatars/${pn.avatar}`" alt=""
+                   @error="$el.style.display = 'none'">
+            </span>
+            <div class="char-id">
+              <span class="char-name" x-text="pn.name"></span>
+              <span class="char-meta" x-text="pn.description || 'No description'"></span>
+            </div>
+            <button class="glyph-btn" :class="{ on: pn.is_default }"
+                    @click.stop="makeDefaultPersona(pn)"
+                    :title="pn.is_default ? 'Used by new chats' : 'Use for new chats'"
+                    aria-label="Default persona">
+              <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-star"/></svg>
+            </button>
+            <button class="glyph-btn" @click.stop="editPersona(pn)"
+                    title="Edit persona" aria-label="Edit persona">
+              <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-edit"/></svg>
+            </button>
+            <button class="glyph-btn danger" :class="{ armed: confirmPersona === pn.id }"
+                    @click.stop="deletePersona(pn)"
+                    :title="confirmPersona === pn.id ? 'Tap again to delete' : 'Delete persona'"
+                    aria-label="Delete persona">
+              <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-close"/></svg>
+            </button>
+          </div>
+        </template>
+        <button class="wide" @click="newPersona()">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plus"/></svg>
+          <span>New persona</span>
+        </button>
+
+        <h3>Characters</h3>
         <p class="note">
           One row per character. Deleting a character deletes its chats with it —
           that is why it asks twice.
@@ -851,6 +901,49 @@
             <span x-text="savingCharacter ? 'Saving…' : 'Save character'"></span>
           </button>
           <span class="save-msg" :class="{ bad: charError }" x-text="charError || charMsg"></span>
+        </div>
+      </div>
+    </template>
+
+    <!-- --------------------------------------------------------- persona -->
+    <template x-if="panel === 'persona'">
+      <div>
+        <p class="note">
+          This is who the character is talking to. The name replaces
+          <code>{{user}}</code>; the description is given to the model the same
+          way the character's own is.
+        </p>
+        <label class="row col-row"><span class="row-label wide-label">Name</span>
+          <input x-model="draftPersona.name" placeholder="Your name in the story"></label>
+        <label class="col-field"><span class="row-label wide-label">About you</span>
+          <textarea x-model="draftPersona.description" rows="6"
+                    placeholder="What the character knows about you. Left blank, only the name is used."></textarea></label>
+
+        <div class="row col-row">
+          <span class="row-label wide-label">Portrait</span>
+          <span class="char-pfp big">
+            <svg class="char-pfp-generic" viewBox="0 0 24 24" aria-hidden="true">
+              <use href="#i-person"/>
+            </svg>
+            <img x-show="draftPersona.avatar" :src="`/avatars/${draftPersona.avatar}`" alt=""
+                 @error="$el.style.display = 'none'">
+          </span>
+          <label class="wide file-btn">
+            <input type="file" accept="image/*" @change="uploadAvatar($event)" hidden>
+            <span x-text="uploadingAvatar ? 'Uploading…' : 'Choose an image'"></span>
+          </label>
+        </div>
+
+        <label class="toggle">
+          <input type="checkbox" x-model="draftPersona.is_default">
+          <span>Use this persona for new chats</span>
+        </label>
+
+        <div class="sheet-actions">
+          <button class="wide primary" @click="savePersona()" :disabled="savingPersona">
+            <span x-text="savingPersona ? 'Saving…' : 'Save persona'"></span>
+          </button>
+          <span class="save-msg" :class="{ bad: personaError }" x-text="personaError || personaMsg"></span>
         </div>
       </div>
     </template>
