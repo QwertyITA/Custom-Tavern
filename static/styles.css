@@ -1786,3 +1786,41 @@ input.mono {
   object-fit: contain;
 }
 .chip-row { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+
+/* ---- group chats (roadmap 8) --------------------------------------------
+   A name over a reply, only when there is more than one person it could be
+   from. In a solo chat every reply is from the same character and a label on
+   each one is noise. */
+.said-by {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 11px;
+  letter-spacing: .04em;
+  color: var(--muted);
+}
+
+.member {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  transition: opacity 220ms var(--ease-out);
+}
+/* Muted: dimmed, not hidden. They are still standing there. */
+.member.quiet { opacity: .55; }
+.member-head { display: flex; align-items: center; gap: 8px; }
+.member-head .char-name { flex: 1; min-width: 0; }
+.member .num-field { margin-top: 8px; margin-bottom: 0; }
+
+.preset.picked { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+
+/* Who answers next, above the composer. Same chips as the scope picker, so
+   "pick one of these" looks the same wherever it appears. */
+.who-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 6px 8px;
+  width: 100%;
+}

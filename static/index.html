@@ -281,6 +281,11 @@
           <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-eye-off"/></svg>
         </span>
 
+        <!-- Who said it. Only in a group: in a solo chat every reply is from
+             the same person and a name on each one is noise. -->
+        <span class="said-by" x-show="cast.length > 1 && m.role === 'assistant'"
+              x-text="speakerName(m)" x-cloak></span>
+
         <!-- Regenerating replaces this message in place: the bubble becomes the
              typing cue rather than a second bubble appearing underneath. -->
         <div class="body regen" x-show="isRegenerating(m)" x-cloak>
@@ -465,6 +470,15 @@
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg>
         </button>
       </span>
+    </template>
+  </div>
+  <!-- Only for the "you choose" policy: every other one decides for itself,
+       and a picker that does nothing would be worse than no picker. -->
+  <div class="who-row" x-show="policy === 'manual' && cast.length > 1" x-cloak>
+    <template x-for="m in cast.filter(c => !c.muted)" :key="m.character_id">
+      <button class="preset" :class="{ picked: nextSpeaker === m.character_id }"
+              @click="nextSpeaker = nextSpeaker === m.character_id ? '' : m.character_id"
+              x-text="m.name"></button>
     </template>
   </div>
   <input type="file" id="attach-input" multiple hidden
@@ -1435,6 +1449,67 @@
             <span x-text="t.label"></span>
           </label>
         </template>
+
+        <h3>Who is here</h3>
+        <p class="note">
+          Several characters can share one conversation. Muting keeps someone
+          in the scene but silent — the others still know they are standing
+          there.
+        </p>
+        <template x-for="m in cast" :key="m.character_id">
+          <div class="member" :class="{ quiet: m.muted }">
+            <div class="member-head">
+              <span class="char-pfp">
+                <svg class="char-pfp-generic" viewBox="0 0 24 24" aria-hidden="true">
+                  <use href="#i-person"/>
+                </svg>
+              </span>
+              <span class="char-name" x-text="m.name"></span>
+              <button class="p-switch" :class="{ on: !m.muted }" @click="toggleMuted(m)"
+                      :aria-pressed="!m.muted"
+                      :aria-label="`${m.muted ? 'Unmute' : 'Mute'} ${m.name}`"
+                      :title="m.muted ? 'Silent, but still in the scene' : 'Can speak'">
+                <span class="p-knob"></span>
+              </button>
+              <button class="glyph-btn danger" @click="dropMember(m)"
+                      x-show="cast.length > 1"
+                      :title="`Remove ${m.name} from this chat`"
+                      :aria-label="`Remove ${m.name}`">
+                <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-close"/></svg>
+              </button>
+            </div>
+            <!-- Only meaningful with someone to compete against, and only when
+                 the policy actually weighs anybody. -->
+            <div class="num-field" x-show="cast.length > 1 && policy === 'natural'">
+              <div class="num-head">
+                <span class="num-label">How readily they speak up</span>
+                <span class="num-unit" x-text="m.talkativeness.toFixed(1)"></span>
+              </div>
+              <input class="num-slider" type="range" min="0" max="2" step="0.1"
+                     :value="m.talkativeness"
+                     @input="setTalkativeness(m, $event.target.value)"
+                     :aria-label="`How readily ${m.name} speaks up`">
+            </div>
+          </div>
+        </template>
+
+        <label class="row"><span class="row-label">Add someone</span>
+          <select @change="addMember($event.target.value); $event.target.value = ''">
+            <option value="">Choose a character…</option>
+            <template x-for="c in charactersNotHere()" :key="c.id">
+              <option :value="c.id" x-text="c.name"></option>
+            </template>
+          </select>
+        </label>
+
+        <h3>Whose turn it is</h3>
+        <div class="preset-row">
+          <template x-for="p in policies" :key="p.id">
+            <button class="preset" :class="{ picked: policy === p.id }"
+                    @click="setPolicy(p.id)" x-text="p.label"></button>
+          </template>
+        </div>
+        <p class="kind-note" x-text="policyNote()"></p>
 
         <h3>Summary</h3>
         <p class="summary" x-text="summary.text || 'Nothing summarised yet'"></p>

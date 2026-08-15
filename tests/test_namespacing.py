@@ -246,3 +246,81 @@ def test_the_old_values_are_still_readable_through_the_normal_path(tmp_path):
     schema = state_mod.load_schema(None)
     assert assembly.current_values(db, chat_id, schema, character_id)["trust"] == 7
     db.close()
+
+
+# ------------------------------------------------- the migration runner
+
+
+def test_a_fresh_database_is_stamped_at_the_current_version(tmp_path):
+    """schema.sql is the complete create-from-nothing path, so nothing needs to
+    run and it is marked done."""
+    from app.db import SCHEMA_VERSION, Database
+
+    db = Database(tmp_path / "fresh.db")
+    stored = db.query_one("SELECT value FROM meta WHERE key='schema_version'")
+    assert int(stored["value"]) == SCHEMA_VERSION
+    db.close()
+
+
+def test_a_version_is_never_claimed_without_its_migration_running(tmp_path):
+    """The bug this replaced: the runner stamped SCHEMA_VERSION whether or not
+    the steps ran, so a version bump landing before its migration marked every
+    database as migrated — and the step then never ran again. The symptom was
+    `no such column: messages.speaker_id` on a database claiming to be current.
+    """
+    from app import db as db_mod
+
+    database = Database(tmp_path / "gappy.db")
+    database.write_sync(
+        lambda conn: conn.execute("UPDATE meta SET value='2' WHERE key='schema_version'")
+    )
+
+    # A version that exists as a constant but has no migration behind it.
+    original = dict(db_mod.MIGRATIONS)
+    try:
+        db_mod.MIGRATIONS.pop(max(original), None)
+        database.migrate()
+        stored = database.query_one("SELECT value FROM meta WHERE key='schema_version'")
+        assert int(stored["value"]) == max(db_mod.MIGRATIONS), (
+            "stamped at the last migration that actually ran, not at the constant"
+        )
+        assert int(stored["value"]) < db_mod.SCHEMA_VERSION
+    finally:
+        db_mod.MIGRATIONS.clear()
+        db_mod.MIGRATIONS.update(original)
+    database.close()
+
+
+def test_the_missing_migration_runs_once_it_is_added(tmp_path):
+    """The other half: a database left behind must catch up on the next launch
+    rather than staying stranded forever."""
+    from app import db as db_mod
+
+    database = Database(tmp_path / "catchup.db")
+    database.write_sync(
+        lambda conn: conn.execute("UPDATE meta SET value='7' WHERE key='schema_version'")
+    )
+    database.migrate()
+    stored = database.query_one("SELECT value FROM meta WHERE key='schema_version'")
+    assert int(stored["value"]) == db_mod.SCHEMA_VERSION
+    database.close()
+
+
+def test_the_group_migration_is_idempotent(tmp_path):
+    """Migration 9 replays 8 verbatim as a repair, so every statement in it has
+    to survive being run twice."""
+    from app import db as db_mod
+
+    database = Database(tmp_path / "twice.db")
+    for _ in range(2):
+        database.write_sync(
+            lambda conn: [
+                db_mod._run_migration_step(conn, step)
+                for step in db_mod.MIGRATION_8_REPEAT
+            ]
+        )
+    columns = [
+        r["name"] for r in database.query("SELECT name FROM pragma_table_info('messages')")
+    ]
+    assert columns.count("speaker_id") == 1
+    database.close()

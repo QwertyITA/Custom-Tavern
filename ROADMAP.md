@@ -78,7 +78,7 @@ Everything else leans on these.
 
 ## Phase 5 — the big one
 
-- [ ] **8. Group chats.** Several characters in one conversation. Needs state
+- [x] **8. Group chats.** Several characters in one conversation. Needs state
       namespacing per character first (§15). Talkativeness, muting, and a
       turn-order policy that is not just round-robin.
 

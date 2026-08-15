@@ -218,6 +218,10 @@ function tavern() {
     advancedFor: "",
     rulesOpen: false,
     staged: [],
+    cast: [],
+    policies: [],
+    policy: "natural",
+    nextSpeaker: "",
     chatQuery: "",
     chatHits: [],
     searching: false,
@@ -338,7 +342,12 @@ function tavern() {
       this.persona = data.persona || null;
       this.turn = this.messages.length ? this.messages[this.messages.length - 1].turn : 0;
       this.sceneBackgroundFile = "";
+      this.nextSpeaker = "";
       this.applyTheme();
+      // Not awaited: the transcript should be on screen before the room's
+      // membership is known, and a speaker label appearing a beat later is
+      // better than a blank chat while one request finishes.
+      this.loadCast();
 
       // Cleared before being refilled. Merging onto whatever the last chat
       // left behind meant a brand-new conversation opened showing the previous
@@ -977,6 +986,99 @@ function tavern() {
       this.composerMenu = false;
       if (action.soon) return this.flashHint(`${action.label} is not built yet`);
       if (action.run) action.run();
+    },
+
+    // ---- group chats (roadmap 8) ----
+
+    async loadCast() {
+      if (!this.chatId) return;
+      try {
+        const body = await api.get(`/api/chats/${this.chatId}/members`);
+        this.cast = body.members;
+        this.policies = body.policies;
+        this.policy = body.policy;
+        // A choice made for a room that has since changed is not a choice.
+        if (!this.cast.some((m) => m.character_id === this.nextSpeaker)) {
+          this.nextSpeaker = "";
+        }
+      } catch (e) {
+        this.error = String(e.message || e);
+      }
+    },
+
+    speakerName(message) {
+      const who = this.cast.find((m) => m.character_id === message.speaker_id);
+      return who ? who.name : "";
+    },
+
+    charactersNotHere() {
+      const here = new Set(this.cast.map((m) => m.character_id));
+      return this.characters.filter((c) => !here.has(c.id));
+    },
+
+    policyNote() {
+      return (this.policies.find((p) => p.id === this.policy) || {}).note || "";
+    },
+
+    async addMember(characterId) {
+      if (!characterId) return;
+      try {
+        const body = await api.post(`/api/chats/${this.chatId}/members`,
+                                    { character_id: characterId });
+        this.cast = body.members;
+        const added = this.cast.find((m) => m.character_id === characterId);
+        this.flashHint(added ? `${added.name} joined` : "Joined");
+      } catch (e) {
+        this.flashHint(String(e.message || e));
+      }
+    },
+
+    async dropMember(member) {
+      try {
+        const body = await api.del(`/api/chats/${this.chatId}/members/${member.character_id}`);
+        this.cast = body.members;
+        this.flashHint(`${member.name} left`);
+      } catch (e) {
+        // The server refuses to empty a chat, and its reason is the useful
+        // one to show — "someone has to be here, mute them instead".
+        this.flashHint(String(e.message || e));
+      }
+    },
+
+    async toggleMuted(member) {
+      member.muted = !member.muted;
+      if (member.muted && this.nextSpeaker === member.character_id) this.nextSpeaker = "";
+      await this.patchMember(member, { muted: member.muted });
+      this.flashHint(member.muted ? `${member.name} is silent` : `${member.name} can speak`);
+    },
+
+    setTalkativeness(member, raw) {
+      const value = parseFloat(raw);
+      if (Number.isNaN(value)) return;
+      member.talkativeness = value;
+      clearTimeout(this._memberTimer);
+      this._memberTimer = setTimeout(
+        () => this.patchMember(member, { talkativeness: value }), PREVIEW_DEBOUNCE_MS,
+      );
+    },
+
+    async patchMember(member, body) {
+      try {
+        await api.patch(`/api/chats/${this.chatId}/members/${member.character_id}`, body);
+      } catch (e) {
+        this.error = String(e.message || e);
+      }
+    },
+
+    async setPolicy(policy) {
+      const previous = this.policy;
+      this.policy = policy;
+      try {
+        await api.put(`/api/chats/${this.chatId}/policy`, { policy });
+      } catch (e) {
+        this.policy = previous;
+        this.flashHint(String(e.message || e));
+      }
     },
 
     // ---- attachments (§19) ----
@@ -1673,11 +1775,20 @@ function tavern() {
       if (this.staged.some((s) => s.uploading)) {
         return this.flashHint("Still uploading…");
       }
+      // The server would refuse this too, but after the message was stored —
+      // asking here keeps the turn from half-happening.
+      if (this.policy === "manual" && this.cast.length > 1 && !this.nextSpeaker) {
+        return this.flashHint("Pick who answers first");
+      }
       this.draft = "";
       this.staged = [];
       this.error = "";
       if (this.$refs.input) this.$refs.input.style.height = "auto";
-      await this.runStream(`/api/chats/${this.chatId}/send`, { text, attachments: files });
+      const speaker = this.nextSpeaker;
+      this.nextSpeaker = "";
+      await this.runStream(`/api/chats/${this.chatId}/send`, {
+        text, attachments: files, speaker_id: speaker,
+      });
     },
 
     async swipe(message) {
@@ -1833,6 +1944,11 @@ function tavern() {
           switch (event.type) {
             case "turn_start":
               this.turn = event.turn;
+              // Who is answering, so the typing cue carries their name rather
+              // than the chat's nominal character.
+              if (event.speaker && this.cast.length > 1) {
+                this.composingLabel = `${event.speaker.name} is typing…`;
+              }
               this.messages.push(event.message);
               // Fly it up from the composer rather than having it appear in
               // the column. Cleared once the keyframes are done so a later

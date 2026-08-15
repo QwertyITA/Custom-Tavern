@@ -151,6 +151,37 @@ the story survive the cut. Impersonate deliberately does not use the
 character's — that is your line, and a sequence that ends their replies has no
 business cutting off yours.
 
+### Group chats
+
+Several characters in one conversation. **☰ → story → Who is here** adds them,
+mutes them, and sets how readily each speaks up. A solo chat is a group of one,
+so nothing changes until you add somebody.
+
+**Whose turn it is** picks the policy:
+
+| Policy | What it does |
+| --- | --- |
+| **Whoever would answer** (default) | Name someone and they answer; otherwise weighted chance, with whoever just spoke pushed down |
+| **Take turns** | Strict order |
+| **You choose** | Pick before each message |
+
+The default is deliberately not take-turns. Round-robin is the arrangement
+where you say something to one person and the other one answers, forever — it
+is the single thing that makes a group chat read as a mechanism rather than as
+a room. The default costs nothing: naming someone is a substring search, and
+everything else is a weighted roll. Whoever just spoke is pushed down rather
+than blocked, because a room where a character can never follow their own line
+has its own tell.
+
+**Muting** keeps someone in the scene but silent. They still appear in every
+other character's prompt — someone standing there saying nothing is still in
+the room, and dropping them would have the others talk as if it were empty.
+The last member cannot be removed; mute is what that is for.
+
+Each character keeps their own trust, mood and expression, so two people in one
+room hold separate opinions of you. The scene — place, weather, time — is
+shared, because they are in the same room.
+
 ### Attachments
 
 The **+** by the composer → **Attach a file**. Images (png, jpg, webp, gif) or

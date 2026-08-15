@@ -116,11 +116,36 @@ class Database:
     # ------------------------------------------------------------- lifecycle
 
     def migrate(self) -> None:
-        """Apply schema.sql, then any versioned migrations (§17)."""
+        """Apply schema.sql, then any versioned migrations (§17).
+
+        A database is only ever stamped with a version whose migrations have
+        actually run against it. The obvious-looking `max(current,
+        SCHEMA_VERSION)` is a trap: bump the constant in one commit and add the
+        migration in the next, and every database in between is marked as
+        migrated without having been — after which the step never runs again
+        and the column is missing forever. That happened here, and the symptom
+        was `no such column: messages.speaker_id` on a database claiming to be
+        fully up to date.
+
+        A brand-new file is the one case where nothing needs to run: schema.sql
+        is the complete create-from-nothing path, so it is stamped at the
+        current version directly.
+        """
         schema = SCHEMA_PATH.read_text()
 
         def _apply(conn: sqlite3.Connection) -> None:
+            existing = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='meta'"
+            ).fetchone()
             conn.executescript(schema)
+            if not existing:
+                conn.execute(
+                    "INSERT INTO meta(key, value) VALUES('schema_version', ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (str(SCHEMA_VERSION),),
+                )
+                return
+
             row = conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
             current = int(row["value"]) if row else 0
             for version, steps in sorted(MIGRATIONS.items()):
@@ -128,11 +153,13 @@ class Database:
                     for step in steps:
                         _run_migration_step(conn, step)
                     current = version
-            conn.execute(
-                "INSERT INTO meta(key, value) VALUES('schema_version', ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                (str(max(current, SCHEMA_VERSION)),),
-            )
+                    # Stamped per migration, not once at the end: if a later
+                    # one fails, the work already committed is not re-run.
+                    conn.execute(
+                        "INSERT INTO meta(key, value) VALUES('schema_version', ?) "
+                        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                        (str(current),),
+                    )
 
         self.write_sync(_apply)
 
@@ -145,7 +172,7 @@ class Database:
             self._writer_thread.join(timeout=5)
 
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 def _run_migration_step(conn: sqlite3.Connection, step: str) -> None:
     """Apply one migration statement, tolerating one that has already landed.
@@ -162,6 +189,22 @@ def _run_migration_step(conn: sqlite3.Connection, step: str) -> None:
         if "duplicate column name" not in str(exc).lower():
             raise
 
+
+# Group-chat setup, named because migration 9 replays it verbatim as a repair.
+MIGRATION_8_REPEAT = [
+    "ALTER TABLE messages ADD COLUMN speaker_id TEXT NOT NULL DEFAULT ''",
+    "CREATE TABLE IF NOT EXISTS chat_members ("
+    "  chat_id TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,"
+    "  character_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,"
+    "  muted INTEGER NOT NULL DEFAULT 0, talkativeness REAL NOT NULL DEFAULT 1.0,"
+    "  joined_at REAL NOT NULL, PRIMARY KEY (chat_id, character_id))",
+    "INSERT OR IGNORE INTO chat_members(chat_id, character_id, muted, "
+    "  talkativeness, joined_at) "
+    "  SELECT id, character_id, 0, 1.0, created_at FROM chats",
+    "UPDATE messages SET speaker_id = ("
+    "  SELECT c.character_id FROM chats c WHERE c.id = messages.chat_id)"
+    " WHERE role = 'assistant' AND speaker_id = ''",
+]
 
 # version -> list of statements applied when upgrading past it. schema.sql is
 # always CREATE-IF-NOT-EXISTS, so these only carry ALTERs for existing installs.
@@ -213,6 +256,20 @@ MIGRATIONS: dict[int, list[str]] = {
         " WHERE slice_name IN ('state.vars', 'state.expression', 'state.signals')"
         "   AND EXISTS (SELECT 1 FROM chats c WHERE c.id = state_writes.chat_id)",
     ],
+    # Group chats (roadmap 8). Every existing chat becomes a group of one, and
+    # every existing reply is attributed to that chat's character — so a chat
+    # that predates this reads back exactly as it did, with a speaker.
+    #
+    # Every statement here is idempotent: the ALTER's duplicate is swallowed,
+    # the INSERT is OR IGNORE, and the UPDATE is guarded on the empty value.
+    # That is deliberate, and migration 9 relies on it.
+    8: MIGRATION_8_REPEAT,
+    # Repair, for databases the old runner stranded. It stamped SCHEMA_VERSION
+    # whether or not the migrations had run, so a version bump that landed
+    # without its migration marked databases as done without touching them —
+    # and the step then never ran again. Redoing 8 is free where it worked and
+    # is the fix where it did not, because every statement in it is idempotent.
+    9: MIGRATION_8_REPEAT,
 }
 
 
