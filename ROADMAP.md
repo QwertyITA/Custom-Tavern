@@ -114,6 +114,27 @@ Everything else leans on these.
 - [x] **9. Sixteen colour pickers, no contrast check.** Added one — which
       found the shipped default palette failing it in two places.
 
+## Animation pass — needs a call
+
+Researched and listed in [ANIMATIONS.md](ANIMATIONS.md); none of it built. The
+first is a bug rather than a suggestion.
+
+- [ ] **A. Reduced motion has gone stale.** The block is an allowlist of 11
+      selectors against 33 animations and 43 transitions, so most of the app
+      ignores the setting. Invert it to a wildcard with exceptions.
+- [ ] **B. Duration tokens.** Three easing tokens and none for duration; ~24
+      durations in CSS and 11 more hand-synced in JS.
+- [ ] **C. Springs via `linear()`.** A bezier cannot express a settle with
+      more than one bounce. Baseline since 2023, no build step.
+- [ ] **D. Streaming text has no motion at all.** Most-watched surface in the
+      app, least animated.
+- [ ] **E. Shimmer on the composing label,** so the pass names read as working
+      rather than stuck.
+- [ ] **F. Switching chats cuts,** with no skeleton and no crossfade.
+- [ ] **G. Pull-to-impersonate ignores velocity.** A flick should commit.
+- [ ] **H. View Transitions / `@starting-style`.** Would replace the hand-rolled
+      FLIP in four places and the keep-it-mounted-until-it-finishes dance.
+
 ## Not wanted
 
 Recorded so they are not proposed again: checkpoints/branches (9), vector
