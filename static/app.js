@@ -1442,6 +1442,19 @@ function tavern() {
       }
     },
 
+    // Hidden messages stay on screen and leave the prompt. Not a `stage`: the
+    // eviction ladder owns that and would promote it back.
+    async toggleHidden(message) {
+      const next = !message.hidden;
+      try {
+        await api.post(`/api/messages/${message.id}/hidden`, { hidden: next });
+        message.hidden = next;
+        this.flashHint(next ? "Hidden from the prompt" : "Back in the prompt");
+      } catch (e) {
+        this.error = String(e.message || e);
+      }
+    },
+
     lastReply() {
       return [...this.messages].reverse()
         .find((m) => m.role === "assistant" && m.id !== "streaming");
@@ -1561,8 +1574,14 @@ function tavern() {
     // deliberately absent: the arrows and the swipe already cover it.
     wheelOptions(message) {
       const isReply = message && message.role === "assistant";
+      const hidden = !!(message && message.hidden);
       return [
         { id: "edit", label: "Edit", icon: "#i-edit" },
+        {
+          id: "hide",
+          label: hidden ? "Unhide" : "Hide",
+          icon: hidden ? "#i-eye" : "#i-eye-off",
+        },
         ...(isReply ? [{ id: "continue", label: "Continue", icon: "#i-continue" }] : []),
         { id: "copy", label: "Copy", icon: "#i-copy" },
         { id: "delete", label: "Delete", icon: "#i-delete", danger: true },
@@ -1664,6 +1683,7 @@ function tavern() {
       if (option.id === "edit") return this.startEdit(message, this.bubbleFor(message.id));
       if (option.id === "copy") return this.copyMessage(message);
       if (option.id === "continue") return this.continueReply(message);
+      if (option.id === "hide") return this.toggleHidden(message);
       if (option.id === "delete") {
         // Arm the bubble's own delete rather than deleting outright. A drag
         // that lands one option over should not be able to destroy a message.

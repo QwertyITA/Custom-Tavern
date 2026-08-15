@@ -159,6 +159,7 @@ def build_reply_context(
         m
         for m in repo.list_messages(db, chat["id"], include_dropped=False)
         if m["id"] != exclude_message_id
+        and not m["hidden"]        # on screen, deliberately out of the prompt
         and (upto_turn is None or m["turn"] <= upto_turn)
     ]
     verbatim = [m for m in history if m["stage"] == "verbatim"]

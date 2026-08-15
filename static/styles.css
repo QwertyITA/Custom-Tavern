@@ -1297,3 +1297,22 @@ body {
   0%, 100% { transform: scale(1); opacity: 1; }
   50% { transform: scale(.86); opacity: .75; }
 }
+
+/* A hidden message is still there to read, but the model cannot see it — so it
+   is dimmed and marked rather than removed. Dashed, because a solid border
+   would read as emphasis rather than as absence. */
+.bubble.hidden {
+  opacity: .55;
+  border-style: dashed;
+}
+.hidden-mark {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  color: var(--muted);
+  animation: hidden-in 240ms var(--ease-back) both;
+}
+@keyframes hidden-in {
+  from { transform: scale(.4) rotate(-12deg); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}

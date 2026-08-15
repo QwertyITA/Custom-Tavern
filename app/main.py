@@ -484,6 +484,22 @@ async def impersonate(chat_id: str):
     return await _stream(scheduler().run_impersonate(chat_id))
 
 
+@app.post("/api/messages/{message_id}/hidden")
+async def set_hidden(message_id: str, payload: dict = Body(...)) -> dict:
+    """Keep a message on screen but out of the prompt.
+
+    Useful for an out-of-character aside, or a reply that went somewhere the
+    story should not remember — deleting it would lose it, and editing it to
+    nothing is not the same as it never having been said.
+    """
+    db = get_db()
+    if repo.get_message(db, message_id) is None:
+        raise HTTPException(404, "message not found")
+    hidden = bool(payload.get("hidden", True))
+    repo.set_message_hidden(db, message_id, hidden)
+    return {"ok": True, "hidden": hidden}
+
+
 @app.post("/api/messages/{message_id}/continue")
 async def continue_reply(message_id: str):
     """Extend a reply in place rather than branching from it."""

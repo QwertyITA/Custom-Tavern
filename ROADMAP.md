@@ -44,7 +44,7 @@ Everything else leans on these.
 
 - [x] **5. Stop generation.** Abort mid-stream, keep what arrived.
 - [x] **6. Continue.** Extend the last reply instead of re-rolling it.
-- [ ] **7. Hide from prompt.** A message stays on screen but leaves the
+- [x] **7. Hide from prompt.** A message stays on screen but leaves the
       context. Visibly marked.
 - [ ] **4. Author's Note.** Free text injected at a chosen depth from the end.
       Per chat and per character, with depth and frequency.

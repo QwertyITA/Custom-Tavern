@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS messages (
     active_variant TEXT,                        -- -> message_variants.id
     edited         INTEGER NOT NULL DEFAULT 0,
     stage          TEXT NOT NULL DEFAULT 'verbatim',  -- verbatim | summarized | dropped (§7.2)
+    hidden         INTEGER NOT NULL DEFAULT 0,        -- on screen, out of the prompt
     created_at     REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id, turn);

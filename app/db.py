@@ -145,7 +145,7 @@ class Database:
             self._writer_thread.join(timeout=5)
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 def _run_migration_step(conn: sqlite3.Connection, step: str) -> None:
     """Apply one migration statement, tolerating one that has already landed.
@@ -173,6 +173,10 @@ MIGRATIONS: dict[int, list[str]] = {
         "ALTER TABLE chats ADD COLUMN persona_id TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE characters ADD COLUMN persona_id TEXT NOT NULL DEFAULT ''",
     ],
+    # Hiding is its own flag rather than a `stage`: the eviction ladder owns
+    # stage and moves messages through it, so a hidden message expressed that
+    # way would be promoted back into the prompt the next time it ran.
+    3: ["ALTER TABLE messages ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0"],
 }
 
 

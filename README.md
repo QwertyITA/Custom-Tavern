@@ -133,6 +133,19 @@ Editing only rewrites the text fields; portraits, backgrounds, lorebook and
 state schema come from the card and are left alone. Deleting a character
 deletes its chats with it, which is why both deletes take two taps.
 
+### Hiding a message
+
+**Hide**, in a message's hold-wheel, keeps it on screen and takes it out of the
+prompt. It is what an out-of-character aside wants, or a reply that went
+somewhere the story should not remember — deleting would lose it, and editing
+it to nothing is not the same as it never having been said. A hidden message is
+dimmed, dashed and marked with a struck-through eye, so which ones the model
+can no longer see is never a guess. Reversible from the same place.
+
+It is a flag of its own rather than a message *stage*: the eviction ladder owns
+stage and moves messages through it, so a hidden message expressed that way
+would be quietly promoted back into the prompt.
+
 ### Continuing a reply
 
 A reply that stopped early — because you stopped it, or because the model hit

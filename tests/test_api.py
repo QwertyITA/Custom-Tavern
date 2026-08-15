@@ -1145,3 +1145,83 @@ def test_only_a_reply_can_be_continued(client):
     with client.stream("POST", f"/api/messages/{user_message['id']}/continue") as response:
         events = sse_events(response)
     assert any(e["type"] == "error" for e in events)
+
+
+# ------------------------------------------------------- hiding a message
+
+
+def test_a_hidden_message_leaves_the_prompt_but_not_the_screen(client):
+    from app.assembly import build_reply_context
+    from app.config import SETTINGS
+    from app.db import get_db
+    from app import repo
+
+    chat_id = new_chat(client)
+    send(client, chat_id, "Out of character: make her colder.")
+    aside = next(
+        m for m in client.get(f"/api/chats/{chat_id}/messages").json()
+        if m["role"] == "user" and "Out of character" in m["text"]
+    )
+
+    db = get_db()
+    chat = repo.get_chat(db, chat_id)
+    character = repo.get_character(db, chat["character_id"])
+    # The echo backend quotes the user back, so the phrase also appears in the
+    # assistant's reply. Only the user's own turn is what hiding removes.
+    def user_turns(assembled):
+        return [m["content"] for m in assembled.messages if m["role"] == "user"]
+
+    before = build_reply_context(db, chat, character, SETTINGS)
+    assert any("Out of character" in text for text in user_turns(before))
+
+    assert client.post(f"/api/messages/{aside['id']}/hidden", json={"hidden": True}).status_code == 200
+
+    after = build_reply_context(db, chat, character, SETTINGS)
+    assert not any("Out of character" in text for text in user_turns(after))
+    assert len(after.messages) < len(before.messages)
+
+    # Still listed, and still readable, with the flag set.
+    listed = client.get(f"/api/chats/{chat_id}/messages").json()
+    still = next(m for m in listed if m["id"] == aside["id"])
+    assert still["hidden"] == 1
+    assert "Out of character" in still["text"]
+
+
+def test_hiding_is_reversible(client):
+    from app.assembly import build_reply_context
+    from app.config import SETTINGS
+    from app.db import get_db
+    from app import repo
+
+    chat_id = new_chat(client)
+    send(client, chat_id, "A line worth keeping.")
+    message = next(
+        m for m in client.get(f"/api/chats/{chat_id}/messages").json() if m["role"] == "user"
+    )
+    client.post(f"/api/messages/{message['id']}/hidden", json={"hidden": True})
+    client.post(f"/api/messages/{message['id']}/hidden", json={"hidden": False})
+
+    db = get_db()
+    chat = repo.get_chat(db, chat_id)
+    assembled = build_reply_context(
+        db, chat, repo.get_character(db, chat["character_id"]), SETTINGS
+    )
+    assert any("A line worth keeping." in m["content"] for m in assembled.messages)
+
+
+def test_hiding_an_unknown_message_is_a_404(client):
+    assert client.post("/api/messages/nope/hidden", json={"hidden": True}).status_code == 404
+
+
+def test_a_hidden_message_does_not_survive_as_a_stage(client):
+    """Hiding must not collide with the eviction ladder's own bookkeeping."""
+    chat_id = new_chat(client)
+    send(client, chat_id, "Something.")
+    message = next(
+        m for m in client.get(f"/api/chats/{chat_id}/messages").json() if m["role"] == "user"
+    )
+    client.post(f"/api/messages/{message['id']}/hidden", json={"hidden": True})
+    after = next(
+        m for m in client.get(f"/api/chats/{chat_id}/messages").json() if m["id"] == message["id"]
+    )
+    assert after["stage"] == "verbatim", "hiding is a flag, not a stage"

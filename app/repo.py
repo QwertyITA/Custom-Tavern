@@ -369,6 +369,15 @@ def update_variant_text(db: Database, variant_id: str, text: str, *, edited: boo
     db.write_sync(_update)
 
 
+def set_message_hidden(db: Database, message_id: str, hidden: bool) -> None:
+    """Keep it on screen, take it out of the prompt."""
+    db.write_sync(
+        lambda conn: conn.execute(
+            "UPDATE messages SET hidden=? WHERE id=?", (int(hidden), message_id)
+        )
+    )
+
+
 def get_message(db: Database, message_id: str) -> dict | None:
     row = db.query_one(
         "SELECT m.*, v.text AS text, v.idx AS variant_index "
@@ -402,7 +411,7 @@ def list_variants(db: Database, message_id: str) -> list[dict]:
 
 def list_messages(db: Database, chat_id: str, include_dropped: bool = True) -> list[dict]:
     sql = (
-        "SELECT m.id, m.turn, m.role, m.edited, m.stage, m.created_at, m.active_variant, "
+        "SELECT m.id, m.turn, m.role, m.edited, m.stage, m.hidden, m.created_at, m.active_variant, "
         "v.text AS text, v.idx AS variant_index, "
         "(SELECT COUNT(*) FROM message_variants mv WHERE mv.message_id = m.id) AS variant_count "
         "FROM messages m LEFT JOIN message_variants v ON v.id = m.active_variant "
