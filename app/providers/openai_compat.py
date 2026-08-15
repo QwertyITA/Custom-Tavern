@@ -18,6 +18,7 @@ from .base import GenRequest, GenResult, Provider, ProviderError, _copy_into, es
 class OpenAICompatProvider(Provider):
     kind = "openai"
     native_chat = True
+    sees_images = True
 
     def __init__(self, config) -> None:
         super().__init__(config)
@@ -39,6 +40,21 @@ class OpenAICompatProvider(Provider):
         if request.system:
             messages.append({"role": "system", "content": request.system})
         messages.extend(request.messages)
+        if request.images:
+            # The newest user turn's content becomes a list of parts. A data:
+            # URL rather than a hosted one — there is no server to host from,
+            # and the phone is not reachable from an API's network anyway.
+            for message in reversed(messages):
+                if message["role"] == "user":
+                    message["content"] = [
+                        {"type": "text", "text": message["content"]},
+                        *(
+                            {"type": "image_url",
+                             "image_url": {"url": f"data:image/png;base64,{data}"}}
+                            for data in request.images
+                        ),
+                    ]
+                    break
         if request.prefill:
             messages.append({"role": "assistant", "content": request.prefill})
         sampling = request.sampling

@@ -1698,3 +1698,91 @@ input.mono {
   from { transform: scale(.6); }
   to   { transform: scale(1); }
 }
+
+/* ---- attachments (§19) ---------------------------------------------------
+   Staged chips sit above the composer row rather than inside it: a filename is
+   wider than a phone's text box, and pushing that box sideways to fit one is
+   worse than giving the chips a line of their own. */
+.staged {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 6px 8px;
+  width: 100%;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 6px 4px 5px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 12px;
+  /* Arriving chips grow into place; --ease-back gives the small overshoot that
+     reads as the file landing rather than appearing. */
+  animation: chip-in 300ms var(--ease-back) both;
+}
+@keyframes chip-in {
+  from { transform: scale(.7); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
+.chip .icon { width: 14px; height: 14px; flex: none; color: var(--muted); }
+.chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 12em;
+}
+.chip-size { color: var(--muted); font-size: 11px; flex: none; }
+.chip-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: none;
+}
+.chip-x {
+  display: flex;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  transition: color 180ms var(--ease-out);
+}
+.chip-x:hover, .chip-x:focus-visible { color: var(--error); }
+
+/* Still uploading: a slow pulse, and the only place a linear timing function
+   is right, because it repeats and any easing would make it lurch once a
+   cycle. */
+.chip.working { animation: chip-in 300ms var(--ease-back) both, chip-wait 1.1s linear 300ms infinite; }
+@keyframes chip-wait {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: .5; }
+}
+
+/* In a bubble. An image gets its own block; a text file stays a chip, since
+   its contents went into the prompt and repeating them here would bury the
+   message they were attached to. */
+.attached {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.attached .chip.pic {
+  padding: 0;
+  border: 0;
+  background: none;
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.chip-image {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+  border-radius: var(--radius);
+  object-fit: contain;
+}
+.chip-row { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }

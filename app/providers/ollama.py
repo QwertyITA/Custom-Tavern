@@ -35,6 +35,9 @@ def _options(sampling: Sampling, stop: list[str], kind: str = "ollama") -> dict:
 class OllamaProvider(Provider):
     kind = "ollama"
     native_chat = True
+    # Ollama takes `images` on a chat message; whether the loaded model can
+    # actually see them is the model's business, but the wire format is there.
+    sees_images = True
 
     def __init__(self, config) -> None:
         super().__init__(config)
@@ -56,6 +59,13 @@ class OllamaProvider(Provider):
             if request.system:
                 messages.append({"role": "system", "content": request.system})
             messages.extend(request.messages)
+            if request.images:
+                # On the newest user turn, which is the one they were attached
+                # to. Ollama wants bare base64 with no data: prefix.
+                for message in reversed(messages):
+                    if message["role"] == "user":
+                        message["images"] = list(request.images)
+                        break
             if request.prefill:
                 messages.append({"role": "assistant", "content": request.prefill})
             payload = {
@@ -184,6 +194,9 @@ class LlamaCppProvider(OllamaProvider):
 
     kind = "llamacpp"
     native_chat = False
+    # The /completion endpoint this drives takes a prompt string and nothing
+    # else, so there is nowhere to put an image.
+    sees_images = False
 
     def client(self) -> httpx.AsyncClient:
         if self._client is None:

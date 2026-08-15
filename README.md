@@ -151,6 +151,34 @@ the story survive the cut. Impersonate deliberately does not use the
 character's — that is your line, and a sequence that ends their replies has no
 business cutting off yours.
 
+### Attachments
+
+The **+** by the composer → **Attach a file**. Images (png, jpg, webp, gif) or
+text (txt, md, json, csv, log, yaml). Chips appear above the text box; tap the ×
+to drop one. A message with a picture and no words is a real message.
+
+The two kinds behave differently on purpose:
+
+**Text files** are read once, at upload, and their text travels into the prompt
+with the message — like anything else you said. The file itself is not kept,
+because the text *is* the file. Up to 8,000 characters of it are used; a
+dropped-in document can be enormous, and spending the whole context on it
+silently would be worse than using part of it.
+
+**Images** are stored and shown in the bubble. They reach the model only where
+the backend can actually see one — Ollama and OpenAI-compatible backends take
+them; llama.cpp's `/completion` endpoint and Horde have nowhere to put one. On a
+backend that cannot see it, the message still says a picture is attached and
+names it, because a reply that ignores a picture you clearly meant something by
+is worse than one that says it cannot see it.
+
+Only the newest turn's images are sent. Re-sending every image in the window on
+every turn would be the single most expensive thing this app does.
+
+Limits are 8MB an image and 512KB a text file. Files picked but never sent are
+swept after an hour, and deleting a message or a chat removes its images from
+disk — the database cascade drops the rows but not the files.
+
 ### Favourites
 
 The star on a character row. Starred characters sort to the top; everything

@@ -17,7 +17,8 @@ from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import assembly, cards, chat_files, config, macros, memory as memory_store
+from . import assembly, attachments, cards, chat_files, config, macros
+from . import memory as memory_store
 from . import prompt_layout
 from . import providers, regex_rules, repo, state as state_mod
 from .config import DATA_DIR, SETTINGS, STATIC_DIR, reload_settings
@@ -561,7 +562,10 @@ async def get_chat(chat_id: str) -> dict:
     return {
         "chat": chat,
         "character": json.loads(character.model_dump_json()) if character else None,
-        "messages": repo.list_messages(db, chat_id, include_dropped=False),
+        # The same shape /messages hands out. This is the route the app loads a
+        # chat through, so anything missing here is missing until a reload that
+        # happens to hit the other one — which is to say, never.
+        "messages": await list_messages(chat_id),
         "state": {
             "values": values,
             "bands": [
@@ -579,7 +583,11 @@ async def get_chat(chat_id: str) -> dict:
 
 @app.delete("/api/chats/{chat_id}")
 async def delete_chat(chat_id: str) -> dict:
-    repo.delete_chat(get_db(), chat_id)
+    db = get_db()
+    repo.delete_chat(db, chat_id)
+    # The cascade removed the attachment rows but not the image files, which
+    # would otherwise sit on the phone forever with nothing pointing at them.
+    attachments.delete_orphans(db)
     return {"ok": True}
 
 
@@ -611,8 +619,13 @@ async def export_chat(chat_id: str, download: bool = False) -> JSONResponse:
 
 @app.get("/api/chats/{chat_id}/messages")
 async def list_messages(chat_id: str, include_dropped: bool = False) -> list[dict]:
-    messages = repo.list_messages(get_db(), chat_id, include_dropped=include_dropped)
-    return [_with_display(m) for m in messages]
+    db = get_db()
+    messages = repo.list_messages(db, chat_id, include_dropped=include_dropped)
+    attached = attachments.for_chat(db, chat_id)
+    return [
+        {**_with_display(m), "attachments": attached.get(m["id"], [])}
+        for m in messages
+    ]
 
 
 def _with_display(message: dict, role: str = "") -> dict:
@@ -644,9 +657,13 @@ async def chat_state(chat_id: str) -> dict:
 async def send_message(chat_id: str, payload: SendMessageRequest):
     if repo.get_chat(get_db(), chat_id) is None:
         raise HTTPException(404, "chat not found")
-    if not payload.text.strip():
+    # A message that is only an attachment is a real thing to send — "look at
+    # this" with a picture and no words. Only a message with neither is empty.
+    if not payload.text.strip() and not payload.attachments:
         raise HTTPException(400, "empty message")
-    return await _stream(scheduler().run_turn(chat_id, payload.text.strip()))
+    return await _stream(
+        scheduler().run_turn(chat_id, payload.text.strip(), payload.attachments)
+    )
 
 
 PING_SECONDS = 20
@@ -687,6 +704,41 @@ async def chat_events(chat_id: str, request: Request):
 async def impersonate(chat_id: str):
     """Draft the user's next message. Streams like a turn, but writes nothing."""
     return await _stream(scheduler().run_impersonate(chat_id))
+
+
+@app.post("/api/attachments")
+async def upload_attachment(request: Request, filename: str = Query("file")) -> dict:
+    """Stage a file for the next message (§19).
+
+    Raw body, like the card import — multipart would mean a form parser
+    dependency, and this has to install on a phone. The attachment has no
+    message yet; sending claims it.
+    """
+    db = get_db()
+    attachments.clear_stale_staged(db)
+    data = await request.body()
+    try:
+        return attachments.store(db, None, data, filename)
+    except attachments.AttachmentError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.get("/api/attachments/{attachment_id}/file")
+async def attachment_file(attachment_id: str) -> FileResponse:
+    db = get_db()
+    path = attachments.path_for(db, attachment_id)
+    if path is None:
+        raise HTTPException(404, "no such image")
+    row = attachments.get(db, attachment_id) or {}
+    return FileResponse(path, media_type=row.get("mime") or "application/octet-stream")
+
+
+@app.delete("/api/attachments/{attachment_id}")
+async def remove_attachment(attachment_id: str) -> dict:
+    db = get_db()
+    if not attachments.delete(db, attachment_id):
+        raise HTTPException(404, "no such attachment")
+    return {"ok": True}
 
 
 @app.get("/api/messages/{message_id}/prompt")
@@ -777,7 +829,9 @@ async def edit_message(message_id: str, payload: EditMessageRequest) -> dict:
 
 @app.delete("/api/messages/{message_id}")
 async def delete_message(message_id: str) -> dict:
-    repo.delete_message(get_db(), message_id)
+    db = get_db()
+    repo.delete_message(db, message_id)
+    attachments.delete_orphans(db)
     return {"ok": True}
 
 

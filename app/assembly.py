@@ -25,6 +25,7 @@ from .db import Database
 from .lorebook import render as render_lore
 from .lorebook import scan as scan_lore
 from .markup import to_plain
+from . import attachments
 from . import macros
 from . import prompt_layout
 from .models import AuthorsNote, Character, VariableSchema
@@ -48,6 +49,9 @@ class Assembled:
     lore_hits: list[str] = field(default_factory=list)
     memories: list[dict] = field(default_factory=list)
     trimmed: int = 0  # messages cut by the token budget this turn
+    # Base64 images from the newest turn's attachments (§19). Filled only when
+    # the backend that will receive this can actually see them.
+    images: list[str] = field(default_factory=list)
     # Every built section in prompt order, with the text it contributed (§15).
     # `sections` above is the same information collapsed to a total per kind,
     # which is what the live HUD wants; this is what "show me what was sent"
@@ -141,6 +145,7 @@ def build_reply_context(
     toggle_injections: list[str] | None = None,
     upto_turn: int | None = None,
     exclude_message_id: str | None = None,
+    sees_images: bool = False,
 ) -> Assembled:
     """Assemble the pass-1 context for one turn."""
     assembled = Assembled()
@@ -284,10 +289,32 @@ def build_reply_context(
             {"role": "system", "content": "\n\n".join(before_conversation)}
         )
 
+    # Attachments ride with the message they were attached to (§19). Text is
+    # quoted into the turn; images are named here and sent alongside only when
+    # the backend can see them.
+    attached = attachments.for_chat(db, chat["id"])
     turn_messages: list[Message] = []
     for message in window:
         role = message["role"] if message["role"] in ("user", "assistant") else "system"
-        turn_messages.append({"role": role, "content": message["text"]})
+        content = message["text"]
+        items = attached.get(message["id"]) or []
+        if items:
+            extra = attachments.prompt_suffix(items, sees_images)
+            content = f"{content}\n\n{extra}" if content else extra
+            _section(assembled, "attachments", extra)
+        turn_messages.append({"role": role, "content": content})
+
+    if sees_images:
+        # The newest message that actually carries images, not simply the last
+        # one in the window — the last is usually the reply, and the picture
+        # was attached to the turn before it. Only that one message's images:
+        # re-sending every image in the window on every turn would be the
+        # single most expensive thing this app does.
+        newest = next(
+            (m for m in reversed(window) if attached.get(m["id"])), None
+        )
+        if newest is not None:
+            assembled.images = attachments.images_for(db, attached[newest["id"]])
     _section(assembled, "verbatim", "".join(m["text"] for m in window))
 
     # The author's note goes *inside* the recent history, `depth` messages from

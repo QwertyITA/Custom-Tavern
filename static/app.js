@@ -217,6 +217,7 @@ function tavern() {
     samplerBook: {},
     advancedFor: "",
     rulesOpen: false,
+    staged: [],
     chatQuery: "",
     chatHits: [],
     searching: false,
@@ -965,8 +966,9 @@ function tavern() {
           run: () => this.newChat(this.characterId),
         },
         {
-          id: "attach", label: "Send attachment", icon: "#i-attach",
-          note: "Not built yet", soon: true,
+          id: "attach", label: "Attach a file", icon: "#i-attach",
+          note: "An image, or a text file to read",
+          run: () => this.pickAttachment(),
         },
       ];
     },
@@ -975,6 +977,76 @@ function tavern() {
       this.composerMenu = false;
       if (action.soon) return this.flashHint(`${action.label} is not built yet`);
       if (action.run) action.run();
+    },
+
+    // ---- attachments (§19) ----
+
+    pickAttachment() {
+      // The hidden input lives in the composer; clicking it is the only way to
+      // open a file picker from script.
+      const input = document.querySelector("#attach-input");
+      if (input) input.click();
+    },
+
+    async attachFiles(event) {
+      const files = [...(event.target.files || [])];
+      event.target.value = "";
+      for (const file of files) {
+        // One at a time: the failure of a second file should not discard the
+        // first, and the chips are meant to appear as they land.
+        await this.stageOne(file);
+      }
+    },
+
+    async stageOne(file) {
+      const pending = {
+        id: `pending-${Math.random().toString(36).slice(2, 9)}`,
+        name: file.name, kind: file.type.startsWith("image/") ? "image" : "text",
+        uploading: true,
+      };
+      this.staged.push(pending);
+      try {
+        const response = await fetch(
+          `/api/attachments?filename=${encodeURIComponent(file.name)}`,
+          { method: "POST", body: file },
+        );
+        if (!response.ok) throw await apiError(response);
+        const stored = await response.json();
+        // Replace in place so the chip does not jump.
+        this.staged.splice(this.staged.indexOf(pending), 1, stored);
+      } catch (e) {
+        this.staged.splice(this.staged.indexOf(pending), 1);
+        this.flashHint(String(e.message || e));
+      }
+    },
+
+    async unstage(item) {
+      this.staged.splice(this.staged.indexOf(item), 1);
+      // Not just dropped from the list: the file is already on disk, and a
+      // chip removed without this would leave it there until the hour is up.
+      if (!item.uploading) {
+        try {
+          await fetch(`/api/attachments/${item.id}`, { method: "DELETE" });
+        } catch { /* the sweeper will get it */ }
+      }
+    },
+
+    stagedIds() {
+      return this.staged.filter((s) => !s.uploading).map((s) => s.id);
+    },
+
+    attachmentUrl(item) {
+      return `/api/attachments/${item.id}/file`;
+    },
+
+    sizeLabel(bytes) {
+      if (!bytes) return "";
+      // Bytes below a kilobyte, because rounding a small file to "0 KB" reads
+      // as the upload having failed.
+      if (bytes < 1024) return `${bytes} B`;
+      return bytes < 1024 * 1024
+        ? `${Math.round(bytes / 1024)} KB`
+        : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
     },
 
     // ---- impersonate ----
@@ -1592,11 +1664,20 @@ function tavern() {
 
     async send() {
       const text = this.draft.trim();
-      if (!text || this.streaming) return;
+      const files = this.stagedIds();
+      // "Look at this" with a picture and no words is a real message; only one
+      // with neither is empty.
+      if ((!text && !files.length) || this.streaming) return;
+      // A file still uploading is not ready to be claimed, and sending without
+      // it would silently drop the thing they were waiting for.
+      if (this.staged.some((s) => s.uploading)) {
+        return this.flashHint("Still uploading…");
+      }
       this.draft = "";
+      this.staged = [];
       this.error = "";
       if (this.$refs.input) this.$refs.input.style.height = "auto";
-      await this.runStream(`/api/chats/${this.chatId}/send`, { text });
+      await this.runStream(`/api/chats/${this.chatId}/send`, { text, attachments: files });
     },
 
     async swipe(message) {

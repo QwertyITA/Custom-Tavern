@@ -36,6 +36,9 @@ class GenRequest:
     sampling: Sampling = field(default_factory=Sampling)
     prefill: str = ""
     stream: bool = False
+    # Base64 images to attach to the newest user turn (§19). Only ever filled
+    # when the chosen provider declares it can see them.
+    images: list[str] = field(default_factory=list)
     # Whether the caller wants JSON rather than prose. Backends that can
     # constrain output (Ollama's format, OpenAI's response_format) use it;
     # the rest ignore it. Declared by the pass, never guessed from the prompt.
@@ -78,6 +81,11 @@ class Provider:
     # True when the backend speaks a native chat-message API and needs no
     # instruct template applied by us.
     native_chat = False
+    # True when the backend can be sent an image and actually look at it (§19).
+    # Declared rather than attempted: a backend that cannot see one usually
+    # accepts the field and ignores it, so "send it and see" produces a reply
+    # that reads as if nothing was attached.
+    sees_images = False
 
     def __init__(self, config: BackendConfig) -> None:
         self.config = config

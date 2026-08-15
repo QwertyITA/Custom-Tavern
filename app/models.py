@@ -225,6 +225,8 @@ class CreateChatRequest(BaseModel):
 
 class SendMessageRequest(BaseModel):
     text: str
+    # Staged attachments to bind to this turn's message (§19).
+    attachments: list[str] = Field(default_factory=list)
 
 
 class EditMessageRequest(BaseModel):

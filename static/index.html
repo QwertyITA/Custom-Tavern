@@ -12,7 +12,14 @@
 <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
 <link rel="stylesheet" href="/static/styles.css">
 </head>
-<body x-data="tavern()" x-init="boot()" @keydown.escape="panelOpen ? closePanel() : (menu && (menu = false))">
+<!-- Escape closes whatever is on top, innermost first. The composer menu and
+     the action wheel were reachable by Escape only by accident of nothing else
+     being open; now they are dismissed in the order they are stacked. -->
+<body x-data="tavern()" x-init="boot()"
+      @keydown.escape="wheel ? closeWheel() :
+                       composerMenu ? (composerMenu = false) :
+                       panelOpen ? closePanel() :
+                       (menu && (menu = false))">
 
 <!-- Icon sprite. Every glyph in the app is defined once here and used by
      reference, so the message tools, the action wheel and the menu cannot
@@ -285,6 +292,23 @@
         <div class="body" :class="{ 'fade-out': fadingId === m.id, lensed: !!m.display }"
              x-effect="Markup.schedule($el, m.display || m.text)"
              x-show="editing !== m.id && !isRegenerating(m)"></div>
+
+        <!-- Attachments, under the text they were sent with (§19). A text file
+             shows its name and size; its contents went into the prompt and are
+             not repeated here, where they would bury the message. -->
+        <div class="attached" x-show="(m.attachments || []).length" x-cloak>
+          <template x-for="item in m.attachments || []" :key="item.id">
+            <span class="chip" :class="{ pic: item.kind === 'image' }">
+              <img class="chip-image" x-show="item.kind === 'image'"
+                   :src="attachmentUrl(item)" :alt="item.name" loading="lazy">
+              <span class="chip-row" x-show="item.kind !== 'image'">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-attach"/></svg>
+                <span class="chip-name" x-text="item.name"></span>
+                <span class="chip-size" x-text="sizeLabel(item.size)"></span>
+              </span>
+            </span>
+          </template>
+        </div>
         <textarea class="edit-box" x-show="editing === m.id" x-model="editText"
                   :style="editHeight ? `min-height:${editHeight}px` : ''"
                   @input="autosize($event.target)" x-cloak></textarea>
@@ -423,6 +447,29 @@
 
 <!-- (4) composer -->
 <footer class="composer">
+  <!-- Staged attachments (§19). Above the row rather than inside it: a chip
+       with a filename on it is wider than a phone's composer, and pushing the
+       text box sideways to fit one is worse than a line of its own. -->
+  <div class="staged" x-show="staged.length" x-cloak>
+    <template x-for="item in staged" :key="item.id">
+      <span class="chip" :class="{ working: item.uploading }">
+        <img class="chip-thumb" x-show="item.kind === 'image' && !item.uploading"
+             :src="attachmentUrl(item)" alt="">
+        <svg class="icon" x-show="item.kind !== 'image'" viewBox="0 0 24 24" aria-hidden="true">
+          <use href="#i-attach"/>
+        </svg>
+        <span class="chip-name" x-text="item.name"></span>
+        <span class="chip-size" x-show="item.size" x-text="sizeLabel(item.size)"></span>
+        <button class="chip-x" @click="unstage(item)"
+                :aria-label="`Remove ${item.name}`" title="Remove">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg>
+        </button>
+      </span>
+    </template>
+  </div>
+  <input type="file" id="attach-input" multiple hidden
+         accept=".png,.jpg,.jpeg,.webp,.gif,.txt,.md,.json,.csv,.log,.yaml,.yml,image/*,text/*"
+         @change="attachFiles($event)">
   <button class="icon-btn composer-more" :class="{ on: composerMenu }"
           @click="composerMenu = !composerMenu" :aria-expanded="composerMenu"
           aria-label="More actions" title="More actions">

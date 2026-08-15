@@ -145,7 +145,7 @@ class Database:
             self._writer_thread.join(timeout=5)
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 def _run_migration_step(conn: sqlite3.Connection, step: str) -> None:
     """Apply one migration statement, tolerating one that has already landed.
@@ -185,6 +185,18 @@ MIGRATIONS: dict[int, list[str]] = {
     # one flag answers "which of these do I actually use", and a taxonomy for a
     # roster of a dozen is more work to maintain than to scroll past.
     5: ["ALTER TABLE characters ADD COLUMN favourite INTEGER NOT NULL DEFAULT 0"],
+    # Attachments (§19). A CREATE rather than an ALTER, so schema.sql's
+    # IF NOT EXISTS already covers the fresh-install path and this is a no-op
+    # there — it exists for a database that predates the table.
+    6: [
+        "CREATE TABLE IF NOT EXISTS attachments ("
+        "  id TEXT PRIMARY KEY,"
+        "  message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,"
+        "  kind TEXT NOT NULL, name TEXT NOT NULL,"
+        "  stored_as TEXT NOT NULL DEFAULT '', mime TEXT NOT NULL DEFAULT '',"
+        "  size INTEGER NOT NULL DEFAULT 0, text TEXT NOT NULL DEFAULT '',"
+        "  created_at REAL NOT NULL)",
+    ],
 }
 
 

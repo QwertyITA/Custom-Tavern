@@ -146,6 +146,23 @@ CREATE TABLE IF NOT EXISTS lorebooks (
     entries TEXT NOT NULL DEFAULT '[]'   -- json array of entries (§7.4)
 );
 
+-- Files attached to a message (§19). Text is stored inline because the text
+-- *is* the file; images are stored on disk and `stored_as` names them.
+CREATE TABLE IF NOT EXISTS attachments (
+    id         TEXT PRIMARY KEY,
+    -- NULL while staged: a file is uploaded before the message it belongs to
+    -- exists, and the turn claims it once the message has been created.
+    message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,
+    kind       TEXT NOT NULL,              -- image | text
+    name       TEXT NOT NULL,              -- as shown, never as a path
+    stored_as  TEXT NOT NULL DEFAULT '',   -- filename on disk, images only
+    mime       TEXT NOT NULL DEFAULT '',
+    size       INTEGER NOT NULL DEFAULT 0,
+    text       TEXT NOT NULL DEFAULT '',   -- extracted, text files only
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_attachments_message ON attachments(message_id);
+
 CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL

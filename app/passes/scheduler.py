@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .. import assembly
+from .. import attachments
 from .. import macros, memory as memory_store, regex_rules, repo, state as state_mod
 from ..config import Settings
 from ..db import Database
@@ -194,7 +195,9 @@ class PassScheduler:
 
     # ---------------------------------------------------------------- turn
 
-    async def run_turn(self, chat_id: str, user_text: str) -> AsyncIterator[dict]:
+    async def run_turn(
+        self, chat_id: str, user_text: str, attachment_ids: list[str] | None = None
+    ) -> AsyncIterator[dict]:
         """Run one full turn, yielding events as they happen."""
         # Any pass still in flight from the previous turn gets a short grace
         # period; we then proceed on provisional state regardless (§4.6).
@@ -225,6 +228,12 @@ class PassScheduler:
         )
         user_message = repo.add_message(self.db, chat_id, "user", user_text)
         turn = user_message["turn"]
+        # Files were uploaded before this message existed; bind them now, so
+        # the assembler below sees them on the turn they belong to (§19).
+        if attachment_ids:
+            user_message["attachments"] = attachments.claim(
+                self.db, attachment_ids, user_message["id"]
+            )
 
         ctx = TurnContext(
             chat=chat,
@@ -271,8 +280,14 @@ class PassScheduler:
             definition = registry.CANONICAL_PASSES[0]
 
         injections = registry.active_injections(self.db, ctx.toggle_states, "basic")
+        # The provider is resolved before assembly, not after: whether it can
+        # see images decides how an attached picture is written into the prompt
+        # (§19), so the assembler has to be told first.
+        provider = provider_for_tier(definition.model_tier, self.settings)
         assembled = assembly.build_reply_context(
-            self.db, ctx.chat, ctx.character, self.settings, toggle_injections=injections
+            self.db, ctx.chat, ctx.character, self.settings,
+            toggle_injections=injections,
+            sees_images=provider.sees_images,
         )
 
         contract = _suffix_instructions(ctx)
@@ -282,9 +297,9 @@ class PassScheduler:
             messages=assembled.messages,
             sampling=_with_character_stops(definition.sampling, ctx.character),
             pass_id=definition.id,
+            images=assembled.images,
         )
 
-        provider = provider_for_tier(definition.model_tier, self.settings)
         run_id = self._record_run(
             ctx,
             definition,
@@ -902,6 +917,7 @@ class PassScheduler:
 
         definition = registry.get_pass(self.db, "basic") or registry.CANONICAL_PASSES[0]
         injections = registry.active_injections(self.db, ctx.toggle_states, "basic")
+        provider = provider_for_tier(definition.model_tier, self.settings)
         assembled = assembly.build_reply_context(
             self.db,
             chat,
@@ -909,6 +925,7 @@ class PassScheduler:
             self.settings,
             toggle_injections=injections,
             exclude_message_id=message_id,
+            sees_images=provider.sees_images,
         )
         contract = _suffix_instructions(ctx)
         request = GenRequest(
@@ -916,8 +933,8 @@ class PassScheduler:
             messages=assembled.messages,
             sampling=_with_character_stops(definition.sampling, character),
             pass_id=definition.id,
+            images=assembled.images,
         )
-        provider = provider_for_tier(definition.model_tier, self.settings)
         run_id = self._record_run(
             ctx, definition, "running", model=provider.model, started_at=time.time()
         )
