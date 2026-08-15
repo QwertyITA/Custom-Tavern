@@ -59,6 +59,8 @@ BUILTIN: list[dict[str, Any]] = [
      "note": "Where the story starts."},
     {"id": "user_persona", "band": "prefix", "label": "Who you are",
      "note": "Your persona, as they see you."},
+    {"id": "cast", "band": "prefix", "label": "Who else is here",
+     "note": "The other characters in a group chat. Nothing in a solo one."},
     {"id": "world", "band": "prefix", "label": "World",
      "note": "Lorebook entries marked always-on."},
     {"id": "examples", "band": "prefix", "label": "Example dialogue",

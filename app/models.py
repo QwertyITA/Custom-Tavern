@@ -227,6 +227,8 @@ class SendMessageRequest(BaseModel):
     text: str
     # Staged attachments to bind to this turn's message (§19).
     attachments: list[str] = Field(default_factory=list)
+    # Who should answer, when the chat's policy is "you choose" (roadmap 8).
+    speaker_id: str = ""
 
 
 class EditMessageRequest(BaseModel):

@@ -230,6 +230,13 @@ def create_chat(db: Database, character_id: str, title: str = "") -> dict:
             "VALUES(?,'',0,?)",
             (chat_id, timestamp),
         )
+        # A solo chat is a group of one (roadmap 8). Seeding the member here
+        # means there is never a chat with nobody in it to reply.
+        conn.execute(
+            "INSERT INTO chat_members(chat_id, character_id, muted, talkativeness, "
+            "joined_at) VALUES(?,?,0,1.0,?)",
+            (chat_id, character_id, timestamp),
+        )
 
     db.write_sync(_create)
     return get_chat(db, chat_id)
@@ -297,6 +304,7 @@ def add_message(
     turn: int | None = None,
     provider: str = "",
     model: str = "",
+    speaker_id: str = "",
 ) -> dict:
     message_id = new_id()
     variant_id = new_id()
@@ -306,8 +314,8 @@ def add_message(
     def _add(conn: sqlite3.Connection) -> None:
         conn.execute(
             "INSERT INTO messages(id, chat_id, turn, role, active_variant, edited, stage, "
-            "created_at) VALUES(?,?,?,?,?,0,'verbatim',?)",
-            (message_id, chat_id, resolved_turn, role, variant_id, timestamp),
+            "speaker_id, created_at) VALUES(?,?,?,?,?,0,'verbatim',?,?)",
+            (message_id, chat_id, resolved_turn, role, variant_id, speaker_id, timestamp),
         )
         conn.execute(
             "INSERT INTO message_variants(id, message_id, idx, text, provider, model, "
@@ -426,7 +434,8 @@ def list_variants(db: Database, message_id: str) -> list[dict]:
 
 def list_messages(db: Database, chat_id: str, include_dropped: bool = True) -> list[dict]:
     sql = (
-        "SELECT m.id, m.turn, m.role, m.edited, m.stage, m.hidden, m.created_at, m.active_variant, "
+        "SELECT m.id, m.turn, m.role, m.edited, m.stage, m.hidden, m.speaker_id, "
+        "m.created_at, m.active_variant, "
         "v.text AS text, v.idx AS variant_index, "
         "(SELECT COUNT(*) FROM message_variants mv WHERE mv.message_id = m.id) AS variant_count "
         "FROM messages m LEFT JOIN message_variants v ON v.id = m.active_variant "

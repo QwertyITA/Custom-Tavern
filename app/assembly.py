@@ -26,6 +26,7 @@ from .lorebook import render as render_lore
 from .lorebook import scan as scan_lore
 from .markup import to_plain
 from . import attachments
+from . import groups
 from . import macros
 from . import prompt_layout
 from .models import AuthorsNote, Character, VariableSchema
@@ -191,6 +192,9 @@ def build_reply_context(
     # one cache rebuild, which is the right price for a rare deliberate act.
     persona = repo.active_persona(db, chat)
     constant_lore = [e for e in character.lorebook if e.constant and e.enabled]
+    # Everyone else in the room (roadmap 8). Empty for a solo chat, so the
+    # prompt is byte-identical to what it was before groups existed.
+    cast = groups.cast_note(groups.members(db, chat["id"]), character.id)
 
     prefix_parts: dict[str, str] = {
         "instruction": expand(character.system_prompt).strip()
@@ -209,6 +213,7 @@ def build_reply_context(
         "examples": f"## Example dialogue\n{expand(character.example_dialogue).strip()}"
         if character.example_dialogue
         else "",
+        "cast": cast,
     }
 
     prefix = [

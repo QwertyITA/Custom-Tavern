@@ -17,7 +17,7 @@ from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import assembly, attachments, cards, chat_files, config, macros
+from . import assembly, attachments, cards, chat_files, config, groups, macros
 from . import memory as memory_store
 from . import prompt_layout
 from . import providers, regex_rules, repo, state as state_mod
@@ -619,6 +619,79 @@ async def export_chat(chat_id: str, download: bool = False) -> JSONResponse:
     return JSONResponse(payload, headers=headers)
 
 
+@app.get("/api/chats/{chat_id}/members")
+async def chat_members(chat_id: str) -> dict:
+    db = get_db()
+    chat = repo.get_chat(db, chat_id)
+    if chat is None:
+        raise HTTPException(404, "chat not found")
+    groups.ensure_member(db, chat_id, chat["character_id"])
+    return {
+        "members": groups.members(db, chat_id),
+        "policy": (chat.get("settings") or {}).get("policy") or groups.DEFAULT_POLICY,
+        "policies": groups.POLICIES,
+    }
+
+
+@app.post("/api/chats/{chat_id}/members")
+async def add_chat_member(chat_id: str, payload: dict = Body(...)) -> dict:
+    db = get_db()
+    if repo.get_chat(db, chat_id) is None:
+        raise HTTPException(404, "chat not found")
+    character_id = str(payload.get("character_id") or "")
+    if repo.get_character(db, character_id) is None:
+        raise HTTPException(404, "character not found")
+    groups.add_member(db, chat_id, character_id)
+    return {"ok": True, "members": groups.members(db, chat_id)}
+
+
+@app.patch("/api/chats/{chat_id}/members/{character_id}")
+async def update_chat_member(
+    chat_id: str, character_id: str, payload: dict = Body(...)
+) -> dict:
+    db = get_db()
+    if repo.get_chat(db, chat_id) is None:
+        raise HTTPException(404, "chat not found")
+    groups.update_member(
+        db, chat_id, character_id,
+        muted=payload.get("muted") if "muted" in payload else None,
+        talkativeness=payload.get("talkativeness") if "talkativeness" in payload else None,
+    )
+    return {"ok": True, "members": groups.members(db, chat_id)}
+
+
+@app.delete("/api/chats/{chat_id}/members/{character_id}")
+async def remove_chat_member(chat_id: str, character_id: str) -> dict:
+    db = get_db()
+    chat = repo.get_chat(db, chat_id)
+    if chat is None:
+        raise HTTPException(404, "chat not found")
+    remaining = [
+        m for m in groups.members(db, chat_id) if m["character_id"] != character_id
+    ]
+    # A chat with nobody in it has nobody to reply, and the way back from that
+    # state is not obvious from the UI. Mute instead — that is what it is for.
+    if not remaining:
+        raise HTTPException(400, "someone has to be here — mute them instead")
+    groups.remove_member(db, chat_id, character_id)
+    return {"ok": True, "members": groups.members(db, chat_id)}
+
+
+@app.put("/api/chats/{chat_id}/policy")
+async def set_turn_policy(chat_id: str, payload: dict = Body(...)) -> dict:
+    db = get_db()
+    chat = repo.get_chat(db, chat_id)
+    if chat is None:
+        raise HTTPException(404, "chat not found")
+    policy = str(payload.get("policy") or "")
+    if policy not in groups.POLICY_IDS:
+        raise HTTPException(400, f"unknown turn policy {policy!r}")
+    settings = dict(chat.get("settings") or {})
+    settings["policy"] = policy
+    repo.update_chat_settings(db, chat_id, settings)
+    return {"ok": True, "policy": policy}
+
+
 @app.get("/api/chats/{chat_id}/messages")
 async def list_messages(chat_id: str, include_dropped: bool = False) -> list[dict]:
     db = get_db()
@@ -670,7 +743,9 @@ async def send_message(chat_id: str, payload: SendMessageRequest):
     if not payload.text.strip() and not payload.attachments:
         raise HTTPException(400, "empty message")
     return await _stream(
-        scheduler().run_turn(chat_id, payload.text.strip(), payload.attachments)
+        scheduler().run_turn(
+            chat_id, payload.text.strip(), payload.attachments, payload.speaker_id
+        )
     )
 
 

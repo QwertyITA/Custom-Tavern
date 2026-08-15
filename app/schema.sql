@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS messages (
     edited         INTEGER NOT NULL DEFAULT 0,
     stage          TEXT NOT NULL DEFAULT 'verbatim',  -- verbatim | summarized | dropped (§7.2)
     hidden         INTEGER NOT NULL DEFAULT 0,        -- on screen, out of the prompt
+    speaker_id     TEXT NOT NULL DEFAULT '',          -- which character said it
     created_at     REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id, turn);
@@ -144,6 +145,18 @@ CREATE TABLE IF NOT EXISTS lorebooks (
     id      TEXT PRIMARY KEY,
     name    TEXT NOT NULL,
     entries TEXT NOT NULL DEFAULT '[]'   -- json array of entries (§7.4)
+);
+
+-- Who is in a chat (roadmap 8). Every chat has at least one member -- its own
+-- character -- so a solo chat is simply a group of one and there is no second
+-- shape to reason about.
+CREATE TABLE IF NOT EXISTS chat_members (
+    chat_id       TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+    character_id  TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    muted         INTEGER NOT NULL DEFAULT 0,   -- present, but never speaks
+    talkativeness REAL NOT NULL DEFAULT 1.0,    -- weight when nobody is named
+    joined_at     REAL NOT NULL,
+    PRIMARY KEY (chat_id, character_id)
 );
 
 -- Files attached to a message (§19). Text is stored inline because the text

@@ -29,6 +29,7 @@ from typing import Any
 
 from .. import assembly
 from .. import attachments
+from .. import groups
 from .. import macros, memory as memory_store, regex_rules, repo, state as state_mod
 from ..config import Settings
 from ..db import Database
@@ -196,7 +197,11 @@ class PassScheduler:
     # ---------------------------------------------------------------- turn
 
     async def run_turn(
-        self, chat_id: str, user_text: str, attachment_ids: list[str] | None = None
+        self,
+        chat_id: str,
+        user_text: str,
+        attachment_ids: list[str] | None = None,
+        speaker_id: str = "",
     ) -> AsyncIterator[dict]:
         """Run one full turn, yielding events as they happen."""
         # Any pass still in flight from the previous turn gets a short grace
@@ -209,7 +214,26 @@ class PassScheduler:
         if chat is None:
             yield {"type": "error", "error": "unknown chat"}
             return
-        character = repo.get_character(self.db, chat["character_id"])
+        # Who replies (roadmap 8). A solo chat is a group of one, so this runs
+        # the same way for both and there is no second path to keep correct.
+        groups.ensure_member(self.db, chat_id, chat["character_id"])
+        policy = (chat.get("settings") or {}).get("policy") or groups.DEFAULT_POLICY
+        chosen = groups.choose_speaker(
+            self.db,
+            chat_id,
+            policy=policy,
+            user_text=user_text,
+            last_speaker=groups.last_speaker(self.db, chat_id),
+            forced=speaker_id,
+        )
+        if chosen is None:
+            yield {
+                "type": "error",
+                "error": "everyone here is muted" if groups.members(self.db, chat_id)
+                else "nobody is in this chat",
+            }
+            return
+        character = repo.get_character(self.db, chosen["character_id"])
         if character is None:
             yield {"type": "error", "error": "chat has no character"}
             return
@@ -248,7 +272,14 @@ class PassScheduler:
         )
         ctx.toggle_states = registry.toggle_states(self.db, character.id, chat_id)
 
-        yield {"type": "turn_start", "turn": turn, "message": user_message}
+        yield {
+            "type": "turn_start",
+            "turn": turn,
+            "message": user_message,
+            # Who is about to answer, so the placeholder can carry their name
+            # and portrait instead of the chat's nominal character.
+            "speaker": {"id": character.id, "name": character.name},
+        }
 
         # --- cheapest tier first: deterministic decay + regex nudges (§6) ---
         values = assembly.current_values(self.db, chat_id, ctx.schema, ctx.character.id)
@@ -349,6 +380,7 @@ class PassScheduler:
                     self.db, ctx.chat_id, "assistant", partial, turn=ctx.turn,
                     provider=sink.provider or provider.name,
                     model=sink.model or provider.model,
+                    speaker_id=ctx.character.id,
                 )
                 # So the run points at the message it produced. A stopped reply
                 # is one of the likeliest things to be asked about afterwards,
@@ -401,6 +433,7 @@ class PassScheduler:
             turn=ctx.turn,
             provider=sink.provider or provider.name,
             model=sink.model or provider.model,
+            speaker_id=ctx.character.id,
         )
         ctx.message_id = message["id"]
         ctx.variant_id = message["variant_id"]
