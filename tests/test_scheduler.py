@@ -9,7 +9,7 @@ from app.config import SETTINGS
 from app.models import PassDef, Trigger
 from app.passes import registry
 from app.passes.scheduler import PassScheduler, TurnContext
-from app.state import SLICE_VARS, read_slice
+from app.state import SLICE_VARS, read_slice, slice_for
 
 from .conftest import events_of, sync, turn
 
@@ -111,7 +111,7 @@ def test_reply_text_never_contains_the_state_marker(sched, chat, character):
 def test_provisional_state_commits_immediately(sched, chat, character):
     """The reply is never gated on downstream passes (§1)."""
     sync(turn(sched, chat["id"], "Cold out."))
-    stored = read_slice(sched.db, chat["id"], SLICE_VARS)
+    stored = read_slice(sched.db, chat["id"], slice_for(SLICE_VARS, character.id))
     assert stored is not None
     assert stored["source_turn"] == 1
 
@@ -158,7 +158,9 @@ def test_background_passes_complete_and_write_their_slices(sched, chat, characte
     }
     assert "failed" not in rows.values(), rows
     slices = state_mod.read_all_slices(sched.db, chat["id"])
-    assert SLICE_VARS in slices
+    assert slice_for(SLICE_VARS, character.id) in slices, (
+        'variables are namespaced per character (§15)'
+    )
 
 
 def test_auditor_correction_overwrites_the_provisional_write(sched, chat, character):
@@ -167,7 +169,7 @@ def test_auditor_correction_overwrites_the_provisional_write(sched, chat, charac
             await turn(sched, chat["id"], text)
 
     sync(scenario())
-    stored = read_slice(sched.db, chat["id"], SLICE_VARS)
+    stored = read_slice(sched.db, chat["id"], slice_for(SLICE_VARS, character.id))
     if stored["source_pass"] == "state_auditor":
         assert stored["provisional"] is False
 
@@ -227,7 +229,7 @@ def test_swipe_rolls_back_the_discarded_variant_state(sched, chat, character):
     async def scenario():
         await turn(sched, chat["id"], "Cold out.")
         message = repo.list_messages(sched.db, chat["id"])[-1]
-        before = read_slice(sched.db, chat["id"], SLICE_VARS)
+        before = read_slice(sched.db, chat["id"], slice_for(SLICE_VARS, character.id))
         events = [e async for e in sched.run_swipe(message["id"])]
         await sched.await_pending(chat["id"], timeout=20)
         return before, events
@@ -236,7 +238,7 @@ def test_swipe_rolls_back_the_discarded_variant_state(sched, chat, character):
     rollback = events_of(events, "rollback")
     assert rollback and rollback[0]["writes"] >= 1
 
-    after = read_slice(sched.db, chat["id"], SLICE_VARS)
+    after = read_slice(sched.db, chat["id"], slice_for(SLICE_VARS, character.id))
     # One turn's worth of change, not two — discarded swipes never accumulate.
     assert after["source_turn"] == before["source_turn"] == 1
 
@@ -250,7 +252,7 @@ def test_repeated_swipes_do_not_accumulate_state(sched, chat, character):
             async for _event in sched.run_swipe(message["id"]):
                 pass
             await sched.await_pending(chat["id"], timeout=20)
-            values.append(dict(read_slice(sched.db, chat["id"], SLICE_VARS)["value"]))
+            values.append(dict(read_slice(sched.db, chat["id"], slice_for(SLICE_VARS, character.id))["value"]))
         return values
 
     values = sync(scenario())

@@ -31,6 +31,7 @@ from . import prompt_layout
 from .models import AuthorsNote, Character, VariableSchema
 from .providers.base import estimate_tokens
 from .state import SLICE_SCENE, SLICE_VARS, initial_values, load_schema, read_slice
+from .state import slice_for
 from .state import render_bands
 from . import memory as memory_store
 from . import repo
@@ -83,9 +84,17 @@ def _part(assembled: Assembled, section: dict, text: str) -> str:
 
 
 def current_values(
-    db: Database, chat_id: str, schema: dict[str, VariableSchema]
+    db: Database,
+    chat_id: str,
+    schema: dict[str, VariableSchema],
+    character_id: str = "",
 ) -> dict[str, float]:
-    stored = read_slice(db, chat_id, SLICE_VARS)
+    """This character's variables in this chat (§15).
+
+    Namespaced by character, so two characters in one room hold their own
+    opinion of you rather than sharing and overwriting one.
+    """
+    stored = read_slice(db, chat_id, slice_for(SLICE_VARS, character_id))
     values = initial_values(schema)
     if stored and isinstance(stored["value"], dict):
         values.update({k: v for k, v in stored["value"].items() if isinstance(v, (int, float))})
@@ -360,7 +369,7 @@ def build_reply_context(
         )
 
     # ---- volatile suffix (LAST — the cache rule) -------------------------
-    values = current_values(db, chat["id"], schema)
+    values = current_values(db, chat["id"], schema, character.id)
     bands = render_bands(schema, values)
     volatile_parts: dict[str, str] = {
         "state": f"## {character.name}'s current state\n{bands}" if bands else "",

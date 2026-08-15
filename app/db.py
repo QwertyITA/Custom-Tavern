@@ -145,7 +145,7 @@ class Database:
             self._writer_thread.join(timeout=5)
 
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 def _run_migration_step(conn: sqlite3.Connection, step: str) -> None:
     """Apply one migration statement, tolerating one that has already landed.
@@ -196,6 +196,22 @@ MIGRATIONS: dict[int, list[str]] = {
         "  stored_as TEXT NOT NULL DEFAULT '', mime TEXT NOT NULL DEFAULT '',"
         "  size INTEGER NOT NULL DEFAULT 0, text TEXT NOT NULL DEFAULT '',"
         "  created_at REAL NOT NULL)",
+    ],
+    # Per-character state namespacing (§15), the prerequisite for group chats.
+    # Trust and mood are held *by someone*; the weather is not. Existing rows
+    # are renamed in place rather than left to a fallback path, so there is one
+    # shape to reason about instead of two forever. Slices whose chat has since
+    # lost its character keep their old name — they are unreachable either way,
+    # and a rename to ":" would be worse than leaving them alone.
+    7: [
+        "UPDATE state_slices SET slice_name = slice_name || ':' || ("
+        "  SELECT c.character_id FROM chats c WHERE c.id = state_slices.chat_id)"
+        " WHERE slice_name IN ('state.vars', 'state.expression', 'state.signals')"
+        "   AND EXISTS (SELECT 1 FROM chats c WHERE c.id = state_slices.chat_id)",
+        "UPDATE state_writes SET slice_name = slice_name || ':' || ("
+        "  SELECT c.character_id FROM chats c WHERE c.id = state_writes.chat_id)"
+        " WHERE slice_name IN ('state.vars', 'state.expression', 'state.signals')"
+        "   AND EXISTS (SELECT 1 FROM chats c WHERE c.id = state_writes.chat_id)",
     ],
 }
 

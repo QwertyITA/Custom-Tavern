@@ -38,7 +38,7 @@ from ..models import Character, PassDef, Sampling, VariableSchema
 from ..postprocess import clean_reply, split_thinking
 from ..providers import GenRequest, GenResult, ProviderError, provider_for_tier
 from ..providers.base import estimate_tokens
-from ..state import SLICE_SIGNALS, SLICE_VARS
+from ..state import SLICE_SIGNALS, SLICE_VARS, slice_for
 from . import registry
 from .contract import (
     REPLY_SUFFIX_MARKER_HELP,
@@ -251,7 +251,7 @@ class PassScheduler:
         yield {"type": "turn_start", "turn": turn, "message": user_message}
 
         # --- cheapest tier first: deterministic decay + regex nudges (§6) ---
-        values = assembly.current_values(self.db, chat_id, ctx.schema)
+        values = assembly.current_values(self.db, chat_id, ctx.schema, ctx.character.id)
         values = state_mod.decay_step(ctx.schema, values)
         nudges = state_mod.load_nudges(
             (chat.get("settings") or {}).get("nudges")
@@ -425,7 +425,7 @@ class PassScheduler:
         await state_mod.write_slice(
             self.db,
             ctx.chat_id,
-            SLICE_VARS,
+            slice_for(SLICE_VARS, ctx.character.id),
             values,
             source_turn=ctx.turn,
             source_pass="basic",
@@ -435,7 +435,7 @@ class PassScheduler:
         await state_mod.write_slice(
             self.db,
             ctx.chat_id,
-            SLICE_SIGNALS,
+            slice_for(SLICE_SIGNALS, ctx.character.id),
             ctx.signals,
             source_turn=ctx.turn,
             source_pass="basic",
@@ -606,7 +606,7 @@ class PassScheduler:
                 f"Character personality:\n{character.persona.strip() or character.name}\n\n"
                 f"State before this turn:\n{bands}\n\n"
                 f"Provisional deltas from the reply pass: "
-                f"{json.dumps(_deltas_between(ctx.pre_values, assembly.current_values(self.db, ctx.chat_id, ctx.schema)))}"
+                f"{json.dumps(_deltas_between(ctx.pre_values, assembly.current_values(self.db, ctx.chat_id, ctx.schema, ctx.character.id)))}"
             )
         elif definition.id == "summary":
             pending, covered = assembly.pending_summary_text(
@@ -662,7 +662,7 @@ class PassScheduler:
                 write = await state_mod.write_slice(
                     self.db,
                     ctx.chat_id,
-                    SLICE_VARS,
+                    slice_for(SLICE_VARS, ctx.character.id),
                     corrected,
                     source_turn=ctx.turn,
                     source_pass=definition.id,
@@ -795,7 +795,7 @@ class PassScheduler:
             ),
         )
         ctx.toggle_states = registry.toggle_states(self.db, character.id, chat["id"])
-        ctx.pre_values = assembly.current_values(self.db, chat["id"], ctx.schema)
+        ctx.pre_values = assembly.current_values(self.db, chat["id"], ctx.schema, character.id)
 
         definition = registry.get_pass(self.db, "basic") or registry.CANONICAL_PASSES[0]
         injections = registry.active_injections(self.db, ctx.toggle_states, "basic")
@@ -913,7 +913,7 @@ class PassScheduler:
             ),
         )
         ctx.toggle_states = registry.toggle_states(self.db, character.id, chat["id"])
-        ctx.pre_values = assembly.current_values(self.db, chat["id"], ctx.schema)
+        ctx.pre_values = assembly.current_values(self.db, chat["id"], ctx.schema, character.id)
 
         definition = registry.get_pass(self.db, "basic") or registry.CANONICAL_PASSES[0]
         injections = registry.active_injections(self.db, ctx.toggle_states, "basic")
@@ -992,7 +992,7 @@ class PassScheduler:
         await state_mod.write_slice(
             self.db,
             chat["id"],
-            SLICE_VARS,
+            slice_for(SLICE_VARS, ctx.character.id),
             values,
             source_turn=ctx.turn,
             source_pass="basic",
@@ -1121,7 +1121,7 @@ class PassScheduler:
             ),
         )
         ctx.toggle_states = registry.toggle_states(self.db, character.id, chat_id)
-        ctx.pre_values = assembly.current_values(self.db, chat_id, ctx.schema)
+        ctx.pre_values = assembly.current_values(self.db, chat_id, ctx.schema, ctx.character.id)
 
         run_id = self._record_run(ctx, definition, "pending")
         task = asyncio.create_task(
@@ -1156,7 +1156,7 @@ class PassScheduler:
             ),
         )
         ctx.toggle_states = registry.toggle_states(self.db, character.id, chat["id"])
-        ctx.pre_values = assembly.current_values(self.db, chat["id"], ctx.schema)
+        ctx.pre_values = assembly.current_values(self.db, chat["id"], ctx.schema, character.id)
         await self._execute(ctx, definition)
         return {"ok": True}
 

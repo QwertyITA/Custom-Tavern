@@ -30,6 +30,41 @@ SLICE_EXPRESSION = "state.expression"
 SLICE_BACKGROUND = "state.background"
 SLICE_SIGNALS = "state.signals"
 
+# Which slices belong to one character rather than to the conversation (§15).
+# Trust and mood are held *by someone*; the weather is not. Getting this split
+# right is the prerequisite for group chats — without it, two characters in one
+# room would share a single opinion of you and overwrite each other's turn by
+# turn.
+PER_CHARACTER_SLICES = frozenset({SLICE_VARS, SLICE_EXPRESSION, SLICE_SIGNALS})
+SHARED_SLICES = frozenset({SLICE_SCENE, SLICE_BACKGROUND})
+
+NAMESPACE_SEPARATOR = ":"
+
+
+def slice_for(name: str, character_id: str = "") -> str:
+    """The stored name of a slice, namespaced when it belongs to a character.
+
+    Namespacing is unconditional rather than "only in group chats": a solo chat
+    is a group of one, and a rule that changes shape when a second character
+    arrives is one that has to be right in two places forever.
+    """
+    if name in PER_CHARACTER_SLICES and character_id:
+        return f"{name}{NAMESPACE_SEPARATOR}{character_id}"
+    return name
+
+
+def split_slice(stored: str) -> tuple[str, str]:
+    """A stored name back into (slice name, character id).
+
+    Character ids never contain the separator — they are hex — so the split is
+    unambiguous. An unnamespaced name comes back with an empty id, which is
+    what every row written before this existed looks like.
+    """
+    base, separator, owner = stored.partition(NAMESPACE_SEPARATOR)
+    if separator and base in PER_CHARACTER_SLICES:
+        return base, owner
+    return stored, ""
+
 # §18.1 — the initial canonical variable set. A character card overrides this
 # wholesale by defining its own `state_schema`.
 DEFAULT_STATE_SCHEMA: dict[str, dict[str, Any]] = {
@@ -253,6 +288,26 @@ def read_slice(db: Database, chat_id: str, name: str) -> dict[str, Any] | None:
         "provisional": bool(row["provisional"]),
         "updated_at": row["updated_at"],
     }
+
+
+def slices_for(db: Database, chat_id: str, character_id: str) -> dict[str, dict[str, Any]]:
+    """Every slice that applies to one character, keyed by its plain name.
+
+    Namespacing is a storage concern (§15). A reader asking "what is her
+    expression" wants `state.expression`, not `state.expression:mira` — and
+    making every caller build the suffixed name would spread the scheme across
+    the whole app, including the frontend, which has no business knowing it.
+
+    Shared slices come through untouched; another character's do not come
+    through at all.
+    """
+    out: dict[str, dict[str, Any]] = {}
+    for stored, body in read_all_slices(db, chat_id).items():
+        base, owner = split_slice(stored)
+        if owner and owner != character_id:
+            continue
+        out[base] = body
+    return out
 
 
 def read_all_slices(db: Database, chat_id: str) -> dict[str, dict[str, Any]]:

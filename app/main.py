@@ -573,7 +573,9 @@ async def get_chat(chat_id: str) -> dict:
                 for label, band, guidance in state_mod.band_guidance(schema, values)
             ],
         },
-        "slices": state_mod.read_all_slices(db, chat_id),
+        # Keyed by plain slice name for this chat's character; how they are
+        # stored is a storage concern the client has no business knowing (§15).
+        "slices": state_mod.slices_for(db, chat_id, chat["character_id"]),
         "summary": repo.get_summary(db, chat_id),
         "toggles": registry.toggle_states(db, chat["character_id"], chat_id),
         "persona": repo.active_persona(db, chat),
@@ -647,8 +649,14 @@ def _with_display(message: dict, role: str = "") -> dict:
 @app.get("/api/chats/{chat_id}/state")
 async def chat_state(chat_id: str) -> dict:
     db = get_db()
+    chat = repo.get_chat(db, chat_id)
+    if chat is None:
+        raise HTTPException(404, "chat not found")
     return {
-        "slices": state_mod.read_all_slices(db, chat_id),
+        # Resolved for this chat's character, so a reader asking for
+        # `state.expression` gets it without knowing how it is stored (§15).
+        "slices": state_mod.slices_for(db, chat_id, chat["character_id"]),
+        "all_slices": state_mod.read_all_slices(db, chat_id),
         "summary": repo.get_summary(db, chat_id),
     }
 
