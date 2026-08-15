@@ -94,16 +94,29 @@ it updates and starts.
 
 ### Getting around
 
-The header is three lines: who you are talking to, the menu, and the world
-line. Tapping **☰** eases a row of four destinations down between them, which
-pushes the world line down rather than covering the conversation.
+The header is one line — the menu, who you are talking to, and where they are,
+each reading behind its own icon. Tapping **☰** eases a row of four
+destinations down underneath it.
 
 | | Destination | What is behind it |
 |---|---|---|
-| brain | Model & engine | tier assignment, backends and keys, context budget, per-pass sampling |
-| theme | Appearance | backdrop, backdrop fade, and every colour and size in the palette |
-| chats | Characters & chats | one row per character — portrait, edit, new chat, history, delete |
+| brain | Model & engine | tiers, backends and keys, context budget; sampling and the rest under *Advanced* |
+| theme | Appearance | backdrop, palette presets, accent; every individual token under *Advanced* |
+| chats | Characters & chats | one row per character — portrait, edit, export, new chat, history, delete |
 | story | Story state | state bands, toggles, the rolling summary, and the pass HUD |
+
+Tapping the character name in the header opens the same roster, with that
+character's history already unrolled.
+
+The **+** left of the text box holds the actions that are about the
+conversation rather than about a message: regenerate the last reply,
+impersonate, refresh the world line, start a new chat. Holding any message
+opens a wheel with edit, copy and delete — slide onto one and let go, or let go
+where you are and tap.
+
+**Impersonate** writes your next message in your own voice and drops it in the
+composer for you to edit before sending. It is in that **+** menu, and it is
+also what appears if you pull the conversation up past its last message.
 
 The world line — place, weather, time — is written by the `scene` pass, which
 only runs when a reply suggests the setting moved. That is right nearly always,
@@ -111,11 +124,14 @@ and wrong exactly when you are looking at a stale line and can see it is stale,
 so **⟳** at the end of the line runs the pass on demand. It is the ordinary
 path with the trigger bypassed: same slice write, same run row, same HUD entry.
 
-Characters can be written in the app — **chats → + new character** — as well as
-imported from a card. Editing only rewrites the text fields; portraits,
-backgrounds, lorebook and state schema come from the card and are left alone.
-Deleting a character deletes its chats with it, which is why both deletes take
-two taps rather than one.
+Characters can be written in the app — **chats → New character** — imported
+from a card, or exported back to one. Cards are the SillyTavern format: a
+`.json`, or a `.png` with the character embedded in it. An export carries the
+v2 payload with the v1 fields mirrored at the top level, which is what
+SillyTavern itself writes and what lets an older importer read it at all.
+Editing only rewrites the text fields; portraits, backgrounds, lorebook and
+state schema come from the card and are left alone. Deleting a character
+deletes its chats with it, which is why both deletes take two taps.
 
 ### Backdrop
 
@@ -125,11 +141,13 @@ is public, so an image with no licence question attached is worth more than a
 photograph, and a few kilobytes of SVG stays sharp on any screen where a JPEG
 would not.
 
-Change it under **☰ → theme**: pick a different backdrop or `none`, and
-set how strongly the theme colour washes over it. Drop your own files into
-`static/backgrounds/` and they appear in the list — the folder is enumerated,
-not hardcoded. A backdrop set by the `background_swap` pass takes precedence
-while it is active.
+Change it under **☰ → theme**: the backdrops are shown as pictures, not
+filenames, and *Add an image* uploads your own. Uploads go to
+`data/backgrounds/`, which is gitignored — `static/backgrounds/` is tracked and
+ships with the app, so putting personal images there would make every `git
+pull` a possible conflict. Both folders are enumerated, so a file dropped into
+either appears in the list. Only uploads can be deleted. A backdrop set by the
+`background_swap` pass takes precedence while it is active.
 
 ## Everyday use
 

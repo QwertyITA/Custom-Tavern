@@ -81,5 +81,18 @@ The load-bearing ideas, each of which has a test protecting it:
   regenerate it if the rules change, and check both sides against it.
 - **Frontend:** vanilla JS + Alpine, no build step. Alpine is vendored at
   `static/vendor/`. Render model output with `textContent`, never `innerHTML`.
+- **Motion:** nothing moves linearly. Use `--ease-out`, `--ease-in-out` or
+  `--ease-back` from `:root`; do not write a bezier inline. A linear transition
+  is the one curve nothing physical follows, and it reads as a slide show
+  rather than as something moving. The only exception is a continuous rotation,
+  where easing makes the spinner hesitate once per turn. Anything that appears,
+  moves, grows or leaves gets a transition — including on the way out, which
+  usually means keeping the element mounted until it has finished.
+- **Icons:** one SVG sprite at the top of `index.html`, referenced with
+  `<use href="#i-name">`. Never an emoji: it is drawn by whichever font the
+  phone happens to ship, so a row of them arrives in several weights and will
+  not take the theme colour.
+- **Destructive actions** arm on the first tap and act on the second, and say
+  so. A modal over a sheet on a phone is its own problem.
 - **Secrets in logs:** `Settings.to_dict()` masks `api_key`, and the
   `/api/settings` endpoint relies on that. Keep it masked.

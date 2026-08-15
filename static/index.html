@@ -78,6 +78,17 @@
       <path d="M8.6 14.2a4.4 4.4 0 0 0 6.8 0"/>
       <path d="M9 9.6h.01M15 9.6h.01" stroke-width="2.4"/>
     </g>
+    <g id="i-impersonate">
+      <circle cx="9" cy="8.4" r="3.4"/>
+      <path d="M3.4 19.6a5.6 5.6 0 0 1 11.2 0"/>
+      <path d="M16.4 6.6h4.2M16.4 10.2h4.2M17.6 13.8h3"/>
+    </g>
+    <g id="i-send"><path d="M12 19.5V5M6 11 12 5l6 6"/></g>
+    <g id="i-attach">
+      <path d="M17.6 8.4 9.9 16a2.9 2.9 0 0 0 4.1 4.1l7.7-7.7a4.8 4.8 0 0 0-6.8-6.8L6.6 13a6.7 6.7 0 0 0 9.5 9.5"/>
+    </g>
+    <g id="i-import"><path d="M12 3.6v10.8M7.8 10.2 12 14.4l4.2-4.2"/><path d="M4.4 16.4v2.2a1.8 1.8 0 0 0 1.8 1.8h11.6a1.8 1.8 0 0 0 1.8-1.8v-2.2"/></g>
+    <g id="i-export"><path d="M12 14.4V3.6M7.8 7.8 12 3.6l4.2 4.2"/><path d="M4.4 16.4v2.2a1.8 1.8 0 0 0 1.8 1.8h11.6a1.8 1.8 0 0 0 1.8-1.8v-2.2"/></g>
     <g id="i-check"><path d="M4.8 12.6 9.6 17.4 19.2 6.6"/></g>
     <g id="i-close"><path d="M6 6l12 12M18 6 6 18"/></g>
     <g id="i-back"><path d="M14.6 5.4 8 12l6.6 6.6"/></g>
@@ -108,7 +119,11 @@
       <svg class="icon" viewBox="0 0 24 24"><use href="#i-menu"/></svg>
     </button>
 
-    <span class="who" x-text="character ? character.name : ''"></span>
+    <!-- The name is the obvious thing to press when you want a different
+         character, so it is the control that does that. -->
+    <button class="who" @click="openCharacters()" :disabled="!character"
+            :aria-label="character ? `${character.name} — characters and chats` : 'Characters'"
+            x-text="character ? character.name : ''"></button>
 
     <!-- Hidden entirely until a scene exists. Three em-dashes said nothing
          except that the app had not got round to it yet. -->
@@ -359,13 +374,49 @@
   </template>
 </div>
 
+<!-- Pulling up past the newest message reveals this, in proportion to how far
+     you pull. Impersonate is the thing you want exactly when you are at the
+     bottom with nothing to say, which is the position this gesture starts
+     from. -->
+<div class="reveal" :class="{ armed: revealArmed }"
+     :style="`--reveal:${reveal}`" x-show="reveal > 0.02" x-cloak>
+  <button class="reveal-btn" @click="impersonate()" :disabled="streaming">
+    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-impersonate"/></svg>
+    <span x-text="revealArmed ? 'Release to write for me' : 'Keep pulling to write for me'"></span>
+  </button>
+</div>
+
 <!-- (4) composer -->
 <footer class="composer">
+  <button class="icon-btn composer-more" :class="{ on: composerMenu }"
+          @click="composerMenu = !composerMenu" :aria-expanded="composerMenu"
+          aria-label="More actions" title="More actions">
+    <svg class="icon" viewBox="0 0 24 24"><use href="#i-plus"/></svg>
+  </button>
   <textarea x-model="draft" rows="1" placeholder="Say something…"
             @keydown.enter.prevent="if (!$event.shiftKey) send()"
             @input="autosize($event.target)" x-ref="input"></textarea>
-  <button class="send" @click="send()" :disabled="streaming || !draft.trim()">↑</button>
+  <button class="send" @click="send()" :disabled="streaming || !draft.trim()"
+          aria-label="Send">
+    <svg class="icon" viewBox="0 0 24 24"><use href="#i-send"/></svg>
+  </button>
 </footer>
+
+<!-- The composer's own menu. Rises from the composer rather than dropping from
+     the top, because that is where the button is and where the eye already is. -->
+<div class="composer-sheet" x-show="composerMenu" x-cloak
+     @click.self="composerMenu = false">
+  <div class="composer-menu">
+    <template x-for="(a, i) in composerActions()" :key="a.id">
+      <button class="composer-item" :class="{ soon: a.soon }" :style="`--i:${i}`"
+              @click="runComposerAction(a)" :disabled="a.disabled">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use :href="a.icon"/></svg>
+        <span class="composer-item-name" x-text="a.label"></span>
+        <span class="composer-item-note" x-text="a.note || ''"></span>
+      </button>
+    </template>
+  </div>
+</div>
 
 <!-- Every destination in the menu opens the same sheet with a different body.
      One sheet rather than four: they share the head, the scroll behaviour and
@@ -472,58 +523,84 @@
 
         <h3>Context</h3>
         <p class="note">
-          How much of the conversation reaches the model, and what happens to the
-          rest. Messages are only dropped once the summary <em>and</em> the memory
-          pass have covered them, so nothing is lost by lowering these.
+          How much of the conversation reaches the model. Messages are only
+          dropped once the summary <em>and</em> the memory pass have covered
+          them, so nothing is lost by lowering these.
         </p>
-        <template x-for="n in numberFields('context')" :key="n.key">
+        <template x-for="n in numberFields('basic')" :key="n.key">
           <div class="num-field">
-            <label class="row num-row">
-              <span class="row-label wide-label" x-text="n.label"></span>
-              <input type="number" :min="n.min" :max="n.max" :step="n.step || 1"
-                     :value="settings[n.key]"
-                     @input="setNumber(n, $event.target.value)">
-            </label>
-            <p class="kind-note" x-show="n.note" x-text="n.note"></p>
+            <div class="num-head">
+              <span class="num-label" x-text="n.label"></span>
+              <input class="num-box" type="number" :min="n.min" :step="n.step || 1"
+                     :value="settings[n.key]" @input="setNumber(n, $event.target.value)"
+                     :aria-label="n.label">
+              <span class="num-unit" x-text="n.unit || ''"></span>
+            </div>
+            <input class="num-slider" type="range" :min="n.min" :max="n.max" :step="n.step || 1"
+                   :value="Math.min(n.max, Math.max(n.min, settings[n.key]))"
+                   @input="setNumber(n, $event.target.value)" :aria-label="n.label">
+            <p class="kind-note" x-text="n.note"></p>
           </div>
         </template>
 
-        <h3>Engine</h3>
-        <p class="note">Retries and timeouts for the passes behind the reply.</p>
-        <template x-for="n in numberFields('engine')" :key="n.key">
-          <label class="row num-row">
-            <span class="row-label wide-label" x-text="n.label"></span>
-            <input type="number" :min="n.min" :max="n.max" :step="n.step || 1"
-                   :value="settings[n.key]"
-                   @input="setNumber(n, $event.target.value)">
-          </label>
-        </template>
+        <!-- Everything below is right at its default until there is a specific
+             reason it is not, so it is one tap away rather than in the way. -->
+        <button class="disclose" :class="{ open: showAdvancedBrain }"
+                @click="showAdvancedBrain = !showAdvancedBrain"
+                :aria-expanded="showAdvancedBrain">
+          <svg class="disclose-arrow" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-back"/></svg>
+          <span>Advanced</span>
+        </button>
+        <div class="fold" :class="{ open: showAdvancedBrain }">
+          <div class="fold-clip">
+            <template x-for="n in numberFields('advanced')" :key="n.key">
+              <div class="num-field">
+                <div class="num-head">
+                  <span class="num-label" x-text="n.label"></span>
+                  <input class="num-box" type="number" :min="n.min" :step="n.step || 1"
+                         :value="settings[n.key]" @input="setNumber(n, $event.target.value)"
+                         :aria-label="n.label">
+                  <span class="num-unit" x-text="n.unit || ''"></span>
+                </div>
+                <input class="num-slider" type="range" :min="n.min" :max="n.max" :step="n.step || 1"
+                       :value="Math.min(n.max, Math.max(n.min, settings[n.key]))"
+                       @input="setNumber(n, $event.target.value)" :aria-label="n.label">
+                <p class="kind-note" x-text="n.note"></p>
+              </div>
+            </template>
 
-        <h3>Passes</h3>
-        <p class="note">
-          Sampling per pass. The reply pass is the one you can hear; the rest are
-          cheap on purpose, and turning them up costs tokens on every turn.
-        </p>
-        <template x-for="p in passes" :key="p.id">
-          <div class="pass-row">
-            <div class="pass-head">
-              <span class="pass-name" x-text="p.label || p.id"></span>
-              <span class="pass-tier" x-text="p.model_tier"></span>
-            </div>
-            <div class="pass-nums">
-              <label><span>Temp</span>
-                <input type="number" min="0" max="2" step="0.05"
-                       :value="p.sampling.temp" @input="setSampling(p, 'temp', $event.target.value)"></label>
-              <label><span>Top&nbsp;p</span>
-                <input type="number" min="0" max="1" step="0.05"
-                       :value="p.sampling.top_p" @input="setSampling(p, 'top_p', $event.target.value)"></label>
-              <label><span>Max&nbsp;tokens</span>
-                <input type="number" min="1" max="8192" step="1"
-                       :value="p.sampling.max_tokens" @input="setSampling(p, 'max_tokens', $event.target.value)"></label>
-            </div>
+            <h3>Sampling</h3>
+            <p class="note">
+              Per pass. The reply is the one you can hear; the rest are cheap on
+              purpose, and turning them up costs tokens every turn. Saved as you
+              change them.
+            </p>
+            <template x-for="p in passes" :key="p.id">
+              <div class="pass-row">
+                <div class="pass-head">
+                  <span class="pass-name" x-text="p.label || p.id"></span>
+                  <span class="pass-tier" x-text="p.model_tier"></span>
+                </div>
+                <template x-for="f in samplingFields()" :key="f.key">
+                  <div class="num-field">
+                    <div class="num-head">
+                      <span class="num-label" x-text="f.label"></span>
+                      <input class="num-box" type="number" :min="f.min" :step="f.step"
+                             :value="p.sampling[f.key]"
+                             @input="setSampling(p, f, $event.target.value)"
+                             :aria-label="`${p.label || p.id} ${f.label}`">
+                    </div>
+                    <input class="num-slider" type="range" :min="f.min" :max="f.max" :step="f.step"
+                           :value="Math.min(f.max, Math.max(f.min, p.sampling[f.key]))"
+                           @input="setSampling(p, f, $event.target.value)"
+                           :aria-label="`${p.label || p.id} ${f.label}`">
+                  </div>
+                </template>
+              </div>
+            </template>
+            <span class="save-msg" x-text="passMsg"></span>
           </div>
-        </template>
-        <span class="save-msg" x-text="passMsg"></span>
+        </div>
 
         <div class="sheet-actions">
           <button class="wide primary" @click="saveSettings()" :disabled="saving">
@@ -537,48 +614,98 @@
     <!-- ----------------------------------------------------------- theme -->
     <template x-if="panel === 'theme'">
       <div>
-        <p class="note">Changes preview live. Nothing here needs a file edited by hand.</p>
+        <p class="note">Everything here previews live. Save keeps it.</p>
+
+        <h3>Backdrop</h3>
+        <!-- Pictures, not a dropdown of filenames: the thing being chosen is
+             an image, and a name in a list says nothing about how it looks
+             behind text. -->
+        <div class="bg-grid">
+          <button class="bg-tile" :class="{ on: settings.background === 'none' }"
+                  @click="setBackground('none')" aria-label="No backdrop">
+            <span class="bg-none">None</span>
+          </button>
+          <template x-for="b in backdrops" :key="b.name">
+            <button class="bg-tile" :class="{ on: settings.background === b.name }"
+                    @click="setBackground(b.name)" :aria-label="b.name"
+                    :style="`background-image:url('${b.url}')`">
+              <span class="bg-name" x-text="b.name.replace(/\.[^.]+$/, '')"></span>
+              <span class="bg-del" x-show="b.removable" :class="{ armed: confirmBg === b.name }"
+                    @click.stop="deleteBackdrop(b)"
+                    :title="confirmBg === b.name ? 'Tap again to delete' : 'Delete'">
+                <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-close"/></svg>
+              </span>
+            </button>
+          </template>
+        </div>
+
+        <label class="wide file-btn">
+          <input type="file" accept="image/*" @change="uploadBackdrop($event)" hidden>
+          <span x-text="uploadingBg ? 'Uploading…' : 'Add an image'"></span>
+        </label>
+        <p class="kind-note" x-text="bgMsg"></p>
+
+        <div class="num-field" x-show="settings.background !== 'none'">
+          <div class="num-head">
+            <span class="num-label">Backdrop fade</span>
+            <span class="num-unit" x-text="`${settings.background_dim}%`"></span>
+          </div>
+          <input class="num-slider" type="range" min="40" max="100" :value="settings.background_dim"
+                 @input="setBackgroundDim($event.target.value)" aria-label="Backdrop fade">
+          <p class="kind-note">Higher washes the image out further behind the text.</p>
+        </div>
+
+        <h3>Colour</h3>
+        <div class="preset-row">
+          <template x-for="preset in themePresets()" :key="preset.id">
+            <button class="preset" @click="applyPreset(preset)" :aria-label="preset.label">
+              <span class="preset-swatch" :style="preset.swatch"></span>
+              <span x-text="preset.label"></span>
+            </button>
+          </template>
+        </div>
 
         <label class="row theme-row">
-          <span class="row-label wide-label">Backdrop</span>
-          <select :value="settings.background" @change="setBackground($event.target.value)">
-            <option value="none">None</option>
-            <template x-for="file in settings.backgrounds || []" :key="file">
-              <option :value="file" x-text="file.replace(/\.[^.]+$/, '')"></option>
-            </template>
-          </select>
+          <span class="row-label wide-label">Accent</span>
+          <input type="color" :value="themeValue(accentToken())"
+                 @input="setTheme(accentToken(), $event.target.value)">
+          <span class="theme-value" x-text="themeValue(accentToken())"></span>
         </label>
-        <label class="row theme-row" x-show="settings.background !== 'none'">
-          <span class="row-label wide-label">Backdrop fade</span>
-          <input type="range" min="40" max="100" :value="settings.background_dim"
-                 @input="setBackgroundDim($event.target.value)">
-          <span class="theme-value" x-text="`${settings.background_dim}%`"></span>
-        </label>
-        <p class="note" x-show="settings.background !== 'none'">
-          Higher fade washes the image out further behind the text. Drop your own
-          files in <code>static/backgrounds/</code> and they appear in this list.
-        </p>
-        <template x-for="group in themeGroups()" :key="group">
-          <div class="theme-group">
-            <div class="theme-group-name" x-text="group"></div>
-            <template x-for="token in themeIn(group)" :key="token.var">
-              <label class="row theme-row">
-                <span class="row-label wide-label" x-text="token.label"></span>
-                <template x-if="token.type === 'color'">
-                  <input type="color" :value="themeValue(token)"
-                         @input="setTheme(token, $event.target.value)">
+
+        <!-- Eighteen colour pickers is a paint program, not a setting. The
+             presets and the accent cover what anyone actually changes. -->
+        <button class="disclose" :class="{ open: showAdvancedTheme }"
+                @click="showAdvancedTheme = !showAdvancedTheme"
+                :aria-expanded="showAdvancedTheme">
+          <svg class="disclose-arrow" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-back"/></svg>
+          <span>Advanced — every colour and size</span>
+        </button>
+        <div class="fold" :class="{ open: showAdvancedTheme }">
+          <div class="fold-clip">
+            <template x-for="group in themeGroups()" :key="group">
+              <div class="theme-group">
+                <div class="theme-group-name" x-text="group"></div>
+                <template x-for="token in themeIn(group)" :key="token.var">
+                  <label class="row theme-row">
+                    <span class="row-label wide-label" x-text="token.label"></span>
+                    <template x-if="token.type === 'color'">
+                      <input type="color" :value="themeValue(token)"
+                             @input="setTheme(token, $event.target.value)">
+                    </template>
+                    <template x-if="token.type !== 'color'">
+                      <input type="range" :min="token.type === 'pct' ? 40 : 0"
+                             :max="token.type === 'pct' ? 100 : 30"
+                             :value="parseInt(themeValue(token))"
+                             @input="setTheme(token, $event.target.value + (token.type === 'pct' ? '%' : 'px'))">
+                    </template>
+                    <span class="theme-value" x-text="themeValue(token)"></span>
+                  </label>
                 </template>
-                <template x-if="token.type !== 'color'">
-                  <input type="range" :min="token.type === 'pct' ? 40 : 0"
-                         :max="token.type === 'pct' ? 100 : 30"
-                         :value="parseInt(themeValue(token))"
-                         @input="setTheme(token, $event.target.value + (token.type === 'pct' ? '%' : 'px'))">
-                </template>
-                <span class="theme-value" x-text="themeValue(token)"></span>
-              </label>
+              </div>
             </template>
           </div>
-        </template>
+        </div>
+
         <button class="wide" @click="resetTheme()">Reset appearance to defaults</button>
 
         <div class="sheet-actions">
@@ -618,12 +745,23 @@
                 <span class="char-meta" x-text="`${c.chats} chat${c.chats === 1 ? '' : 's'}`"></span>
               </div>
               <button class="glyph-btn" @click="editCharacter(c.id)"
-                      title="Edit character" aria-label="Edit character">✎&#xFE0E;</button>
+                      title="Edit character" aria-label="Edit character">
+                <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-edit"/></svg>
+              </button>
+              <a class="glyph-btn" :href="`/api/characters/${c.id}/export?download=true`"
+                 :download="`${c.name}.card.json`"
+                 title="Export card" aria-label="Export card">
+                <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-export"/></svg>
+              </a>
               <button class="glyph-btn" @click="newChat(c.id)"
-                      title="New chat" aria-label="New chat">＋&#xFE0E;</button>
+                      title="New chat" aria-label="New chat">
+                <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-plus"/></svg>
+              </button>
               <button class="glyph-btn" :class="{ on: historyFor === c.id }"
                       @click="toggleHistory(c.id)"
-                      title="Chat history" aria-label="Chat history">☰&#xFE0E;</button>
+                      title="Chat history" aria-label="Chat history">
+                <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-menu"/></svg>
+              </button>
               <button class="glyph-btn danger" :class="{ armed: confirmChar === c.id }"
                       @click="deleteCharacter(c)"
                       :title="confirmChar === c.id ? 'Tap again to delete — this deletes its chats too' : 'Delete character'"
@@ -650,10 +788,23 @@
           </div>
         </template>
 
-        <button class="wide" @click="newCharacter()">New character</button>
+        <div class="btn-row">
+          <button class="wide" @click="newCharacter()">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plus"/></svg>
+            <span>New character</span>
+          </button>
+          <label class="wide file-btn">
+            <input type="file" accept=".json,.png,image/png,application/json"
+                   @change="importCard($event)" hidden>
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-import"/></svg>
+            <span x-text="importing ? 'Importing…' : 'Import card'"></span>
+          </label>
+        </div>
+        <p class="kind-note" :class="{ bad: importError }" x-text="importError || importMsg"></p>
         <p class="note">
-          Importing a card still works — drop it in <code>data/characters/</code> and
-          restart. A character written here starts blank.
+          Cards are the SillyTavern format — a <code>.json</code> or a
+          <code>.png</code> with the character inside it. Export writes one back
+          out that SillyTavern and the rest will read.
         </p>
       </div>
     </template>

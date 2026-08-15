@@ -56,6 +56,10 @@ const BOTTOM_SLACK = 48;
 // mistaken for the tail of a gesture.
 const GESTURE_WINDOW_MS = 250;
 
+// Pull-up-past-the-end, which reveals the impersonate control.
+const PULL_DISTANCE = 96;      // travel past the bottom that fully reveals it
+const PULL_SETTLE_MS = 220;    // a wheel has no "let go"; a pause stands in
+
 // Swipe thresholds, in CSS pixels.
 const SWIPE_CLAIM = 12;   // movement before a drag counts as horizontal at all
 const SWIPE_COMMIT = 64;  // release past this and the variant changes
@@ -170,6 +174,12 @@ function tavern() {
     // is currently over.
     wheel: null,
     wheelHint: "",
+    // How far the pull-up control is revealed, 0 to 1, and whether letting go
+    // now would fire it.
+    reveal: 0,
+    revealArmed: false,
+    composerMenu: false,
+    impersonating: false,
     // The message currently playing the send animation. Held only long enough
     // for the keyframes to run; a class left on would replay on every re-render.
     sendingId: "",
@@ -179,6 +189,16 @@ function tavern() {
     charError: "",
     passes: [],
     passMsg: "",
+    // Detail that is right at its default until it is not, folded away.
+    showAdvancedBrain: false,
+    showAdvancedTheme: false,
+    backdrops: [],
+    uploadingBg: false,
+    bgMsg: "",
+    confirmBg: "",
+    importing: false,
+    importMsg: "",
+    importError: "",
     hud: false,
     error: "",
 
@@ -298,7 +318,9 @@ function tavern() {
           await this.loadSettings();
           this.passes = await api.get("/api/passes");
         } else if (name === "theme") {
+          this.bgMsg = "";
           await this.loadSettings();
+          await this.loadBackdrops();
         } else if (name === "chats") {
           this.characters = await api.get("/api/characters");
           this.chats = await api.get("/api/chats");
@@ -345,6 +367,213 @@ function tavern() {
       }
     },
 
+    // Opening the roster from the header is about *this* character, so theirs
+    // is the history that unrolls — the general entry from the menu leaves
+    // everything closed.
+    async openCharacters() {
+      const current = this.characterId;
+      await this.openPanel("chats");
+      this.historyFor = current;
+    },
+
+    // ---- composer actions ----
+
+    composerActions() {
+      const lastReply = [...this.messages].reverse()
+        .find((m) => m.role === "assistant" && m.id !== "streaming");
+      return [
+        {
+          id: "regenerate", label: "Regenerate", icon: "#i-refresh",
+          note: "Another version of the last reply",
+          disabled: this.streaming || !lastReply,
+          run: () => this.goToVariant(lastReply, 1),
+        },
+        {
+          id: "impersonate", label: "Impersonate", icon: "#i-impersonate",
+          note: "Write my next message for me",
+          disabled: this.streaming || !this.chatId,
+          run: () => this.impersonate(),
+        },
+        {
+          id: "refresh", label: "Refresh world info", icon: "#i-place",
+          note: "Re-read place, weather and time",
+          disabled: this.refreshing.scene || !this.chatId,
+          run: () => this.refreshWorld(),
+        },
+        {
+          id: "newchat", label: "New chat", icon: "#i-plus",
+          note: "Start again with this character",
+          disabled: !this.characterId,
+          run: () => this.newChat(this.characterId),
+        },
+        {
+          id: "attach", label: "Send attachment", icon: "#i-attach",
+          note: "Not built yet", soon: true,
+        },
+      ];
+    },
+
+    runComposerAction(action) {
+      this.composerMenu = false;
+      if (action.soon) return this.flashHint(`${action.label} is not built yet`);
+      if (action.run) action.run();
+    },
+
+    // ---- impersonate ----
+
+    // Streams into the draft rather than into the conversation: it is a
+    // suggestion for the user's own message, so it lands where they can rewrite
+    // it before it counts as having been said.
+    async impersonate() {
+      if (!this.chatId || this.streaming) return;
+      this.reveal = 0;
+      this.revealArmed = false;
+      this.streaming = true;
+      this.impersonating = true;
+      this.draft = "";
+      let buffer = "";
+      try {
+        const response = await fetch(`/api/chats/${this.chatId}/impersonate`, { method: "POST" });
+        if (!response.ok) throw await apiError(response);
+        for await (const event of sseStream(response)) {
+          if (event.type === "delta") {
+            buffer += event.text;
+            this.draft = buffer;
+          } else if (event.type === "impersonated") {
+            this.draft = event.text;
+          } else if (event.type === "error") {
+            this.error = event.error;
+          }
+        }
+      } catch (e) {
+        this.error = String(e.message || e);
+      } finally {
+        this.streaming = false;
+        this.impersonating = false;
+        // The composer grew while the text arrived; let it settle to the size
+        // the final draft actually needs.
+        this.$nextTick(() => {
+          if (this.$refs.input) {
+            this.autosize(this.$refs.input);
+            this.$refs.input.focus();
+          }
+        });
+      }
+    },
+
+    // ---- backdrops ----
+
+    async loadBackdrops() {
+      try {
+        this.backdrops = (await api.get("/api/backgrounds")).backgrounds;
+      } catch (e) {
+        this.bgMsg = String(e.message || e);
+      }
+    },
+
+    // Posted as a raw body rather than multipart: the server wants the bytes
+    // and the name, and a form encoding for two values is a lot of ceremony
+    // for a phone to do to a 4 MB photo.
+    async uploadBackdrop(event) {
+      const file = (event.target.files || [])[0];
+      if (!file) return;
+      this.uploadingBg = true;
+      this.bgMsg = "";
+      try {
+        const response = await fetch(
+          `/api/backgrounds?filename=${encodeURIComponent(file.name)}`,
+          { method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file },
+        );
+        if (!response.ok) throw await apiError(response);
+        const added = await response.json();
+        await this.loadBackdrops();
+        this.settings.backgrounds = this.backdrops.map((b) => b.name);
+        this.setBackground(added.name);
+        this.bgMsg = `Added ${added.name}`;
+      } catch (e) {
+        this.bgMsg = String(e.message || e);
+      } finally {
+        this.uploadingBg = false;
+        event.target.value = "";   // so the same file can be picked again
+      }
+    },
+
+    async deleteBackdrop(backdrop) {
+      if (this.confirmBg !== backdrop.name) {
+        this.confirmBg = backdrop.name;
+        clearTimeout(this._bgTimer);
+        this._bgTimer = setTimeout(() => { this.confirmBg = ""; }, CONFIRM_MS);
+        return;
+      }
+      this.confirmBg = "";
+      try {
+        const result = await api.del(`/api/backgrounds/${encodeURIComponent(backdrop.name)}`);
+        await this.loadBackdrops();
+        this.settings.backgrounds = this.backdrops.map((b) => b.name);
+        // The server resets the setting if the deleted image was in use; take
+        // its word for what the backdrop is now rather than assuming.
+        this.setBackground(result.background);
+        this.bgMsg = `Removed ${backdrop.name}`;
+      } catch (e) {
+        this.bgMsg = String(e.message || e);
+      }
+    },
+
+    // ---- theme presets ----
+
+    // Whole palettes rather than one colour at a time. Each is the two or
+    // three tokens that actually carry a look; the rest follow from them.
+    themePresets() {
+      return [
+        {
+          id: "rose", label: "Rose",
+          swatch: "background: linear-gradient(135deg,#fdf7f9,#c2617f)",
+          theme: {},   // the stylesheet's own defaults
+        },
+        {
+          id: "slate", label: "Slate",
+          swatch: "background: linear-gradient(135deg,#f4f6f8,#4c6b8a)",
+          theme: {
+            "--bg": "#f5f7f9", "--panel": "#ffffff", "--panel-2": "#eceff3",
+            "--line": "#dbe1e8", "--text": "#2b3138", "--muted": "#78828d",
+            "--accent": "#4c6b8a", "--user-bubble": "#e9eef4", "--ai-bubble": "#ffffff",
+          },
+        },
+        {
+          id: "amber", label: "Amber",
+          swatch: "background: linear-gradient(135deg,#fdf8f0,#b1762a)",
+          theme: {
+            "--bg": "#fdf8f0", "--panel": "#fffdf9", "--panel-2": "#f6ecdc",
+            "--line": "#ecdcc2", "--text": "#38301f", "--muted": "#8a7c64",
+            "--accent": "#b1762a", "--user-bubble": "#f7ecd9", "--ai-bubble": "#fffdf9",
+          },
+        },
+        {
+          id: "night", label: "Night",
+          swatch: "background: linear-gradient(135deg,#1a1b20,#8f7fd4)",
+          theme: {
+            "--bg": "#16171b", "--panel": "#1e2026", "--panel-2": "#262931",
+            "--line": "#333743", "--text": "#e6e4ea", "--muted": "#9a97a5",
+            "--accent": "#8f7fd4", "--user-bubble": "#2a2733", "--ai-bubble": "#1e2026",
+            "--c-default": "#e6e4ea", "--c-dialogue": "#e0a3bd", "--c-action": "#a99ae0",
+            "--c-strong": "#d8b06a",
+          },
+        },
+      ];
+    },
+
+    applyPreset(preset) {
+      // Replace rather than merge: a preset is a whole look, and leaving one
+      // stray token from the last one is how palettes end up unreadable.
+      this.settings.theme = { ...preset.theme };
+      this.applyTheme();
+    },
+
+    accentToken() {
+      return (this.settings.theme_tokens || []).find((t) => t.var === "--accent")
+        || { var: "--accent", type: "color", default: "#c2617f", label: "Accent" };
+    },
+
     // ---- characters ----
 
     chatsFor(characterId) {
@@ -365,6 +594,32 @@ function tavern() {
 
     toggleHistory(characterId) {
       this.historyFor = this.historyFor === characterId ? "" : characterId;
+    },
+
+    // The file goes up as its own bytes: the server sniffs a PNG by signature
+    // and parses JSON otherwise, so a card works whichever of the two forms it
+    // arrived in without the browser having to tell them apart.
+    async importCard(event) {
+      const file = (event.target.files || [])[0];
+      if (!file) return;
+      this.importing = true;
+      this.importMsg = "";
+      this.importError = "";
+      try {
+        const response = await fetch(
+          `/api/characters/import?filename=${encodeURIComponent(file.name)}`,
+          { method: "POST", body: file },
+        );
+        if (!response.ok) throw await apiError(response);
+        const added = await response.json();
+        this.characters = await api.get("/api/characters");
+        this.importMsg = `Imported ${added.name}`;
+      } catch (e) {
+        this.importError = String(e.message || e);
+      } finally {
+        this.importing = false;
+        event.target.value = "";
+      }
     },
 
     async newCharacter() {
@@ -1271,29 +1526,43 @@ function tavern() {
       this.applyTheme();
     },
 
-    // The numbers behind the reply, grouped by what a change to them actually
-    // does. Defined here rather than in the markup so each one can carry the
-    // sentence explaining what it costs.
+    // The numbers behind the reply. Two groups on purpose: `basic` is what
+    // someone actually reaches for, and `advanced` is everything that is
+    // correct at its default until there is a specific reason it is not.
+    //
+    // Ranges are the useful span, not the legal one. A slider whose track
+    // covers every value the field will accept spends most of its length in
+    // territory nobody wants, and the interesting range ends up a few pixels
+    // wide — so the ceiling here is the largest sensible setting and the box
+    // beside it still takes anything the server allows.
     numberFields(group) {
       const fields = {
-        context: [
-          { key: "token_budget", label: "Context budget", min: 512, max: 131072, step: 256,
-            note: "total tokens of prompt the reply pass is allowed to build." },
-          { key: "verbatim_window", label: "Verbatim messages", min: 2, max: 200,
-            note: "how many recent messages stay in full before the ladder starts trimming." },
-          { key: "summary_budget", label: "Summary budget", min: 100, max: 4000, step: 50,
-            note: "how long the rolling summary may grow before it is re-summarised." },
-          { key: "memory_max_injected", label: "Memories injected", min: 0, max: 30,
-            note: "extracted memories added to a prompt at most." },
-          { key: "lorebook_scan_depth", label: "Lorebook scan depth", min: 0, max: 40,
-            note: "how many recent messages are scanned for lorebook keywords." },
-          { key: "lorebook_total_budget", label: "Lorebook budget", min: 0, max: 4000, step: 50,
-            note: "tokens of lorebook entries allowed into one prompt." },
+        basic: [
+          { key: "token_budget", label: "Context budget", min: 1024, max: 32768, step: 512,
+            unit: " tok",
+            note: "Prompt the reply is built from. Match your model's window — past it, the far end is dropped anyway." },
+          { key: "verbatim_window", label: "Messages kept in full", min: 4, max: 60,
+            note: "Recent messages quoted word for word. Older ones survive as summary and memory." },
+          { key: "memory_max_injected", label: "Memories recalled", min: 0, max: 12,
+            note: "Extracted facts added to a prompt at most. Zero turns recall off." },
         ],
-        engine: [
-          { key: "background_retries", label: "Retries", min: 0, max: 6 },
-          { key: "pass_timeout", label: "Pass timeout (s)", min: 5, max: 900, step: 5, float: true },
-          { key: "blocking_await_ms", label: "Blocking grace (ms)", min: 0, max: 20000, step: 100 },
+        advanced: [
+          { key: "summary_budget", label: "Summary budget", min: 200, max: 2000, step: 50,
+            unit: " tok",
+            note: "How long the rolling summary may grow before it is re-summarised." },
+          { key: "lorebook_scan_depth", label: "Lorebook scan depth", min: 0, max: 20,
+            note: "How many recent messages are searched for lorebook keywords." },
+          { key: "lorebook_total_budget", label: "Lorebook budget", min: 0, max: 2000, step: 50,
+            unit: " tok",
+            note: "Tokens of lorebook entries allowed into one prompt." },
+          { key: "background_retries", label: "Retries", min: 0, max: 5,
+            note: "Attempts a failed background pass gets before it gives up." },
+          { key: "pass_timeout", label: "Pass timeout", min: 15, max: 600, step: 5, float: true,
+            unit: " s",
+            note: "A slow phone model can need minutes. Too low and long replies are cut off." },
+          { key: "blocking_await_ms", label: "Blocking grace", min: 0, max: 8000, step: 100,
+            unit: " ms",
+            note: "How long a new turn waits for the last one's blocking pass before going on with provisional state." },
         ],
       };
       return fields[group] || [];
@@ -1302,14 +1571,34 @@ function tavern() {
     setNumber(field, raw) {
       const value = field.float ? parseFloat(raw) : parseInt(raw, 10);
       if (Number.isNaN(value)) return;
-      this.settings[field.key] = Math.min(field.max, Math.max(field.min, value));
+      // The slider cannot leave its track; the box beside it can, and a
+      // deliberately typed number is not something to quietly overrule.
+      const floor = field.key === "token_budget" ? 256 : 0;
+      this.settings[field.key] = Math.max(floor, value);
+    },
+
+    numberLabel(field) {
+      const value = this.settings[field.key];
+      return `${value}${field.unit || ""}`;
+    },
+
+    // Ranges chosen for where the values are worth being, not where they are
+    // legal. Temperature above ~1.4 is noise on every model worth using, and
+    // top_p below 0.5 makes a roleplay model repeat itself.
+    samplingFields() {
+      return [
+        { key: "temp", label: "Temperature", min: 0, max: 1.5, step: 0.05 },
+        { key: "top_p", label: "Top p", min: 0.5, max: 1, step: 0.01 },
+        { key: "max_tokens", label: "Max tokens", min: 32, max: 2048, step: 16 },
+      ];
     },
 
     // Sampling is saved per pass as it is edited. It lives in the pass registry,
     // not in settings.json, so it does not ride along on the settings save —
     // and a number typed here that then needed a second, different-looking
     // button pressed to take effect would be its own bug report.
-    async setSampling(definition, key, raw) {
+    async setSampling(definition, field, raw) {
+      const key = typeof field === "string" ? field : field.key;
       const value = parseFloat(raw);
       if (Number.isNaN(value)) return;
       definition.sampling[key] = key === "max_tokens" ? Math.round(value) : value;
@@ -1562,6 +1851,42 @@ function tavern() {
         if (performance.now() - gestureAt < GESTURE_WINDOW_MS) this.stick = false;
       }, { passive: true });
 
+      // Pull-up-past-the-end. The scroller has nowhere left to go, so the
+      // over-drag is ours to read: how far past the bottom the finger has
+      // travelled becomes how far the impersonate control is revealed. Touch
+      // and wheel both feed it, so it works with a mouse as well as a thumb.
+      let pullFrom = null;
+      port.addEventListener("touchstart", (event) => {
+        pullFrom = this.atVeryBottom() ? event.touches[0].clientY : null;
+      }, { passive: true });
+      port.addEventListener("touchmove", (event) => {
+        if (pullFrom === null) return;
+        if (!this.atVeryBottom()) { pullFrom = null; this.setReveal(0); return; }
+        // Finger moving up the screen means pulling the content up past its end.
+        this.setReveal((pullFrom - event.touches[0].clientY) / PULL_DISTANCE);
+      }, { passive: true });
+      const endPull = () => {
+        pullFrom = null;
+        if (this.revealArmed) this.impersonate();
+        else this.setReveal(0);
+      };
+      port.addEventListener("touchend", endPull, { passive: true });
+      port.addEventListener("touchcancel", endPull, { passive: true });
+
+      port.addEventListener("wheel", (event) => {
+        if (event.deltaY <= 0 || !this.atVeryBottom()) {
+          if (this.reveal) this.setReveal(0);
+          return;
+        }
+        this.setReveal(this.reveal + event.deltaY / PULL_DISTANCE);
+        clearTimeout(this._pullTimer);
+        // A wheel has no "let go", so a pause in scrolling is the release.
+        this._pullTimer = setTimeout(() => {
+          if (this.revealArmed) this.impersonate();
+          else this.setReveal(0);
+        }, PULL_SETTLE_MS);
+      }, { passive: true });
+
       // A phone keyboard resizes the visual viewport without resizing any
       // element, so neither observer above sees it.
       if (window.visualViewport) {
@@ -1575,6 +1900,27 @@ function tavern() {
       const el = this.scrollPort;
       if (!el) return true;
       return el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_SLACK;
+    },
+
+    // Stricter than nearBottom: the pull gesture may only start when there is
+    // genuinely nothing left to scroll, otherwise a flick near the end would
+    // start revealing the control instead of finishing the scroll.
+    atVeryBottom() {
+      const el = this.scrollPort;
+      if (!el) return false;
+      return el.scrollHeight - el.scrollTop - el.clientHeight <= 2;
+    },
+
+    setReveal(value) {
+      const next = Math.max(0, Math.min(1, value));
+      if (next === this.reveal) return;
+      this.reveal = next;
+      const armed = next >= 1;
+      if (armed !== this.revealArmed) {
+        this.revealArmed = armed;
+        // The one moment worth a buzz: past here, letting go does something.
+        if (armed && navigator.vibrate) navigator.vibrate(14);
+      }
     },
 
     // Follow the bottom, but only while the user has not scrolled away.
