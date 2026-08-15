@@ -301,6 +301,29 @@ class PassScheduler:
                 if visible:
                     collected.append(visible)
                     yield {"type": "delta", "text": visible}
+        except asyncio.CancelledError:
+            # The reader hung up — the user pressed stop. Whatever arrived is
+            # what the character said, so it is kept: throwing away a reply
+            # someone stopped because they had already read enough of it is
+            # the opposite of what stopping means. No state is written, since
+            # the suffix that carries it never arrived.
+            partial = clean_reply(
+                split_thinking("".join(collected))[0],
+                strip_leakage=self.settings.strip_user_turn_leakage,
+                user_names=("You", "{{user}}"),
+            ).strip()
+            if partial:
+                repo.add_message(
+                    self.db, ctx.chat_id, "assistant", partial, turn=ctx.turn,
+                    provider=sink.provider or provider.name,
+                    model=sink.model or provider.model,
+                )
+            self._record_run(
+                ctx, definition, "stopped", run_id=run_id,
+                tokens_in=sink.tokens_in or assembled.total_tokens,
+                tokens_out=sink.tokens_out, finished_at=time.time(), attempts=1,
+            )
+            raise
         except (ProviderError, asyncio.TimeoutError, OSError) as exc:
             self._record_run(
                 ctx, definition, "failed", run_id=run_id, error=str(exc), finished_at=time.time()

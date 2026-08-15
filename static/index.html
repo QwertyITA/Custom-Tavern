@@ -89,6 +89,7 @@
     </g>
     <g id="i-import"><path d="M12 3.6v10.8M7.8 10.2 12 14.4l4.2-4.2"/><path d="M4.4 16.4v2.2a1.8 1.8 0 0 0 1.8 1.8h11.6a1.8 1.8 0 0 0 1.8-1.8v-2.2"/></g>
     <g id="i-export"><path d="M12 14.4V3.6M7.8 7.8 12 3.6l4.2 4.2"/><path d="M4.4 16.4v2.2a1.8 1.8 0 0 0 1.8 1.8h11.6a1.8 1.8 0 0 0 1.8-1.8v-2.2"/></g>
+    <g id="i-stop"><rect x="6.5" y="6.5" width="11" height="11" rx="2.4" fill="currentColor" stroke="none"/></g>
     <g id="i-star">
       <path d="M12 3.8l2.6 5.3 5.8.85-4.2 4.1 1 5.8L12 17.1l-5.2 2.75 1-5.8-4.2-4.1 5.8-.85z"/>
     </g>
@@ -399,9 +400,17 @@
   <textarea x-model="draft" rows="1" placeholder="Say something…"
             @keydown.enter.prevent="if (!$event.shiftKey) send()"
             @input="autosize($event.target)" x-ref="input"></textarea>
-  <button class="send" @click="send()" :disabled="streaming || !draft.trim()"
-          aria-label="Send">
-    <svg class="icon" viewBox="0 0 24 24"><use href="#i-send"/></svg>
+  <!-- The same button in two states, not two buttons: while a reply is coming
+       the only thing you can usefully do with that corner is call it off, and a
+       control that swaps its meaning under the thumb is easier to hit than one
+       that appears somewhere else. -->
+  <button class="send" :class="{ stop: streaming }"
+          @click="streaming ? stopGenerating() : send()"
+          :disabled="!streaming && !draft.trim()"
+          :aria-label="streaming ? 'Stop generating' : 'Send'"
+          :title="streaming ? 'Stop generating' : 'Send'">
+    <svg class="icon" viewBox="0 0 24 24" x-show="!streaming"><use href="#i-send"/></svg>
+    <svg class="icon" viewBox="0 0 24 24" x-show="streaming" x-cloak><use href="#i-stop"/></svg>
   </button>
 </footer>
 

@@ -1288,3 +1288,12 @@ body {
 .persona .glyph-btn.on .icon-btn-glyph { fill: currentColor; }
 .char-pfp.big { width: 56px; height: 56px; }
 .char-pfp.big .char-pfp-generic { width: 32px; height: 32px; }
+
+/* The send button becomes the stop button while a reply is streaming. The
+   colour change and the squeeze are what say it is a different verb now. */
+.send.stop { background: var(--error); }
+.send.stop .icon { animation: stop-pulse 1.4s var(--ease-in-out) infinite; }
+@keyframes stop-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(.86); opacity: .75; }
+}

@@ -183,6 +183,8 @@ function tavern() {
     // The message currently playing the send animation. Held only long enough
     // for the keyframes to run; a class left on would replay on every re-render.
     sendingId: "",
+    // Live while a reply is streaming, so it can be called off.
+    streamAbort: null,
     draftCharacter: { id: "", name: "" },
     // The alternates are a list on the card and a paragraph-separated textarea
     // in the editor. Held separately so the textarea can be edited freely —
@@ -389,6 +391,15 @@ function tavern() {
       const current = this.characterId;
       await this.openPanel("chats");
       this.historyFor = current;
+    },
+
+    // The server is the record of what was actually kept, which after a stop
+    // is not what the placeholder holds.
+    async reloadMessages() {
+      if (!this.chatId) return;
+      try {
+        this.messages = await api.get(`/api/chats/${this.chatId}/messages`);
+      } catch (_) { /* the chat may have gone */ }
     },
 
     // ---- personas ----
@@ -1179,8 +1190,16 @@ function tavern() {
       return this.regenId === message.id && !message.text;
     },
 
+    // Stops whatever is generating. The fetch is aborted, which drops the
+    // connection; the server sees the reader hang up, keeps the text that had
+    // already arrived and records the run as stopped.
+    stopGenerating() {
+      if (this.streamAbort) this.streamAbort.abort();
+    },
+
     async runStream(url, body, swipeMessageId) {
       this.streaming = true;
+      this.streamAbort = new AbortController();
       this.composing = !swipeMessageId;
       this.composingKind = "typing";
       this.composingLabel = "Typing…";
@@ -1193,6 +1212,7 @@ function tavern() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
+          signal: this.streamAbort.signal,
         });
         if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
 
@@ -1279,8 +1299,16 @@ function tavern() {
           }
         }
       } catch (e) {
-        this.error = String(e.message || e);
-        this.messages = this.messages.filter((m) => m.id !== "streaming");
+        if (e.name === "AbortError") {
+          // Stopping is something the user did on purpose, so it is not an
+          // error. The text that arrived stays where it is; the placeholder is
+          // reconciled with what the server actually kept.
+          this.flashHint("Stopped");
+          await this.reloadMessages();
+        } else {
+          this.error = String(e.message || e);
+          this.messages = this.messages.filter((m) => m.id !== "streaming");
+        }
         // A failed regeneration must not leave the message blank.
         if (swipeMessageId && this.regenPrevious) {
           const original = this.messages.find((m) => m.id === swipeMessageId);
@@ -1289,6 +1317,7 @@ function tavern() {
       } finally {
         this.streaming = false;
         this.composing = false;
+        this.streamAbort = null;
         // Only release here if no token ever arrived — a stream that failed or
         // returned nothing. When endRegen ran it already owns the release, and
         // clearing the caps underneath it mid-animation drops the bubble to

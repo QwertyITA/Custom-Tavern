@@ -133,6 +133,15 @@ Editing only rewrites the text fields; portraits, backgrounds, lorebook and
 state schema come from the card and are left alone. Deleting a character
 deletes its chats with it, which is why both deletes take two taps.
 
+### Stopping a reply
+
+While a reply is coming, the send button becomes a stop button — the same
+corner, a different verb, because that is the only thing worth doing with it
+mid-stream. Stopping keeps what had already arrived: it means "I have read
+enough", not "throw that away". No state is written, since the `<<<state>>>`
+suffix that carries it never got there, and the run is recorded as *stopped*
+rather than failed.
+
 ### Who you are
 
 A **persona** is your side of the conversation: a name, a description and a

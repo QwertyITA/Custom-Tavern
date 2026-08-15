@@ -986,3 +986,90 @@ def test_editing_a_persona_updates_what_user_resolves_to(client):
     character_id = import_card(client, MACRO_CARD, "macro-edit.json")
     chat_id = client.post("/api/chats", json={"character_id": character_id}).json()["id"]
     assert "There you are, Tomás." in client.get(f"/api/chats/{chat_id}/messages").json()[0]["text"]
+
+
+# ------------------------------------------------------- stopping a reply
+
+
+class _Slow:
+    """The real provider, dripping — so a stop has a middle to land in.
+
+    The echo backend answers in microseconds, which is exactly what makes the
+    suite fast and exactly what leaves no window to cancel inside. Wrapping it
+    is cheaper and more honest than adding a sleep to the provider itself.
+    """
+
+    def __init__(self, inner):
+        self.inner = inner
+        self.name = inner.name
+        self.model = inner.model
+
+    def __getattr__(self, item):
+        return getattr(self.inner, item)
+
+    async def stream(self, request, sink):
+        async for chunk in self.inner.stream(request, sink):
+            await asyncio.sleep(0.05)
+            yield chunk
+
+
+async def _stop_after_a_few_tokens(db, chat_id: str, text: str) -> list[dict]:
+    """Start a turn, let some of it arrive, then hang up like an aborted fetch."""
+    import app.passes.scheduler as scheduler_module
+    from app.config import SETTINGS
+    from app.passes.scheduler import PassScheduler
+
+    real = scheduler_module.provider_for_tier
+    scheduler_module.provider_for_tier = lambda tier, settings: _Slow(real(tier, settings))
+    try:
+        scheduler = PassScheduler(db, SETTINGS)
+        seen: list[dict] = []
+
+        async def consume():
+            async for event in scheduler.run_turn(chat_id, text):
+                seen.append(event)
+
+        task = asyncio.create_task(consume())
+        for _ in range(100):
+            await asyncio.sleep(0.02)
+            if sum(1 for e in seen if e["type"] == "delta") >= 3:
+                break
+        assert any(e["type"] == "delta" for e in seen), "nothing streamed to stop"
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        return seen
+    finally:
+        scheduler_module.provider_for_tier = real
+
+
+def test_stopping_mid_reply_keeps_what_arrived(db, character):
+    """Stopping means "I have read enough", not "throw that away"."""
+    from app import repo
+    from tests.conftest import sync
+
+    chat = repo.create_chat(db, character.id, "stoppable")
+    seen = sync(_stop_after_a_few_tokens(db, chat["id"], "Tell me everything."))
+
+    replies = [m for m in repo.list_messages(db, chat["id"]) if m["role"] == "assistant"]
+    assert replies, "the partial reply was thrown away"
+    kept = replies[-1]["text"].strip()
+    assert kept
+    streamed = "".join(e["text"] for e in seen if e["type"] == "delta")
+    assert kept[:20] in streamed, (kept, streamed)
+
+    runs = [dict(r) for r in db.query(
+        "SELECT pass_id, status FROM pass_runs WHERE chat_id=?", (chat["id"],))]
+    assert any(r["pass_id"] == "basic" and r["status"] == "stopped" for r in runs), runs
+
+
+def test_a_stopped_reply_writes_no_state(db, character):
+    """The state suffix never arrived, so there is nothing to trust."""
+    from app import repo, state as state_mod
+    from tests.conftest import sync
+
+    chat = repo.create_chat(db, character.id, "stoppable-state")
+    sync(_stop_after_a_few_tokens(db, chat["id"], "Say a lot."))
+    assert state_mod.read_slice(db, chat["id"], state_mod.SLICE_VARS) is None
