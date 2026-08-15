@@ -147,5 +147,7 @@ Answers stopped at 28, so these were never ruled in or out:
 
 ## Final pass
 
-- [ ] **UX audit.** Go through everything looking for what is bad, awkward or
-      merely tolerable, and report it rather than silently fixing it.
+- [x] **UX audit.** Go through everything looking for what is bad, awkward or
+      merely tolerable, and report it rather than silently fixing it. Done —
+      the findings, and what was done about each, are under *The UX pass*
+      above and in full in [UX-AUDIT.md](UX-AUDIT.md).
