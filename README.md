@@ -170,6 +170,45 @@ dearer. Nothing here detects a language — if you say they write Japanese, the
 translator is told Japanese. A translation that fails leaves the original
 readable rather than losing the turn.
 
+### Web search
+
+Off, and off twice over: the switch **☰ → story → Web search** starts off, and
+even on it does nothing until you have given it somewhere to search. Both
+halves are deliberate — a switch that quietly did nothing would look broken,
+and a URL that searched without being asked would be your phone making requests
+you never wanted.
+
+Nothing ships with a search engine, because every free one either needs a key,
+rate-limits a phone into uselessness, or is an HTML page whose shape changes
+without warning. What there is instead is a URL template under **☰ → brain →
+web search**, with `{q}` where the query goes:
+
+    http://192.168.1.5:8888/search?q={q}&format=json     SearXNG, self-hosted
+    https://api.search.brave.com/res/v1/web/search?q={q} with a key
+
+A key, if yours needs one, is sent as both `Authorization: Bearer …` and
+`X-Subscription-Token`, so you do not have to know which one your provider
+wants. It is masked everywhere it is shown, like any other credential here.
+
+The reply is read leniently. Search APIs disagree about almost everything —
+`results` vs `web.results` vs `items`, `content` vs `snippet` vs `description` —
+so rather than a shape per provider there is one reader that looks where
+results are usually found. A shape it cannot read comes back empty, which
+reads as "found nothing" rather than as an error, because that is what it means
+to the person reading the chat. So does an engine that is down: the turn goes
+ahead without the results.
+
+Two decisions worth knowing. There is **no model call** — the snippets go
+straight into the prompt with their addresses attached, so the character can
+say where something came from; distilling them through a model first would
+double the cost of the feature in order to make the results shorter. And the
+results are bound to the turn that asked for them: they appear once and then
+stop, because an answer looked up three turns ago is worse than no answer, the
+model having no way to tell that it is old.
+
+The cost is one HTTP request, before the reply starts. A slow engine is a slow
+turn — while it runs the cue says *looking it up*.
+
 ### Unplanned things
 
 Under ☰ → story. Occasionally the world does something on its own — a knock at
@@ -375,7 +414,7 @@ Under ☰ → brain. The prompt is built in three groups, always in this order:
 | --- | --- | --- |
 | **Who they are** | instruction, character, scenario, your persona, always-on lore, examples | Rarely changes, so the model keeps it cached between turns. |
 | **What has happened** | recalled lore, memories, the summary, the conversation | Changes as the story does. |
-| **Right now** | their state, the setting, toggles, the card's last word | Different every turn. |
+| **Right now** | their state, the setting, what happened, what was looked up, toggles, the card's last word | Different every turn. |
 
 Each section can be switched off, and moved **within its group**. The groups
 themselves do not move, and that is the one restriction worth explaining: a
@@ -609,7 +648,8 @@ The key handling is deliberate:
 
 - Saved keys are **never sent back to the browser**. A read returns `***`, and
   submitting `***` unchanged means "keep the stored value" — so you can change
-  a model without retyping a key, and the page never holds one to leak.
+  a model without retyping a key, and the page never holds one to leak. The
+  search key is handled the same way, for the same reason.
 - The file is written **atomically and `0600`**, created with those permissions
   rather than chmod-ed afterwards, so the key is never briefly world-readable.
 - A failed connection test **masks the key out of the error text**, since a
@@ -635,7 +675,7 @@ Two things enforce this rather than relying on memory:
 ## Tests
 
 ```bash
-python3 -m pytest        # 145 tests, hermetic, no network, no extra deps
+python3 -m pytest        # 757 tests, hermetic, no network, no extra deps
 ```
 
 The JS tokenizer is checked against the same fixtures as the Python one:

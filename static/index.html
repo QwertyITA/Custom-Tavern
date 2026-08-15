@@ -802,6 +802,39 @@
           costs more. A translation that fails leaves the original readable.
         </p>
 
+        <h3>Web search</h3>
+        <p class="note">
+          Nothing ships with a search engine, so point this at one you trust —
+          your own SearXNG, or an API you have a key for. Put
+          <code>{q}</code> where the query goes. Then switch
+          <strong>Web search</strong> on in Story, per chat if you like: it
+          stays off until both are done.
+        </p>
+        <label class="row"><span class="row-label">Search URL</span>
+          <input x-model="settings.search_url" spellcheck="false" inputmode="url"
+                 placeholder="http://192.168.1.5:8888/search?q={q}&format=json">
+        </label>
+        <label class="row"><span class="row-label">Key</span>
+          <input type="password" x-model="settings.search_key" autocomplete="off"
+                 spellcheck="false" placeholder="Only if yours needs one">
+        </label>
+        <div class="num-field">
+          <div class="num-head">
+            <span class="num-label">Results kept</span>
+            <span class="num-unit" x-text="`${settings.search_results} result${settings.search_results === 1 ? '' : 's'}`"></span>
+          </div>
+          <input class="num-slider" type="range" min="1" max="8"
+                 :value="settings.search_results"
+                 @input="settings.search_results = +$event.target.value"
+                 aria-label="How many results to keep">
+        </div>
+        <p class="kind-note">
+          The snippets go in as they came, with their addresses, so the reply
+          can say where something came from. One request per message and no
+          extra model call — but it does happen before the reply starts, so a
+          slow engine is a slow turn.
+        </p>
+
         <h3>Find and replace</h3>
         <p class="note">
           Rules run in order, on every message. Scope decides what they touch —
@@ -1465,10 +1498,23 @@
 
         <h3>Toggles</h3>
         <template x-for="t in toggles" :key="t.id">
-          <label class="toggle">
-            <input type="checkbox" :checked="toggleStates[t.id]" @change="setToggle(t.id, $event.target.checked)">
-            <span x-text="t.label"></span>
-          </label>
+          <div>
+            <label class="toggle">
+              <input type="checkbox" :checked="toggleStates[t.id]" @change="setToggle(t.id, $event.target.checked)">
+              <span x-text="t.label"></span>
+            </label>
+            <!-- A switch that is on and doing nothing is the one thing worse
+                 than a switch that is off. Say why, where it is being read. -->
+            <div class="fold" :class="{ open: t.id === 'web_search' &&
+                                               toggleStates[t.id] && !settings.search_url }">
+              <div class="fold-clip">
+                <p class="kind-note">
+                  Nowhere to search yet — put a search URL in ☰ → brain and this
+                  starts working.
+                </p>
+              </div>
+            </div>
+          </div>
         </template>
 
         <h3>Who is here</h3>

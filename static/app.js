@@ -9,6 +9,19 @@
 
 const MASK_DISPLAY = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
 
+// Every saved credential comes back from the server as `***`. Show a dot
+// placeholder instead, so a set key reads as "a key is set" rather than as a
+// corrupted value \u2014 and do it in one place, because the settings arrive by two
+// routes (boot, and opening the panel) and the one that skipped this step
+// showed the literal asterisks after every reload.
+function softenMasks(settings) {
+  (settings.backends || []).forEach((b) => {
+    if (b.api_key === "***") b.api_key = MASK_DISPLAY;
+  });
+  if (settings.search_key === "***") settings.search_key = MASK_DISPLAY;
+  return settings;
+}
+
 // WCAG relative luminance of a #rgb / #rrggbb colour, 0 (black) to 1 (white).
 function luminance(hex) {
   const m = String(hex).trim().replace("#", "");
@@ -287,7 +300,7 @@ function tavern() {
       // Load settings first: the saved palette should be on screen before the
       // first paint of any message, not applied a beat later.
       try {
-        this.settings = await api.get("/api/settings");
+        this.settings = softenMasks(await api.get("/api/settings"));
         this.applyTheme();
       } catch (_) { /* defaults are already in the stylesheet */ }
       try {
@@ -1736,6 +1749,16 @@ function tavern() {
             this.applyBackground(event.value.background);
           }
           break;
+        // The search runs before the reply pass starts, so the cue would
+        // otherwise say "Typing…" for however long the engine takes. Both
+        // events always arrive as a pair, and the reply's own pass_status
+        // overwrites the label a moment later anyway.
+        case "search_start":
+          this.composingLabel = "Looking it up…";
+          break;
+        case "search_done":
+          this.composingLabel = event.count ? "Reading…" : "Typing…";
+          break;
         case "state":
           this.bands = event.state.bands || [];
           this.stateProvisional = !!event.state.provisional;
@@ -2580,11 +2603,7 @@ function tavern() {
       this.tests = {};
       this.models = {};
       this.modelErrors = {};
-      const loaded = await api.get("/api/settings");
-      // Show a dot placeholder rather than the literal mask, so it reads as
-      // "a key is set" instead of looking like a corrupted value.
-      loaded.backends.forEach((b) => { if (b.api_key === "***") b.api_key = MASK_DISPLAY; });
-      this.settings = loaded;
+      this.settings = softenMasks(await api.get("/api/settings"));
       this.applyTheme();
     },
 
@@ -2765,6 +2784,11 @@ function tavern() {
     settingsPayload() {
       return {
         ...this.settings,
+        // Untouched means "keep what is stored": the mask goes back as the
+        // mask, so saving an unrelated setting cannot wipe a key you cannot
+        // see to retype.
+        search_key: this.settings.search_key === MASK_DISPLAY
+          ? "***" : this.settings.search_key,
         backends: this.settings.backends.map((b) => ({
           ...b,
           api_key: b.api_key === MASK_DISPLAY ? "***" : b.api_key,

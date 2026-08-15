@@ -33,6 +33,7 @@ from .. import attachments
 from .. import groups
 from .. import macros, memory as memory_store, regex_rules, repo, state as state_mod
 from .. import translation
+from .. import websearch
 from ..config import Settings
 from ..db import Database
 from ..events import BUS
@@ -41,7 +42,7 @@ from ..models import Character, PassDef, Sampling, VariableSchema
 from ..postprocess import clean_reply, split_thinking
 from ..providers import GenRequest, GenResult, ProviderError, provider_for_tier
 from ..providers.base import estimate_tokens
-from ..state import SLICE_SIGNALS, SLICE_VARS, slice_for
+from ..state import SLICE_SEARCH, SLICE_SIGNALS, SLICE_VARS, slice_for
 from . import registry
 from .contract import (
     REPLY_SUFFIX_MARKER_HELP,
@@ -353,6 +354,13 @@ class PassScheduler:
         if fired:
             yield {"type": "nudges", "fired": fired}
 
+        # --- the one thing outside the model: a web search (roadmap 24) ---
+        # Blocking, because results that arrive after the reply are results the
+        # reply did not use. It is one HTTP request with a short timeout, and
+        # it only happens at all when both the switch and a URL are present.
+        async for event in self._run_search(ctx, user_text):
+            yield event
+
         async for event in self._run_reply(ctx):
             yield event
 
@@ -364,6 +372,37 @@ class PassScheduler:
         if launched:
             yield {"type": "background_queued", "passes": launched}
         yield {"type": "turn_end", "turn": turn}
+
+    async def _run_search(self, ctx: TurnContext, user_text: str) -> AsyncIterator[dict]:
+        """Look the message up, if asked to and if there is somewhere to ask.
+
+        Nothing is yielded on the turns this does not run, so a chat with the
+        switch off never sees a trace of the feature — including in the event
+        stream, where a `search_start` with no `search_done` after it would be
+        a spinner that never stops.
+        """
+        if not ctx.toggle_states.get("web_search"):
+            return
+        if not websearch.configured(self.settings) or not user_text.strip():
+            return
+        yield {"type": "search_start", "query": user_text.strip()[:200]}
+        results = await websearch.search(self.settings, user_text)
+        # Written even when empty: the slice is read by source turn, so an
+        # empty write is what stops the previous turn's results from being
+        # offered again as though they answered this message.
+        await state_mod.write_slice(
+            self.db,
+            ctx.chat_id,
+            SLICE_SEARCH,
+            {"query": user_text.strip()[:200], "results": results},
+            source_turn=ctx.turn,
+            source_pass="web_search",
+        )
+        yield {
+            "type": "search_done",
+            "count": len(results),
+            "sources": [r["url"] for r in results if r["url"]],
+        }
 
     async def _run_reply(self, ctx: TurnContext) -> AsyncIterator[dict]:
         definition = registry.get_pass(self.db, "basic")

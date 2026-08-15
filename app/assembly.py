@@ -30,9 +30,10 @@ from . import groups
 from . import macros
 from . import prompt_layout
 from . import translation
+from . import websearch
 from .models import AuthorsNote, Character, VariableSchema
 from .providers.base import estimate_tokens
-from .state import SLICE_EVENT, SLICE_SCENE, SLICE_VARS
+from .state import SLICE_EVENT, SLICE_SCENE, SLICE_SEARCH, SLICE_VARS
 from .state import initial_values, load_schema, read_slice
 from .state import slice_for
 from .state import render_bands
@@ -152,6 +153,23 @@ def pending_event(db: Database, chat_id: str) -> str:
     if value.get("used"):
         return ""
     return str(value.get("event") or "").strip()
+
+
+def search_block(db: Database, chat_id: str, turn: int) -> str:
+    """What the web search found, but only for the turn that asked (roadmap 24).
+
+    Results go stale immediately — an answer looked up three turns ago is worse
+    than no answer, because the model has no way to tell it is old. Binding
+    them to their own turn means they appear once and then stop, without
+    anything having to remember to clear them.
+    """
+    stored = read_slice(db, chat_id, SLICE_SEARCH)
+    if not stored or not isinstance(stored["value"], dict):
+        return ""
+    if stored["source_turn"] != turn:
+        return ""
+    results = stored["value"].get("results")
+    return websearch.render(results if isinstance(results, list) else [])
 
 
 def scene_line(db: Database, chat_id: str) -> str:
@@ -400,6 +418,7 @@ def build_reply_context(
     volatile_parts: dict[str, str] = {
         "state": f"## {character.name}'s current state\n{bands}" if bands else "",
         "setting": f"## Setting\n{scene}" if (scene := scene_line(db, chat["id"])) else "",
+        "search": search_block(db, chat["id"], current_turn),
         "toggles": "\n\n".join(toggle_injections or []),
         "event": f"## Something is happening\n{event}\n"
         "Work it into your reply as it happens. Do not resolve it in one line."

@@ -89,7 +89,7 @@ Everything else leans on these.
       cheap signal so it costs nothing most turns, with frequency in settings.
 - [x] **23. Translation.** Translate the reply into the reading language and
       the user's message into the character's, as a pass. Toggleable.
-- [ ] **24. Web search.** Inject search results into context. Toggleable, off
+- [x] **24. Web search.** Inject search results into context. Toggleable, off
       by default.
 
 ## Not wanted

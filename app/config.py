@@ -280,6 +280,12 @@ class Settings:
     character_language: str = ""
     reading_language: str = ""
 
+    # Web search (roadmap 24). No bundled provider: point this at something you
+    # trust. Empty is off, and it is off by default.
+    search_url: str = ""
+    search_key: str = ""
+    search_results: int = 4
+
     # Appearance overrides: CSS variable -> value. Only keys in THEME_TOKENS,
     # only values matching that token's shape (§12, §18.4).
     theme: dict[str, str] = field(default_factory=dict)
@@ -313,6 +319,9 @@ class Settings:
         for b in d["backends"]:
             if b.get("api_key"):
                 b["api_key"] = MASK
+        # The search key is a credential too, and the settings screen shows it.
+        if d.get("search_key"):
+            d["search_key"] = MASK
         return d
 
 
@@ -521,6 +530,16 @@ def build_settings(payload: dict[str, Any], current: Settings) -> Settings:
     for field_name in ("character_language", "reading_language"):
         raw = payload.get(field_name, getattr(current, field_name))
         setattr(settings, field_name, str(raw or "").strip()[:40])
+    settings.search_url = str(payload.get("search_url", current.search_url) or "").strip()[:500]
+    # Masked on the way out like any credential, so a key sent back as *** keeps
+    # what is stored rather than overwriting it with the mask.
+    key = str(payload.get("search_key", current.search_key) or "")
+    settings.search_key = current.search_key if key == MASK else key.strip()[:200]
+    try:
+        settings.search_results = max(1, min(8, int(payload.get(
+            "search_results", current.search_results))))
+    except (TypeError, ValueError):
+        settings.search_results = current.search_results
     return settings
 
 

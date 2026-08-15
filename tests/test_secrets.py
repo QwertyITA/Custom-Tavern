@@ -37,6 +37,10 @@ SECRET_PATHS = [
 PRIVATE_PATHS = [
     "data/avatars/me.png",
     "data/backgrounds/holiday.jpg",
+    # Whatever was attached to a message (§19). A photograph someone sent to a
+    # character is the most private thing this app ever holds on disk.
+    "data/attachments/a1b2c3.png",
+    "data/attachments/notes.txt",
 ]
 
 

@@ -28,6 +28,9 @@ data/music/
 data/backgrounds/
 # Persona portraits — pictures of a person, in a public repository.
 data/avatars/
+# Whatever was attached to a message: photos, documents, anything at all.
+# Same reasoning as the portraits above, and rather more of it.
+data/attachments/
 data/models/
 *.gguf
 

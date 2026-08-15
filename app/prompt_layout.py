@@ -82,6 +82,8 @@ BUILTIN: list[dict[str, Any]] = [
      "note": "Place, weather and time, as the scene pass last saw them."},
     {"id": "event", "band": "volatile", "label": "Something happening",
      "note": "An unplanned intrusion the world made, waiting to be used once."},
+    {"id": "search", "band": "volatile", "label": "Looked up just now",
+     "note": "What the web search found for this message. Nothing when it is off."},
     {"id": "toggles", "band": "volatile", "label": "Toggle injections",
      "note": "Text from whichever story toggles are on."},
     {"id": "final", "band": "volatile", "label": "The card's last word",

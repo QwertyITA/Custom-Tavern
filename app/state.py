@@ -32,6 +32,9 @@ SLICE_SIGNALS = "state.signals"
 # Something the world does, unprompted (roadmap: random events). Shared, not
 # per character: a knock at the door happens to the room.
 SLICE_EVENT = "state.event"
+# What was looked up for this turn (roadmap 24). Shared: a fact is a fact
+# whoever in the room happens to be answering.
+SLICE_SEARCH = "state.search"
 
 # Which slices belong to one character rather than to the conversation (§15).
 # Trust and mood are held *by someone*; the weather is not. Getting this split
@@ -39,7 +42,7 @@ SLICE_EVENT = "state.event"
 # room would share a single opinion of you and overwrite each other's turn by
 # turn.
 PER_CHARACTER_SLICES = frozenset({SLICE_VARS, SLICE_EXPRESSION, SLICE_SIGNALS})
-SHARED_SLICES = frozenset({SLICE_SCENE, SLICE_BACKGROUND, SLICE_EVENT})
+SHARED_SLICES = frozenset({SLICE_SCENE, SLICE_BACKGROUND, SLICE_EVENT, SLICE_SEARCH})
 
 NAMESPACE_SEPARATOR = ":"
 

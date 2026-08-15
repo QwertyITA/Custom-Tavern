@@ -237,6 +237,16 @@ CANONICAL_TOGGLES: list[Toggle] = [
         output="state_modifier",
         default_on=True,
     ),
+    Toggle(
+        id="web_search",
+        label="Web search",
+        target_pass="basic",
+        # No injection and no pass: the search is one HTTP request the turn
+        # makes for itself (roadmap 24), so this is a plain switch the
+        # scheduler reads. Off by default, and inert until a search URL is
+        # configured — there is no bundled provider to fall back on.
+        default_on=False,
+    ),
 ]
 
 
