@@ -1323,3 +1323,85 @@ def test_the_note_resolves_macros(client):
     client.put(f"/api/chats/{chat_id}/note", json={"text": "{{char}} is wary of {{user}}."})
     contents = [m["content"] for m in assembled_for(chat_id).messages]
     assert any("is wary of Tomas." in c for c in contents), contents
+
+
+# ------------------------------------------------------------ stop strings
+
+
+def test_a_backend_can_carry_its_own_stop_strings(client, isolated_settings):
+    from app import config, providers
+    from app.models import Sampling
+
+    client.put("/api/settings", json={
+        "backends": [{"name": "echo", "kind": "echo", "model": "echo-1",
+                      "stop": ["\nUser:", "### "]}],
+        "tiers": {"blocking": "echo", "foreground": "echo", "background": "echo"},
+    })
+    backend = config.SETTINGS.backend("echo")
+    assert backend.stop == ["\nUser:", "### "]
+
+    provider = providers.build(backend)
+    stops = provider.stop_strings(Sampling())
+    assert "\nUser:" in stops and "### " in stops
+
+
+def test_stop_strings_accept_lines_from_a_textarea(client):
+    from app.config import parse_stop_strings
+
+    assert parse_stop_strings("User:\n\n### \n   \nEND") == ["User:", "### ", "END"]
+    # Lines are the unit, so a stop string cannot *begin* with a newline when
+    # written this way; the list form is there for that.
+    assert parse_stop_strings("\nUser:") == ["User:"]
+    assert parse_stop_strings(["\nUser:"]) == ["\nUser:"]
+    assert parse_stop_strings(["a", "a", "b"]) == ["a", "b"], "de-duped, order kept"
+    assert parse_stop_strings(None) == []
+    # A trailing space is exactly the kind of thing a stop string is.
+    assert parse_stop_strings("Narrator: ") == ["Narrator: "]
+
+
+def test_a_character_can_carry_stop_strings(client):
+    character_id = client.get("/api/characters").json()[0]["id"]
+    client.put(f"/api/characters/{character_id}", json={"stop_strings": "Narrator:\n---"})
+    assert client.get(f"/api/characters/{character_id}").json()["stop_strings"] == [
+        "Narrator:", "---"
+    ]
+
+
+def test_a_characters_stops_reach_the_reply_but_not_the_pass_definition(client):
+    """The pass definition is shared by every chat and must not be mutated."""
+    from app.passes import registry
+    from app.passes.scheduler import _with_character_stops
+    from app.db import get_db
+    from app import repo
+
+    db = get_db()
+    character_id = client.get("/api/characters").json()[0]["id"]
+    client.put(f"/api/characters/{character_id}", json={"stop_strings": "Narrator:"})
+    character = repo.get_character(db, character_id)
+
+    definition = registry.get_pass(db, "basic")
+    before = list(definition.sampling.stop)
+    merged = _with_character_stops(definition.sampling, character)
+
+    assert "Narrator:" in merged.stop
+    assert definition.sampling.stop == before, "the shared definition was mutated"
+
+
+def test_a_character_without_stops_is_left_alone(client):
+    from app.passes import registry
+    from app.passes.scheduler import _with_character_stops
+    from app.db import get_db
+    from app import repo
+
+    db = get_db()
+    character = repo.get_character(db, client.get("/api/characters").json()[0]["id"])
+    definition = registry.get_pass(db, "basic")
+    assert _with_character_stops(definition.sampling, character) is definition.sampling
+
+
+def test_stop_strings_survive_a_card_round_trip(client):
+    character_id = client.get("/api/characters").json()[0]["id"]
+    client.put(f"/api/characters/{character_id}", json={"stop_strings": "Narrator:\n---"})
+    card = client.get(f"/api/characters/{character_id}/export").json()
+    back_id = import_card(client, card, "stops.json")
+    assert client.get(f"/api/characters/{back_id}").json()["stop_strings"] == ["Narrator:", "---"]

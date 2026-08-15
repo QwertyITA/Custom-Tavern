@@ -48,7 +48,7 @@ Everything else leans on these.
       context. Visibly marked.
 - [x] **4. Author's Note.** Free text injected at a chosen depth from the end.
       Per chat and per character, with depth and frequency.
-- [ ] **13. Custom stop strings.** Per backend and per character.
+- [x] **13. Custom stop strings.** Per backend and per character.
 
 ## Phase 3 — the prompt, made legible
 

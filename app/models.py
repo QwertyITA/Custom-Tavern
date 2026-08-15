@@ -167,6 +167,9 @@ class Character(BaseModel):
     # A standing note steered *into* the recent conversation rather than
     # appended to it (§7.1). See AuthorsNote for what depth and frequency mean.
     authors_note: AuthorsNote = Field(default_factory=lambda: AuthorsNote())
+    # Sequences that end this character's replies — a narrator label they keep
+    # writing, a scene break they overuse.
+    stop_strings: list[str] = Field(default_factory=list)
     pfp_set: dict[str, str] = Field(default_factory=dict)  # emotion -> image
     backgrounds: list[dict[str, Any]] = Field(default_factory=list)  # {img, metadata}
     state_schema: dict[str, VariableSchema] = Field(default_factory=dict)

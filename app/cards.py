@@ -17,7 +17,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .models import Character, LorebookEntry, VariableSchema
+from .models import AuthorsNote, Character, LorebookEntry, VariableSchema
 from .state import DEFAULT_STATE_SCHEMA
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -130,6 +130,14 @@ def _state_schema_from(extensions: dict[str, Any]) -> dict[str, VariableSchema]:
     return out
 
 
+def _authors_note_from(ours: dict[str, Any]) -> AuthorsNote:
+    """Ours, and only ours — no other frontend writes this field."""
+    try:
+        return AuthorsNote.model_validate(ours.get("authors_note") or {})
+    except ValueError:
+        return AuthorsNote()
+
+
 def from_card_json(raw: dict[str, Any], *, character_id: str | None = None) -> Character:
     """Map a v1/v2/v3 card (or one of our own exports) onto Character."""
     if not isinstance(raw, dict):
@@ -179,6 +187,8 @@ def from_card_json(raw: dict[str, Any], *, character_id: str | None = None) -> C
         lorebook=_lorebook_from_book(body.get("character_book")),
         default_toggles=list(ours.get("default_toggles") or []),
         colours=dict(ours.get("colours") or {}),
+        authors_note=_authors_note_from(ours),
+        stop_strings=[str(x) for x in (ours.get("stop_strings") or []) if str(x).strip()],
     )
 
 
@@ -248,6 +258,8 @@ def to_card_json(character: Character) -> dict[str, Any]:
                 "backgrounds": character.backgrounds,
                 "default_toggles": character.default_toggles,
                 "colours": character.colours,
+                "authors_note": payload["authors_note"],
+                "stop_strings": character.stop_strings,
             }
         },
     }

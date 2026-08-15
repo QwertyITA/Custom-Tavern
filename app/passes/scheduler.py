@@ -33,7 +33,7 @@ from ..config import Settings
 from ..db import Database
 from ..events import BUS
 from ..markup import to_plain
-from ..models import Character, PassDef, VariableSchema
+from ..models import Character, PassDef, Sampling, VariableSchema
 from ..postprocess import clean_reply, split_thinking
 from ..providers import GenRequest, GenResult, ProviderError, provider_for_tier
 from ..state import SLICE_SIGNALS, SLICE_VARS
@@ -269,7 +269,7 @@ class PassScheduler:
         request = GenRequest(
             system=system,
             messages=assembled.messages,
-            sampling=definition.sampling,
+            sampling=_with_character_stops(definition.sampling, ctx.character),
             pass_id=definition.id,
         )
 
@@ -774,7 +774,7 @@ class PassScheduler:
                 "again."
             ),
             messages=messages,
-            sampling=definition.sampling,
+            sampling=_with_character_stops(definition.sampling, character),
             pass_id="continue",
         )
 
@@ -887,7 +887,7 @@ class PassScheduler:
         request = GenRequest(
             system=assembled.system + "\n\n" + _suffix_instructions(ctx),
             messages=assembled.messages,
-            sampling=definition.sampling,
+            sampling=_with_character_stops(definition.sampling, character),
             pass_id=definition.id,
         )
         provider = provider_for_tier(definition.model_tier, self.settings)
@@ -1003,6 +1003,9 @@ class PassScheduler:
         request = GenRequest(
             system=system,
             messages=assembled.messages,
+            # Not the character's stop strings: this is the *user's* line, and
+            # a sequence that ends the character's replies has no business
+            # cutting off the user's.
             sampling=definition.sampling,
             pass_id="impersonate",
         )
@@ -1109,6 +1112,20 @@ class PassScheduler:
 
 
 # ------------------------------------------------------------------ helpers
+
+
+def _with_character_stops(sampling: Sampling, character: Character) -> Sampling:
+    """The pass's sampling plus whatever this character keeps saying.
+
+    Copied rather than mutated: `definition.sampling` is the stored pass
+    definition, shared across every chat, and appending to it would leak one
+    character's stop strings into everybody else's replies.
+    """
+    if not character.stop_strings:
+        return sampling
+    merged = sampling.model_copy(deep=True)
+    merged.stop = list(dict.fromkeys([*merged.stop, *character.stop_strings]))
+    return merged
 
 
 def _compare(left: int, op: str, right: int) -> bool:

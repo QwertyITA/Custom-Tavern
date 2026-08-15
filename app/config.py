@@ -225,6 +225,9 @@ class BackendConfig:
     api_key: str = ""
     template: str = "auto"  # auto | chatml | llama3 | mistral | plain | messages
     timeout: float = 120.0
+    # Sequences that end a generation. Per backend because a model's own
+    # artefacts are a property of the model, not of the story being told.
+    stop: list[str] = field(default_factory=list)
     # Horde-only knobs; ignored elsewhere.
     models: list[str] = field(default_factory=list)
 
@@ -378,8 +381,31 @@ def merge_backend(raw: dict, existing: list[BackendConfig]) -> BackendConfig:
         api_key=key,
         template=template,
         timeout=timeout,
+        stop=parse_stop_strings(raw.get("stop")),
         models=[str(m) for m in models],
     )
+
+
+def parse_stop_strings(raw: Any) -> list[str]:
+    """Accept a list, or one textarea's worth of one-per-line.
+
+    A phone keyboard is a poor place to build a JSON array, and a stop string
+    is often something with a comma in it — so lines, not commas. Whitespace is
+    stripped per line but kept inside a line, because a trailing space is
+    exactly the kind of thing a stop string is.
+    """
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        # Lines are the unit, so a stop string cannot *begin* with a newline
+        # when written this way — pass a list for that. Only the line ending is
+        # removed; anything else typed on the line is kept, trailing space
+        # included, because that is exactly the kind of thing a stop string is.
+        raw = [line.rstrip("\r") for line in raw.split("\n")]
+    elif not isinstance(raw, list):
+        raise SettingsError("stop strings must be a list or newline-separated text")
+    out = [str(item) for item in raw if str(item).strip()]
+    return list(dict.fromkeys(out))
 
 
 def _merge_secrets(incoming: list[dict], existing: list[BackendConfig]) -> list[BackendConfig]:

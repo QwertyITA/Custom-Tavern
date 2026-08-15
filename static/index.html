@@ -548,6 +548,14 @@
                 </template>
               </select>
             </label>
+            <label class="col-field">
+              <span class="row-label wide-label">Stop at</span>
+              <textarea rows="2" :value="(b.stop || []).join('\n')"
+                        @input="b.stop = $event.target.value.split('\n')"
+                        placeholder="One per line. Left empty, only the template's own are used."></textarea>
+              <span class="kind-note">Sequences that end a generation — a label
+                this model keeps writing, a scene break it overuses.</span>
+            </label>
 
             <div class="backend-foot">
               <button class="link" @click="testBackend(b)" :disabled="testing === b.name">
@@ -925,6 +933,11 @@
         <label class="col-field"><span class="row-label wide-label">System prompt</span>
           <textarea x-model="draftCharacter.system_prompt" rows="3"
                     placeholder="Extra instructions, prepended to every reply pass."></textarea></label>
+        <label class="col-field">
+          <span class="row-label wide-label">Stop at</span>
+          <textarea x-model="stopStrings" rows="2"
+                    placeholder="One per line. Sequences that end this character's replies."></textarea>
+        </label>
         <label class="col-field">
           <span class="row-label wide-label">Final instruction</span>
           <textarea x-model="draftCharacter.post_history_instructions" rows="3"

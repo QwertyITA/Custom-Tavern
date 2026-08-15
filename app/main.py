@@ -273,6 +273,11 @@ async def update_character(character_id: str, payload: dict = Body(...)) -> dict
     for field in editable:
         if field in payload:
             setattr(character, field, str(payload[field] or ""))
+    if "stop_strings" in payload:
+        try:
+            character.stop_strings = config.parse_stop_strings(payload["stop_strings"])
+        except config.SettingsError as exc:
+            raise HTTPException(400, str(exc)) from exc
     if "authors_note" in payload:
         try:
             character.authors_note = AuthorsNote.model_validate(payload["authors_note"] or {})

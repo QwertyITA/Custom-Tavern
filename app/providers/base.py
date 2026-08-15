@@ -97,11 +97,18 @@ class Provider:
         return chosen
 
     def stop_strings(self, sampling: Sampling) -> list[str]:
+        """Everything that should end a generation, most specific first.
+
+        The pass's own, then the character's and the backend's, then whatever
+        the instruct template needs. Order matters only for the backends that
+        cap the list — the ones nearest the story survive the cut.
+        """
         stops = list(sampling.stop)
+        stops.extend(getattr(self.config, "stop", []) or [])
         template = self.template()
         if template != "messages":
             stops.extend(templates.stop_for(template))
-        return list(dict.fromkeys(stops))  # de-dupe, keep order
+        return [s for s in dict.fromkeys(stops) if s]  # de-dupe, keep order
 
     async def generate(self, request: GenRequest) -> GenResult:
         raise NotImplementedError

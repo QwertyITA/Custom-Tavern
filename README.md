@@ -133,6 +133,24 @@ Editing only rewrites the text fields; portraits, backgrounds, lorebook and
 state schema come from the card and are left alone. Deleting a character
 deletes its chats with it, which is why both deletes take two taps.
 
+### Stop strings
+
+Sequences that end a generation. Two places, because they answer two different
+questions. **Per backend** (☰ → brain) is for a model's own artefacts — a label
+it keeps writing, a scene break it overuses; that is a property of the model,
+not of the story. **Per character** (chats → edit) is for what *this* character
+keeps doing.
+
+Both are one per line. A line's trailing space is kept, because a trailing
+space is exactly the kind of thing a stop string is — but a stop string cannot
+*begin* with a newline when written that way, since lines are the unit.
+
+They are merged most-specific-first with whatever the instruct template needs,
+which matters for the backends that cap how many they accept: the ones nearest
+the story survive the cut. Impersonate deliberately does not use the
+character's — that is your line, and a sequence that ends their replies has no
+business cutting off yours.
+
 ### Author's note
 
 A standing instruction, under **☰ → story**. Unlike the character's own text it

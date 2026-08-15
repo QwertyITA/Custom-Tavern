@@ -201,6 +201,7 @@ function tavern() {
     // in the editor. Held separately so the textarea can be edited freely —
     // splitting on every keystroke would renumber the list under the cursor.
     altGreetings: "",
+    stopStrings: "",
     personas: [],
     note: { text: "", depth: 0, frequency: 1 },
     noteFromChat: false,
@@ -843,6 +844,7 @@ function tavern() {
       try {
         this.draftCharacter = await api.get(`/api/characters/${characterId}`);
         this.altGreetings = (this.draftCharacter.alternate_greetings || []).join("\n\n");
+        this.stopStrings = (this.draftCharacter.stop_strings || []).join("\n");
         this.panel = "character";
       } catch (e) {
         this.error = String(e.message || e);
@@ -864,6 +866,7 @@ function tavern() {
           system_prompt: draft.system_prompt,
           post_history_instructions: draft.post_history_instructions,
           alternate_greetings: this.altGreetings,
+          stop_strings: this.stopStrings,
         });
         this.characters = await api.get("/api/characters");
         // The open chat holds its own copy of the card, and the header reads
