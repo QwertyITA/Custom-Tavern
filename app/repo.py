@@ -535,3 +535,53 @@ def prompt_record(db: Database, message_id: str) -> dict | None:
         "tokens_in": row["tokens_in"],
         "sent_at": row["started_at"],
     }
+
+
+# ---------------------------------------------------------- chat management
+
+
+def rename_chat(db: Database, chat_id: str, title: str) -> None:
+    """Rename without touching `updated_at`: the chat list is ordered by when
+    the story last moved, and renaming one is not the story moving."""
+    db.write_sync(
+        lambda conn: conn.execute(
+            "UPDATE chats SET title=? WHERE id=?", (title.strip(), chat_id)
+        )
+    )
+
+
+def search_chats(db: Database, query: str, limit: int = 40) -> list[dict]:
+    """Chats whose title or messages contain `query`, most recent first.
+
+    LIKE rather than FTS: a full-text index is a second copy of every message
+    in a database that lives on a phone, and the honest reach of this feature
+    is "find that chat where they mentioned the lighthouse" over a few hundred
+    conversations, which LIKE does in milliseconds.
+
+    The matching message comes back with the row, because a list of chat titles
+    is not an answer to a search for a phrase.
+    """
+    if not query.strip():
+        return []
+    # `%` and `_` are LIKE's own wildcards, so a query containing one would
+    # match far more than the person typing it meant — `%` alone would return
+    # every chat they have.
+    escaped = query.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    needle = f"%{escaped}%"
+    rows = db.query(
+        "SELECT c.id, c.character_id, c.title, c.created_at, c.updated_at, "
+        "       ch.name AS character_name, "
+        "       (SELECT v.text FROM messages m "
+        "          JOIN message_variants v ON v.id = m.active_variant "
+        "         WHERE m.chat_id = c.id AND v.text LIKE :needle ESCAPE '\\' "
+        "         ORDER BY m.turn DESC LIMIT 1) AS hit "
+        "  FROM chats c "
+        "  LEFT JOIN characters ch ON ch.id = c.character_id "
+        " WHERE c.title LIKE :needle ESCAPE '\\' OR EXISTS ("
+        "         SELECT 1 FROM messages m "
+        "           JOIN message_variants v ON v.id = m.active_variant "
+        "          WHERE m.chat_id = c.id AND v.text LIKE :needle ESCAPE '\\') "
+        " ORDER BY c.updated_at DESC LIMIT :limit",
+        {"needle": needle, "limit": limit},
+    )
+    return [dict(row) for row in rows]

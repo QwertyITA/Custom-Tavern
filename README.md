@@ -151,6 +151,30 @@ the story survive the cut. Impersonate deliberately does not use the
 character's — that is your line, and a sequence that ends their replies has no
 business cutting off yours.
 
+### Chats: naming, finding, moving them around
+
+Under ☰ → characters & chats.
+
+**Search** sits at the top and looks inside the messages, not just the titles —
+the reason to open this panel with something in mind is almost always "which
+chat was that in". Each result shows the line that matched, under the character
+and chat name.
+
+**Rename** is the pencil on a chat row. Enter saves, Escape abandons. Renaming
+deliberately does not move the chat to the top of the list: the list is ordered
+by when the story last moved, and renaming is not the story moving.
+
+**Export** writes the chat as plain JSON — every field named, readable in a text
+editor. Messages, all their swipe variants, the rolling summary and the state
+all travel. The character does not: it has its own card export, it is usually
+shared between several chats, and copying it into each one would let an import
+silently fork it. **Import chat** puts one back as a *new* chat, so importing an
+export of something you still have gives you a second copy rather than
+overwriting the first.
+
+An import binds to a character that is already here — by id, then by name. If
+neither is found it says whose chat it is and stops, rather than guessing.
+
 ### Find and replace
 
 Under ☰ → brain. Rules run in order on every message, and each one picks a

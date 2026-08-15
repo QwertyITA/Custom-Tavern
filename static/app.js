@@ -217,6 +217,11 @@ function tavern() {
     samplerBook: {},
     advancedFor: "",
     rulesOpen: false,
+    chatQuery: "",
+    chatHits: [],
+    searching: false,
+    renamingChat: "",
+    importingChat: false,
     armedRule: "",
     ruleSample: "The cat sat on the mat... twice.",
     ruleTests: {},
@@ -1172,6 +1177,86 @@ function tavern() {
       } finally {
         this.importing = false;
         event.target.value = "";
+      }
+    },
+
+    // ---- chat management (§10) ----
+
+    async importChat(event) {
+      const file = (event.target.files || [])[0];
+      if (!file) return;
+      this.importingChat = true;
+      this.importMsg = "";
+      this.importError = "";
+      try {
+        const response = await fetch("/api/chats/import", { method: "POST", body: file });
+        if (!response.ok) throw await apiError(response);
+        const body = await response.json();
+        this.chats = await api.get("/api/chats");
+        this.characters = await api.get("/api/characters");
+        // Open the history of whoever it belongs to, so the imported chat is
+        // visible rather than merely reported.
+        this.historyFor = body.chat.character_id;
+        this.importMsg = `Imported "${body.chat.title || "untitled"}"`;
+      } catch (e) {
+        this.importError = String(e.message || e);
+      } finally {
+        this.importingChat = false;
+        event.target.value = "";
+      }
+    },
+
+    startRenameChat(chat, button) {
+      const row = button.closest("li");
+      this.renamingChat = chat.id;
+      // $nextTick alone is not enough: Alpine has set renamingChat by then, but
+      // x-show has not finished taking display:none off the input, and focusing
+      // a hidden element is a silent no-op. One frame later it is really there.
+      this.$nextTick(() => requestAnimationFrame(() => {
+        const field = row.querySelector(".chat-rename");
+        if (field) { field.focus(); field.select(); }
+      }));
+    },
+
+    async saveChatName(chat, title) {
+      if (this.renamingChat !== chat.id) return;  // blur after enter
+      this.renamingChat = "";
+      const wanted = String(title || "").trim();
+      if (wanted === (chat.title || "")) return;
+      chat.title = wanted;
+      try {
+        await api.patch(`/api/chats/${chat.id}`, { title: wanted });
+        this.flashHint(wanted ? `Renamed to "${wanted}"` : "Name cleared");
+      } catch (e) {
+        this.error = String(e.message || e);
+      }
+    },
+
+    queueChatSearch() {
+      clearTimeout(this._chatSearchTimer);
+      const query = this.chatQuery.trim();
+      if (!query) {
+        this.chatHits = [];
+        this.searching = false;
+        return;
+      }
+      this.searching = true;
+      this._chatSearchTimer = setTimeout(() => this.runChatSearch(), PREVIEW_DEBOUNCE_MS);
+    },
+
+    async runChatSearch() {
+      const query = this.chatQuery.trim();
+      if (!query) return;
+      try {
+        const hits = await api.get(`/api/chats/search?q=${encodeURIComponent(query)}`);
+        // Only if the box still says what this search was for: replies can
+        // land out of order, and the older one arriving last would leave the
+        // list showing results for a prefix of what was typed.
+        if (this.chatQuery.trim() === query) this.chatHits = hits;
+      } catch (e) {
+        this.error = String(e.message || e);
+      } finally {
+        if (this.chatQuery.trim() === query) this.searching = false;
       }
     },
 

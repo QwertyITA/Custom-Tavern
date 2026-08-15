@@ -17,7 +17,8 @@ from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import assembly, cards, config, macros, memory as memory_store, prompt_layout
+from . import assembly, cards, chat_files, config, macros, memory as memory_store
+from . import prompt_layout
 from . import providers, regex_rules, repo, state as state_mod
 from .config import DATA_DIR, SETTINGS, STATIC_DIR, reload_settings
 from .db import get_db
@@ -501,6 +502,33 @@ async def create_chat(payload: CreateChatRequest) -> dict:
     return chat
 
 
+# These two sit above /api/chats/{chat_id} on purpose: routes match in the
+# order they are declared, so "search" and "import" would otherwise be read
+# as chat ids and 404.
+@app.get("/api/chats/search")
+async def search_chats(q: str = "", limit: int = 40) -> list[dict]:
+    """Chats matching `q` in their title or their messages (§10)."""
+    return repo.search_chats(get_db(), q, limit=max(1, min(limit, 100)))
+
+
+@app.post("/api/chats/import")
+async def import_chat(request: Request, character_id: str = Query("")) -> dict:
+    """Body is the raw exported JSON — same shape as the card import, and for
+    the same reason: multipart would mean a form parser dependency."""
+    raw = await request.body()
+    if not raw:
+        raise HTTPException(400, "empty upload")
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise HTTPException(400, f"unreadable file: {exc}") from exc
+    try:
+        chat = chat_files.import_chat(get_db(), payload, character_id=character_id)
+    except chat_files.ChatFileError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "chat": chat}
+
+
 @app.get("/api/chats/{chat_id}")
 async def get_chat(chat_id: str) -> dict:
     db = get_db()
@@ -537,6 +565,32 @@ async def get_chat(chat_id: str) -> dict:
 async def delete_chat(chat_id: str) -> dict:
     repo.delete_chat(get_db(), chat_id)
     return {"ok": True}
+
+
+@app.patch("/api/chats/{chat_id}")
+async def rename_chat(chat_id: str, payload: dict = Body(...)) -> dict:
+    db = get_db()
+    if repo.get_chat(db, chat_id) is None:
+        raise HTTPException(404, "chat not found")
+    title = str(payload.get("title") or "").strip()
+    repo.rename_chat(db, chat_id, title)
+    return {"ok": True, "chat": repo.get_chat(db, chat_id)}
+
+
+@app.get("/api/chats/{chat_id}/export")
+async def export_chat(chat_id: str, download: bool = False) -> JSONResponse:
+    db = get_db()
+    try:
+        payload = chat_files.export_chat(db, chat_id)
+    except chat_files.ChatFileError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    headers = {}
+    if download:
+        name = chat_files.filename_for(
+            payload["chat"], (payload.get("character") or {}).get("name", "")
+        )
+        headers["Content-Disposition"] = f'attachment; filename="{name}"'
+    return JSONResponse(payload, headers=headers)
 
 
 @app.get("/api/chats/{chat_id}/messages")

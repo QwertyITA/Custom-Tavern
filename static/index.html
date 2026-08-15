@@ -1032,6 +1032,36 @@
     <!-- ----------------------------------------------------------- chats -->
     <template x-if="panel === 'chats'">
       <div>
+        <!-- Search sits above everything, because the reason to open this
+             panel with something in mind is almost always "which chat was
+             that in". It searches what was said, not just the titles. -->
+        <label class="col-field tight search-field">
+          <input type="search" x-model="chatQuery" @input="queueChatSearch()"
+                 placeholder="Search chats and messages" aria-label="Search chats"
+                 spellcheck="false">
+        </label>
+        <div class="fold" :class="{ open: chatQuery.trim().length > 0 }">
+          <div class="fold-clip">
+            <p class="kind-note" x-show="searching">Searching…</p>
+            <p class="kind-note" x-show="!searching && !chatHits.length && chatQuery.trim()">
+              Nothing matches that.
+            </p>
+            <ul class="chat-list">
+              <template x-for="hit in chatHits" :key="hit.id">
+                <li :class="{ active: hit.id === chatId }">
+                  <button class="chat-open" @click="openChat(hit.id); closePanel()">
+                    <span class="chat-title"
+                          x-text="`${hit.character_name || '—'} · ${hit.title || 'untitled'}`"></span>
+                    <!-- The line that matched, not just the title: a list of
+                         titles is not an answer to a search for a phrase. -->
+                    <span class="chat-hit" x-show="hit.hit" x-text="hit.hit"></span>
+                  </button>
+                </li>
+              </template>
+            </ul>
+          </div>
+        </div>
+
         <!-- Who you are comes first: it is the shorter list, it changes less
              often, and every character below is talked to as this person. -->
         <h3>You</h3>
@@ -1129,11 +1159,29 @@
             <ul class="chat-list" x-show="historyFor === c.id" x-cloak>
               <template x-for="chat in chatsFor(c.id)" :key="chat.id">
                 <li :class="{ active: chat.id === chatId }">
-                  <button class="chat-open" @click="openChat(chat.id); closePanel()">
+                  <button class="chat-open" x-show="renamingChat !== chat.id"
+                          @click="openChat(chat.id); closePanel()">
                     <span class="chat-title" x-text="chat.title || 'untitled'"></span>
                     <span class="chat-when" x-text="whenLabel(chat)"></span>
                   </button>
+                  <input class="chat-rename" x-show="renamingChat === chat.id" x-cloak
+                         :value="chat.title" @keydown.enter="saveChatName(chat, $event.target.value)"
+                         @keydown.escape="renamingChat = ''"
+                         @blur="saveChatName(chat, $event.target.value)"
+                         placeholder="Untitled" aria-label="Chat name">
+                  <button class="glyph-btn" @click="startRenameChat(chat, $el)"
+                          x-show="renamingChat !== chat.id"
+                          title="Rename chat" aria-label="Rename chat">
+                    <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-edit"/></svg>
+                  </button>
+                  <a class="glyph-btn" :href="`/api/chats/${chat.id}/export?download=true`"
+                     :download="`${chat.title || 'chat'}.json`"
+                     x-show="renamingChat !== chat.id"
+                     title="Export chat" aria-label="Export chat">
+                    <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-export"/></svg>
+                  </a>
                   <button class="glyph-btn danger" :class="{ armed: confirmChat === chat.id }"
+                          x-show="renamingChat !== chat.id"
                           @click="deleteChat(chat)"
                           :title="confirmChat === chat.id ? 'Tap again to delete' : 'Delete chat'"
                           aria-label="Delete chat"
@@ -1155,6 +1203,12 @@
                    @change="importCard($event)" hidden>
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-import"/></svg>
             <span x-text="importing ? 'Importing…' : 'Import card'"></span>
+          </label>
+          <label class="wide file-btn">
+            <input type="file" accept=".json,application/json"
+                   @change="importChat($event)" hidden>
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-import"/></svg>
+            <span x-text="importingChat ? 'Importing…' : 'Import chat'"></span>
           </label>
         </div>
         <p class="kind-note" :class="{ bad: importError }" x-text="importError || importMsg"></p>
