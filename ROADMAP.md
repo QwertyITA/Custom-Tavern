@@ -28,7 +28,7 @@ These apply to every item, not just the ones that mention them.
 
 Everything else leans on these.
 
-- [ ] **1. Macros.** `{{char}}`, `{{user}}`, `{{persona}}`, `{{time}}`,
+- [x] **1. Macros.** `{{char}}`, `{{user}}`, `{{persona}}`, `{{time}}`,
       `{{date}}`, `{{random:a,b}}`, `{{roll:d6}}`, `{{idle_duration}}`,
       `{{newline}}`. Substituted everywhere a card's text reaches a prompt or
       the screen. Without this, imported cards talk about someone called

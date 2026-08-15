@@ -27,7 +27,8 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 
-from .. import assembly, memory as memory_store, repo, state as state_mod
+from .. import assembly
+from .. import macros, memory as memory_store, repo, state as state_mod
 from ..config import Settings
 from ..db import Database
 from ..events import BUS
@@ -206,6 +207,12 @@ class PassScheduler:
             yield {"type": "error", "error": "chat has no character"}
             return
 
+        # Resolved before it is stored, like the greeting: what the user typed
+        # is what gets recorded, and {{char}} in their own message should read
+        # as the character's name in the transcript too.
+        user_text = macros.substitute(
+            user_text, assembly.macro_context(self.db, chat, character)
+        )
         user_message = repo.add_message(self.db, chat_id, "user", user_text)
         turn = user_message["turn"]
 

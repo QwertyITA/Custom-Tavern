@@ -665,3 +665,82 @@ def test_impersonating_an_unknown_chat_reports_it(client):
     with client.stream("POST", "/api/chats/nope/impersonate") as response:
         events = sse_events(response)
     assert any(e["type"] == "error" for e in events)
+
+
+# ------------------------------------------------------------------- macros
+
+
+MACRO_CARD = {
+    "spec": "chara_card_v2",
+    "spec_version": "2.0",
+    "data": {
+        "name": "Tessa",
+        "description": "{{char}} has known {{user}} for years.",
+        "scenario": "{{user}} arrives at dusk.",
+        "first_mes": "*{{char}} looks up* \"There you are, {{user}}.\"",
+        "system_prompt": "You are {{char}}, speaking to {{user}}.",
+    },
+}
+
+
+def macro_chat(client) -> tuple[str, str]:
+    created = client.post(
+        "/api/characters/import?filename=macro.json",
+        content=json.dumps(MACRO_CARD).encode(),
+    )
+    assert created.status_code == 200
+    character_id = created.json()["id"]
+    chat_id = client.post("/api/chats", json={"character_id": character_id}).json()["id"]
+    return character_id, chat_id
+
+
+def test_the_greeting_has_its_macros_resolved(client):
+    """A card's opening line must not greet someone called {{user}}."""
+    _, chat_id = macro_chat(client)
+    messages = client.get(f"/api/chats/{chat_id}/messages").json()
+    greeting = messages[0]["text"]
+    assert "{{" not in greeting
+    assert "Tessa looks up" in greeting
+    assert "There you are, You." in greeting
+
+
+def test_no_macro_survives_into_the_assembled_prompt(client):
+    """The whole point: the model is never told the reader is named {{user}}."""
+    from app.assembly import build_reply_context
+    from app.config import SETTINGS
+    from app.db import get_db
+    from app import repo
+
+    character_id, chat_id = macro_chat(client)
+    send(client, chat_id, "I let the door swing shut.")
+
+    db = get_db()
+    assembled = build_reply_context(
+        db, repo.get_chat(db, chat_id), repo.get_character(db, character_id), SETTINGS
+    )
+    assert "{{" not in assembled.system, assembled.system
+    assert "Tessa has known You for years." in assembled.system
+    assert "You arrives at dusk." in assembled.system
+    for message in assembled.messages:
+        assert "{{" not in message["content"]
+
+
+def test_a_macro_in_what_the_user_typed_is_resolved_too(client):
+    _, chat_id = macro_chat(client)
+    send(client, chat_id, "I ask {{char}} about the ledger.")
+    texts = [m["text"] for m in client.get(f"/api/chats/{chat_id}/messages").json()]
+    assert any("I ask Tessa about the ledger." == t for t in texts)
+    assert not any("{{char}}" in t for t in texts)
+
+
+def test_a_card_without_macros_is_unchanged(client):
+    """Substitution must not disturb text that never asked for it."""
+    plain = client.post(
+        "/api/characters/import?filename=plain.json",
+        content=json.dumps({
+            "spec": "chara_card_v2", "spec_version": "2.0",
+            "data": {"name": "Bo", "description": "Runs the ferry.", "first_mes": "Mind the step."},
+        }).encode(),
+    ).json()["id"]
+    chat_id = client.post("/api/chats", json={"character_id": plain}).json()["id"]
+    assert client.get(f"/api/chats/{chat_id}/messages").json()[0]["text"] == "Mind the step."

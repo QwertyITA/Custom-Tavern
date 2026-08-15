@@ -17,7 +17,7 @@ from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import assembly, cards, config, memory as memory_store, providers, repo, state as state_mod
+from . import assembly, cards, config, macros, memory as memory_store, providers, repo, state as state_mod
 from .config import DATA_DIR, SETTINGS, STATIC_DIR, reload_settings
 from .db import get_db
 from .events import BUS
@@ -350,9 +350,15 @@ async def create_chat(payload: CreateChatRequest) -> dict:
         raise HTTPException(404, "character not found")
     chat = repo.create_chat(db, payload.character_id, payload.title or character.name)
     # The greeting loads at chat start (§7.4) and is a real message, so it takes
-    # part in context assembly and can be swiped like any other.
-    if character.first_mes.strip():
-        repo.add_message(db, chat["id"], "assistant", character.first_mes.strip(), turn=0)
+    # part in context assembly and can be swiped like any other. Its macros are
+    # resolved once, here: a message is a record of something that was said, and
+    # rewriting it later because a persona was renamed would falsify the
+    # transcript.
+    greeting = macros.substitute(
+        character.first_mes.strip(), assembly.macro_context(db, chat, character)
+    )
+    if greeting:
+        repo.add_message(db, chat["id"], "assistant", greeting, turn=0)
     return chat
 
 

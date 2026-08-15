@@ -25,6 +25,7 @@ from .db import Database
 from .lorebook import render as render_lore
 from .lorebook import scan as scan_lore
 from .markup import to_plain
+from . import macros
 from .models import Character, VariableSchema
 from .providers.base import estimate_tokens
 from .state import SLICE_SCENE, SLICE_VARS, initial_values, load_schema, read_slice
@@ -67,6 +68,24 @@ def current_values(
     return values
 
 
+def macro_context(db: Database, chat: dict, character: Character) -> macros.MacroContext:
+    """The values `{{...}}` resolves to for this chat.
+
+    Seeded on the chat id so `{{pick}}` lands on the same option every turn —
+    a character described with one scar should not grow a different one each
+    time the prompt is rebuilt.
+    """
+    persona = repo.active_persona(db, chat)
+    history = repo.list_messages(db, chat["id"], include_dropped=True)
+    last_at = history[-1].get("created_at") if history else None
+    return macros.context_from(
+        character,
+        persona,
+        seed=chat["id"],
+        idle_seconds=macros.idle_since(last_at),
+    )
+
+
 def scene_line(db: Database, chat_id: str) -> str:
     scene = read_slice(db, chat_id, SLICE_SCENE)
     if not scene or not isinstance(scene["value"], dict):
@@ -95,10 +114,17 @@ def build_reply_context(
         else None
     )
 
+    # Card text is written with {{char}} and {{user}} in it and is resolved
+    # here rather than when it was stored: the active persona can change
+    # between turns and {{time}} is different every turn (§7.1).
+    macro_ctx = macro_context(db, chat, character)
+    def expand(text: str) -> str:
+        return macros.substitute(text, macro_ctx)
+
     # ---- stable prefix -------------------------------------------------
     prefix: list[str] = []
     if character.system_prompt:
-        prefix.append(character.system_prompt.strip())
+        prefix.append(expand(character.system_prompt).strip())
     else:
         prefix.append(
             f"You are {character.name}. Stay in character and reply only as "
@@ -106,15 +132,15 @@ def build_reply_context(
             "actions and narration."
         )
     if character.persona:
-        prefix.append(f"## {character.name}\n{character.persona.strip()}")
+        prefix.append(f"## {character.name}\n{expand(character.persona).strip()}")
     if character.scenario:
-        prefix.append(f"## Scenario\n{character.scenario.strip()}")
+        prefix.append(f"## Scenario\n{expand(character.scenario).strip()}")
 
     constant_lore = [e for e in character.lorebook if e.constant and e.enabled]
     if constant_lore:
-        prefix.append("## World\n" + render_lore(constant_lore))
+        prefix.append("## World\n" + expand(render_lore(constant_lore)))
     if character.example_dialogue:
-        prefix.append(f"## Example dialogue\n{character.example_dialogue.strip()}")
+        prefix.append(f"## Example dialogue\n{expand(character.example_dialogue).strip()}")
 
     assembled.system = "\n\n".join(p for p in prefix if p)
     _section(assembled, "prefix", assembled.system)

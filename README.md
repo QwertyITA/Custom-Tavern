@@ -133,6 +133,33 @@ Editing only rewrites the text fields; portraits, backgrounds, lorebook and
 state schema come from the card and are left alone. Deleting a character
 deletes its chats with it, which is why both deletes take two taps.
 
+### Macros
+
+Cards are written with placeholders, because a card is meant to be portable
+between people. They are resolved before anything reaches the model:
+
+| | |
+|---|---|
+| `{{char}}` `{{bot}}` | the character's name |
+| `{{user}}` | you — the active persona's name |
+| `{{persona}}` | your own description |
+| `{{description}}` `{{personality}}` `{{scenario}}` | the character's |
+| `{{time}}` `{{date}}` `{{weekday}}` `{{isotime}}` `{{isodate}}` `{{utctime}}` | now |
+| `{{idle_duration}}` | how long since the last message |
+| `{{random:a,b,c}}` | a different one every turn |
+| `{{pick:a,b,c}}` | one, chosen once and kept for that chat |
+| `{{roll:d20}}` `{{roll:2d6}}` | dice |
+| `{{newline}}` `{{trim}}` `{{comment:...}}` | typography |
+
+Card text — persona, scenario, system prompt, lorebook — is resolved **every
+turn**, because `{{time}}` moves and the persona can be switched. Messages are
+resolved **once, when they are written**: a message is a record of something
+that was said, and rewriting an old greeting because a persona was renamed
+would falsify the transcript.
+
+An unrecognised macro is left on screen rather than blanked, so a typo is
+something you can see and fix.
+
 ### Backdrop
 
 A tavern scene sits behind the chat by default. It is original vector art

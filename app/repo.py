@@ -83,6 +83,17 @@ def list_characters(db: Database) -> list[dict]:
     return out
 
 
+def active_persona(db: Database, chat: dict) -> dict | None:
+    """Who `{{user}}` is in this chat.
+
+    A seam rather than a stub: personas are their own feature, and until they
+    exist this correctly reports that nobody has been chosen — which is what
+    makes `{{user}}` resolve to a readable default instead of a literal
+    placeholder reaching the model.
+    """
+    return None
+
+
 def delete_character(db: Database, character_id: str) -> None:
     db.write_sync(
         lambda conn: conn.execute("DELETE FROM characters WHERE id=?", (character_id,))
