@@ -228,13 +228,23 @@ body {
 
 /* --------------------------------------------------------------- chat */
 
+/* .chat is the scroll port; .chat-inner is the content whose height it
+   follows. They are separate elements so a ResizeObserver can watch the
+   content alone — observing the scroller would only report the viewport
+   changing, never the messages growing. */
 .chat {
   overflow-y: auto;
   padding: 12px 10px 4px;
+  -webkit-overflow-scrolling: touch;
+  /* Reaching either end must not chain the scroll on to the page behind it —
+     on a phone that shows up as the whole app bouncing, or as a pull-to-
+     refresh, when all the user did was flick the last message. */
+  overscroll-behavior-y: contain;
+}
+.chat-inner {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  -webkit-overflow-scrolling: touch;
 }
 
 .msg { display: flex; gap: 8px; align-items: flex-start; }

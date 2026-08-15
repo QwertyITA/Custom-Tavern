@@ -70,6 +70,12 @@
 
 <!-- (2) chat area (§12) -->
 <main class="chat" x-ref="chat">
+<!-- Everything that can change the chat's height lives in this one box, so a
+     single ResizeObserver on it keeps the view pinned to the newest message —
+     streaming tokens, the regen bubble animating, a portrait finishing
+     loading, and anything added later, without each of them having to
+     remember to scroll (see initScroll). -->
+<div class="chat-inner" x-init="initScroll($el)">
   <template x-for="m in messages" :key="m.id">
     <article class="msg" :class="m.role">
       <img class="pfp" x-show="m.role === 'assistant' && portrait" :src="portrait" alt=""
@@ -145,6 +151,7 @@
     <span x-text="error"></span>
     <button class="link" @click="error = ''">dismiss</button>
   </div>
+</div>
 </main>
 
 <!-- ambient indicator: a background pass is working, no character-thinking cue -->

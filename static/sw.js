@@ -4,7 +4,7 @@
 // and a stale reply is worse than no reply. SSE endpoints are passed straight
 // through, since caching a stream would break it outright.
 
-const CACHE = "tavern-shell-v1";
+const CACHE = "tavern-shell-v2";
 const SHELL = [
   "/",
   "/static/styles.css",
@@ -36,19 +36,23 @@ self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   if (url.pathname.startsWith("/api/")) return; // always live
 
+  // Network first. Cache-first served the stored copy and only refreshed it in
+  // the background, so every update landed a reload late: pull a fix, restart,
+  // see the old app, and the change appears not to have worked. The server is
+  // on the same device as the browser, so asking it first costs nothing — the
+  // cache is here to keep the app openable when it is *not* running, which is
+  // the one case cache-first was actually buying.
   event.respondWith(
-    caches.match(event.request).then((hit) => {
-      const network = fetch(event.request)
-        .then((response) => {
-          if (response.ok && url.origin === self.location.origin) {
-            const copy = response.clone();
-            caches.open(CACHE).then((cache) => cache.put(event.request, copy));
-          }
-          return response;
-        })
-        .catch(() => hit);
-      // Cache-first for a fast cold start, with a background refresh.
-      return hit || network;
-    })
+    fetch(event.request)
+      .then((response) => {
+        if (response.ok && url.origin === self.location.origin) {
+          const copy = response.clone();
+          caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+        }
+        return response;
+      })
+      .catch(() =>
+        caches.match(event.request).then((hit) => hit || Response.error())
+      )
   );
 });

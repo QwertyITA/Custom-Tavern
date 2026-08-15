@@ -31,6 +31,16 @@ const REGEN_PILL_HEIGHT = 46;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// How far from the bottom still counts as "following the conversation". Big
+// enough to absorb sub-pixel scroll heights and the rubber-band at the end of
+// a touch scroll, small enough that one deliberate flick upward detaches.
+const BOTTOM_SLACK = 48;
+// How long after a gesture on the scroller its scroll events still count as
+// the user's doing. A drag fires move and scroll events together, so this only
+// has to outlast one frame; kept short so a later layout shift is never
+// mistaken for the tail of a gesture.
+const GESTURE_WINDOW_MS = 250;
+
 // Swipe thresholds, in CSS pixels.
 const SWIPE_CLAIM = 12;   // movement before a drag counts as horizontal at all
 const SWIPE_COMMIT = 64;  // release past this and the variant changes
@@ -115,6 +125,10 @@ function tavern() {
     regenPrevious: "",
     sceneBackgroundFile: "",
     fadingId: null,
+    // Following the newest message. Cleared when the user scrolls up to read,
+    // restored when they come back down or ask for the newest message.
+    stick: true,
+    scrollPort: null,
     drawer: false,
     hud: false,
     error: "",
@@ -201,7 +215,9 @@ function tavern() {
       localStorage.setItem("tavern:chat", id);
       this.connectEvents();
       this.loadCost();
-      this.$nextTick(() => this.scrollDown());
+      // Resume following before the messages render — the observer re-pins
+      // once they do, so this does not need to wait for layout.
+      this.scrollDown();
       this.drawer = false;
     },
 
@@ -396,6 +412,7 @@ function tavern() {
     async swipe(message) {
       if (this.streaming) return;
       this.error = "";
+      this.scrollDown();
       // Hand over to the typing cue gradually: fade the old text, shrink the
       // bubble to the cue's size, fade the cue in. Swapping the two outright
       // reads as a glitch — the text vanishes and the bubble collapses in the
@@ -567,12 +584,13 @@ function tavern() {
                   // it stands when the animation measures, so it cannot undo a
                   // later delta the way a captured copy would.
                   this.endRegen(target, () => { target.text = buffer; });
-                  this.scrollDown();
                   break;
                 }
               }
               if (target) target.text = buffer;
-              this.scrollDown();
+              // No scroll call here on purpose: the observer follows the text
+              // as it grows, and forcing it per delta would drag the user back
+              // down every token if they had scrolled up to read.
               break;
 
             case "reply": {
@@ -626,7 +644,6 @@ function tavern() {
         }
         this.regenId = null;
         this.regenPrevious = "";
-        this.scrollDown();
         this.loadCost();
       }
     },
@@ -965,12 +982,81 @@ function tavern() {
       el.style.height = Math.min(el.scrollHeight, window.innerHeight * 0.3) + "px";
     },
 
+    // ---- stick to bottom ----
+    //
+    // Scrolling is observed, not announced. Calling scrollDown() from each
+    // feature that adds content cannot work: it has to guess when the DOM has
+    // caught up, and $nextTick fires before layout reflects the change, so the
+    // scroll lands short of the message that triggered it — hence having to
+    // nudge the list by hand after every reply. It also silently misses every
+    // height change no feature reports: the regeneration bubble animating over
+    // 300ms, a portrait or webfont arriving, the composer growing under a long
+    // draft, the keyboard opening.
+    //
+    // Instead a ResizeObserver watches the content box and re-pins whenever it
+    // changes height, whatever the cause. Anything added later is covered by
+    // construction. The only thing that stops the following is the user
+    // scrolling up, and the only thing that resumes it is them coming back
+    // down — or an action of their own (opening a chat, sending, regenerating)
+    // that is meant to take them to the newest message.
+    initScroll(inner) {
+      const port = inner.parentElement;
+      this.scrollPort = port;
+
+      if (window.ResizeObserver) {
+        // Content growing or shrinking: follow it if we were following.
+        new ResizeObserver(() => this.pinBottom()).observe(inner);
+        // The port itself resizing is the keyboard opening or the composer
+        // growing. The content did not move; the window onto it did.
+        new ResizeObserver(() => this.pinBottom()).observe(port);
+      }
+
+      // Position alone cannot tell "the user scrolled up" from "the layout
+      // moved underneath them", and the two happen constantly: a growing
+      // composer, the keyboard, a bubble animating, and the pin's own scroll
+      // event, which is delivered after layout and so reports a position the
+      // content has already grown past. Every one of those looks like someone
+      // scrolling away. So detaching requires an actual gesture on the
+      // scroller, and only the moment right after one counts.
+      let gestureAt = -Infinity;
+      const gesture = () => { gestureAt = performance.now(); };
+      for (const type of ["wheel", "touchstart", "touchmove", "keydown"]) {
+        port.addEventListener(type, gesture, { passive: true });
+      }
+
+      port.addEventListener("scroll", () => {
+        // Back at the bottom, however we got there: follow again.
+        if (this.nearBottom()) { this.stick = true; return; }
+        if (performance.now() - gestureAt < GESTURE_WINDOW_MS) this.stick = false;
+      }, { passive: true });
+
+      // A phone keyboard resizes the visual viewport without resizing any
+      // element, so neither observer above sees it.
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener("resize", () => this.pinBottom());
+      }
+
+      this.pinBottom();
+    },
+
+    nearBottom() {
+      const el = this.scrollPort;
+      if (!el) return true;
+      return el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_SLACK;
+    },
+
+    // Follow the bottom, but only while the user has not scrolled away.
+    pinBottom() {
+      const el = this.scrollPort;
+      if (!el || !this.stick) return;
+      el.scrollTop = el.scrollHeight;
+    },
+
+    // For the deliberate moves: opening a chat, sending, regenerating. These
+    // resume following even if the user had scrolled up to read.
     scrollDown() {
-      const el = this.$refs.chat;
-      if (!el) return;
-      // Only follow the stream when the user is already at the bottom.
-      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-      if (atBottom) this.$nextTick(() => { el.scrollTop = el.scrollHeight; });
+      this.stick = true;
+      this.pinBottom();
     },
   };
 }
