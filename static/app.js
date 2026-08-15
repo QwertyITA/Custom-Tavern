@@ -621,7 +621,7 @@ function tavern() {
       document.body.style.backgroundImage = file
         ? `linear-gradient(color-mix(in srgb, var(--bg) ${dim}%, transparent),` +
           ` color-mix(in srgb, var(--bg) ${Math.min(100, dim + 7)}%, transparent)),` +
-          ` url("/static/backgrounds/${encodeURIComponent(file)}")`
+          ` url("/backgrounds/${encodeURIComponent(file)}")`
         : "";
       document.body.style.backgroundSize = "cover";
       document.body.style.backgroundPosition = "center";

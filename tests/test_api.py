@@ -511,3 +511,157 @@ def test_a_manual_pass_needs_something_to_look_at(client):
     character_id = client.post("/api/characters", json={"name": "Silent"}).json()["id"]
     chat_id = client.post("/api/chats", json={"character_id": character_id}).json()["id"]
     assert client.post(f"/api/chats/{chat_id}/passes/scene/run").status_code == 400
+
+
+# ------------------------------------------- cards, backdrops, impersonation
+
+
+def test_an_exported_card_is_readable_as_a_sillytavern_card(client):
+    """The v2 payload is the card; the v1 mirror is what older importers read."""
+    character_id = client.get("/api/characters").json()[0]["id"]
+    card = client.get(f"/api/characters/{character_id}/export").json()
+
+    assert card["spec"] == "chara_card_v2"
+    assert card["spec_version"] == "2.0"
+    for field in ("name", "description", "personality", "scenario", "first_mes", "mes_example"):
+        assert field in card, f"v1 mirror is missing {field}"
+        assert card[field] == card["data"][field]
+    for field in ("system_prompt", "alternate_greetings", "tags", "creator",
+                  "character_version", "character_book", "extensions"):
+        assert field in card["data"], f"v2 body is missing {field}"
+
+
+def test_an_exported_card_imports_back_with_everything_intact(client):
+    character_id = client.get("/api/characters").json()[0]["id"]
+    original = client.get(f"/api/characters/{character_id}").json()
+    card = client.get(f"/api/characters/{character_id}/export").json()
+
+    imported = client.post(
+        "/api/characters/import?filename=roundtrip.json",
+        content=json.dumps(card).encode(),
+    )
+    assert imported.status_code == 200
+    back = client.get(f"/api/characters/{imported.json()['id']}").json()
+
+    assert back["name"] == original["name"]
+    assert back["first_mes"] == original["first_mes"]
+    assert back["persona"].startswith(original["persona"][:40])
+    # The parts a plain v2 card has no field for ride in extensions.
+    assert back["pfp_set"] == original["pfp_set"]
+    assert len(back["lorebook"]) == len(original["lorebook"])
+
+    # A character carrying no schema of its own uses the canonical variables,
+    # and an import of one reads as exactly that — so the round trip is
+    # equivalent rather than byte-identical here.
+    from app.state import DEFAULT_STATE_SCHEMA
+
+    expected = set(original["state_schema"]) or set(DEFAULT_STATE_SCHEMA)
+    assert set(back["state_schema"]) == expected
+
+
+def test_exporting_for_download_names_the_file(client):
+    character_id = client.get("/api/characters").json()[0]["id"]
+    plain = client.get(f"/api/characters/{character_id}/export")
+    assert "content-disposition" not in plain.headers
+
+    download = client.get(f"/api/characters/{character_id}/export?download=true")
+    assert "attachment" in download.headers["content-disposition"]
+    assert ".card.json" in download.headers["content-disposition"]
+
+
+def test_a_card_name_with_slashes_cannot_escape_the_filename(client):
+    from app.main import _card_filename
+
+    assert "/" not in _card_filename("../../etc/passwd")
+    assert "\\" not in _card_filename("a\\b")
+    assert _card_filename("Mira of the Wreck") == "Mira_of_the_Wreck.card.json"
+    assert _card_filename("???").endswith(".card.json")
+
+
+PNG_1PX = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4"
+    "890000000a49444154789c6360000000020001e221bc330000000049454e44ae426082"
+)
+
+
+def test_a_background_can_be_uploaded_and_removed(client, tmp_path, monkeypatch):
+    from app import config
+
+    monkeypatch.setattr(config, "USER_BACKGROUND_DIR", tmp_path / "backgrounds")
+
+    before = client.get("/api/backgrounds").json()["backgrounds"]
+    assert all(not b["removable"] for b in before), "bundled art is not removable"
+
+    upload = client.post("/api/backgrounds?filename=my photo.PNG", content=PNG_1PX)
+    assert upload.status_code == 200
+    name = upload.json()["name"]
+    assert name == "my-photo.png", "the stem is rebuilt, not sanitised in place"
+
+    listed = {b["name"]: b for b in client.get("/api/backgrounds").json()["backgrounds"]}
+    assert listed[name]["removable"]
+    assert client.get(f"/backgrounds/{name}").status_code == 200
+
+    assert client.delete(f"/api/backgrounds/{name}").status_code == 200
+    assert name not in {b["name"] for b in client.get("/api/backgrounds").json()["backgrounds"]}
+
+
+def test_uploading_a_second_image_of_the_same_name_keeps_both(client, tmp_path, monkeypatch):
+    from app import config
+
+    monkeypatch.setattr(config, "USER_BACKGROUND_DIR", tmp_path / "backgrounds")
+    first = client.post("/api/backgrounds?filename=tavern.png", content=PNG_1PX).json()["name"]
+    second = client.post("/api/backgrounds?filename=tavern.png", content=PNG_1PX).json()["name"]
+    assert first != second
+
+
+def test_a_background_upload_cannot_write_outside_its_folder(client, tmp_path, monkeypatch):
+    from app import config
+
+    monkeypatch.setattr(config, "USER_BACKGROUND_DIR", tmp_path / "backgrounds")
+    response = client.post("/api/backgrounds?filename=../../evil.png", content=PNG_1PX)
+    assert response.status_code == 200
+    assert response.json()["name"] == "evil.png"
+    assert not (tmp_path / "evil.png").exists()
+    assert (tmp_path / "backgrounds" / "evil.png").exists()
+
+
+def test_only_image_types_we_serve_are_accepted(client, tmp_path, monkeypatch):
+    from app import config
+
+    monkeypatch.setattr(config, "USER_BACKGROUND_DIR", tmp_path / "backgrounds")
+    assert client.post("/api/backgrounds?filename=x.exe", content=b"MZ").status_code == 400
+    assert client.post("/api/backgrounds?filename=x.png", content=b"").status_code == 400
+
+
+def test_a_bundled_background_cannot_be_deleted(client):
+    assert client.delete("/api/backgrounds/tavern.svg").status_code == 404
+
+
+def test_serving_an_unknown_background_is_a_404(client):
+    assert client.get("/backgrounds/nope.png").status_code == 404
+    assert client.get("/backgrounds/..%2F..%2Fsettings.json").status_code == 404
+
+
+def test_impersonation_drafts_a_message_without_writing_one(client):
+    chat_id = new_chat(client)
+    send(client, chat_id, "I set the lantern down between us.")
+    before = len(client.get(f"/api/chats/{chat_id}/messages").json())
+
+    with client.stream("POST", f"/api/chats/{chat_id}/impersonate") as response:
+        assert response.status_code == 200
+        events = sse_events(response)
+
+    kinds = [e["type"] for e in events]
+    assert "delta" in kinds
+    final = [e for e in events if e["type"] == "impersonated"]
+    assert final and final[0]["text"].strip()
+    assert not final[0]["text"].lower().startswith(("you:", "user:"))
+
+    # It is a draft: nothing was added to the conversation.
+    assert len(client.get(f"/api/chats/{chat_id}/messages").json()) == before
+
+
+def test_impersonating_an_unknown_chat_reports_it(client):
+    with client.stream("POST", "/api/chats/nope/impersonate") as response:
+        events = sse_events(response)
+    assert any(e["type"] == "error" for e in events)

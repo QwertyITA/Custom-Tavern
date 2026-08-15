@@ -10,6 +10,7 @@ import asyncio
 import json
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import Body, FastAPI, HTTPException, Query, Request
@@ -291,12 +292,29 @@ async def import_character(request: Request, filename: str = Query("card.json"))
     return {"id": character.id, "name": character.name}
 
 
+def _card_filename(name: str) -> str:
+    """A filename a phone file manager will accept, from any character name."""
+    safe = "".join(c if (c.isalnum() or c in " -_") else "_" for c in name).strip()
+    return f"{(safe or 'character').replace(' ', '_')}.card.json"
+
+
 @app.get("/api/characters/{character_id}/export")
-async def export_character(character_id: str) -> dict:
+async def export_character(character_id: str, download: bool = False) -> JSONResponse:
+    """The card as JSON. `download=1` makes the browser save it as a file.
+
+    Two behaviours from one route because the same bytes serve both callers:
+    the GUI's export button wants a download, and anything scripting against
+    the API wants the object.
+    """
     character = repo.get_character(get_db(), character_id)
     if character is None:
         raise HTTPException(404, "character not found")
-    return cards.to_card_json(character)
+
+    card = cards.to_card_json(character)
+    headers = {}
+    if download:
+        headers["Content-Disposition"] = f'attachment; filename="{_card_filename(character.name)}"'
+    return JSONResponse(card, headers=headers)
 
 
 @app.delete("/api/characters/{character_id}")
@@ -431,6 +449,12 @@ async def chat_events(chat_id: str, request: Request):
 # ---------------------------------------------------------------- messages
 
 
+@app.post("/api/chats/{chat_id}/impersonate")
+async def impersonate(chat_id: str):
+    """Draft the user's next message. Streams like a turn, but writes nothing."""
+    return await _stream(scheduler().run_impersonate(chat_id))
+
+
 @app.post("/api/messages/{message_id}/swipe")
 async def swipe(message_id: str):
     return await _stream(scheduler().run_swipe(message_id))
@@ -503,6 +527,88 @@ async def upsert_pass(pass_id: str, payload: dict = Body(...)) -> dict:
 async def remove_pass(pass_id: str) -> dict:
     deleted = await registry.delete_pass(get_db(), pass_id)
     return {"deleted": deleted, "disabled": not deleted}
+
+
+# -------------------------------------------------------------- backdrops
+
+
+@app.get("/api/backgrounds")
+async def list_backgrounds() -> dict:
+    """Every backdrop, and which of them the user may delete."""
+    removable = set(config.user_backgrounds())
+    return {
+        "backgrounds": [
+            {"name": name, "url": f"/backgrounds/{name}", "removable": name in removable}
+            for name in config.available_backgrounds()
+        ]
+    }
+
+
+@app.get("/backgrounds/{filename}")
+async def serve_background(filename: str) -> FileResponse:
+    """One route for both folders, so a chosen backdrop has one URL either way."""
+    path = config.background_path(filename)
+    if path is None:
+        raise HTTPException(404, "background not found")
+    return FileResponse(path)
+
+
+@app.post("/api/backgrounds")
+async def upload_background(request: Request, filename: str = Query(...)) -> dict:
+    """Add a backdrop. Body is the raw image — no multipart needed.
+
+    The name is rebuilt from scratch rather than sanitised: the extension has
+    to be one we serve, and the stem is reduced to characters that cannot
+    escape the directory however they are combined.
+    """
+    suffix = Path(filename).suffix.lower()
+    if suffix not in config.BACKGROUND_SUFFIXES:
+        allowed = ", ".join(config.BACKGROUND_SUFFIXES)
+        raise HTTPException(400, f"unsupported image type {suffix or '(none)'} — use {allowed}")
+
+    payload = await request.body()
+    if not payload:
+        raise HTTPException(400, "empty upload")
+    if len(payload) > config.MAX_BACKGROUND_BYTES:
+        limit = config.MAX_BACKGROUND_BYTES // (1024 * 1024)
+        raise HTTPException(400, f"image is larger than {limit} MB")
+
+    stem = "".join(c for c in Path(filename).stem if c.isalnum() or c in "-_ ").strip()
+    stem = stem.replace(" ", "-")[:60] or "backdrop"
+    directory = config.USER_BACKGROUND_DIR
+    directory.mkdir(parents=True, exist_ok=True)
+
+    # Never overwrite: two photos called IMG_0001 are two backdrops.
+    name = f"{stem}{suffix}"
+    taken = set(config.available_backgrounds())
+    counter = 2
+    while name in taken:
+        name = f"{stem}-{counter}{suffix}"
+        counter += 1
+
+    try:
+        (directory / name).write_bytes(payload)
+    except OSError as exc:
+        raise HTTPException(500, f"could not save image: {exc}") from exc
+    return {"name": name, "url": f"/backgrounds/{name}"}
+
+
+@app.delete("/api/backgrounds/{filename}")
+async def remove_background(filename: str) -> dict:
+    """Only uploads. The bundled art ships with the app and stays."""
+    if filename not in config.user_backgrounds():
+        raise HTTPException(404, "not an uploaded background")
+    (config.USER_BACKGROUND_DIR / filename).unlink(missing_ok=True)
+
+    # A setting pointing at a file that no longer exists would fail validation
+    # on the next save, long after the cause.
+    if config.SETTINGS.background == filename:
+        config.SETTINGS.background = config.NO_BACKGROUND
+        try:
+            config.save_settings(config.SETTINGS)
+        except OSError:
+            pass
+    return {"ok": True, "background": config.SETTINGS.background}
 
 
 @app.post("/api/chats/{chat_id}/passes/{pass_id}/run")

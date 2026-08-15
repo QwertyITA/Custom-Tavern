@@ -135,18 +135,50 @@ BACKGROUND_SUFFIXES = (".svg", ".jpg", ".jpeg", ".png", ".webp", ".avif")
 NO_BACKGROUND = "none"
 
 
-def available_backgrounds() -> list[str]:
-    """Backgrounds bundled in static/backgrounds, newest name order.
+# Backdrops the user adds themselves. Deliberately not static/backgrounds:
+# that folder is tracked and ships with the app, so writing uploads into it
+# would put personal images in a public git working tree and make every
+# `git pull` a possible conflict. data/ is gitignored.
+USER_BACKGROUND_DIR = DATA_DIR / "backgrounds"
+MAX_BACKGROUND_BYTES = 12 * 1024 * 1024
 
-    Enumerated rather than hardcoded, so dropping a file in that folder makes
-    it selectable in settings with no code change.
-    """
-    if not BACKGROUND_DIR.is_dir():
+
+def _listing(directory: Path) -> list[str]:
+    if not directory.is_dir():
         return []
-    return sorted(
-        f.name for f in BACKGROUND_DIR.iterdir()
+    return [
+        f.name for f in directory.iterdir()
         if f.is_file() and f.suffix.lower() in BACKGROUND_SUFFIXES
-    )
+    ]
+
+
+def available_backgrounds() -> list[str]:
+    """Every backdrop that can be chosen, bundled and uploaded together.
+
+    Enumerated rather than hardcoded, so dropping a file in either folder makes
+    it selectable with no code change.
+    """
+    return sorted(set(_listing(BACKGROUND_DIR)) | set(_listing(USER_BACKGROUND_DIR)))
+
+
+def user_backgrounds() -> list[str]:
+    """Only the uploaded ones — the bundled art is not the user's to delete."""
+    return sorted(_listing(USER_BACKGROUND_DIR))
+
+
+def background_path(name: str) -> Path | None:
+    """Resolve a backdrop name to a file, uploads winning over bundled.
+
+    The name reaches this from a URL, so it is matched against the directory
+    listing rather than joined onto a path — a name is only ever a name.
+    """
+    if name not in available_backgrounds():
+        return None
+    uploaded = USER_BACKGROUND_DIR / name
+    if uploaded.is_file():
+        return uploaded
+    bundled = BACKGROUND_DIR / name
+    return bundled if bundled.is_file() else None
 
 
 def validate_background(raw: Any) -> str:

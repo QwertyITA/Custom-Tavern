@@ -188,50 +188,77 @@ def from_bytes(data: bytes, filename: str = "") -> Character:
 
 
 def to_card_json(character: Character) -> dict[str, Any]:
-    """Export as a v2 card, with our additions under `extensions`.
+    """Export as a TavernCard v2, readable by SillyTavern and anything else.
 
-    Staying inside the v2 envelope means the export is still importable by other
-    frontends; the parts they do not understand ride in extensions.
+    The v2 payload under `data` is the real card. The same fields are also
+    mirrored at the top level, which is the v1 shape: that is what SillyTavern
+    itself writes, and it is what lets an older or stricter importer read the
+    card at all instead of seeing an object it has no rule for. Everything
+    ours that the format has no place for rides in `extensions`, which
+    importers are required to preserve and ignore.
     """
     payload = json.loads(character.model_dump_json())
+    book = {
+        "name": f"{character.name} lorebook",
+        "entries": [
+            {
+                "id": index,
+                "keys": entry.keys,
+                "secondary_keys": [],
+                "comment": "",
+                "content": entry.content,
+                "constant": entry.constant,
+                "selective": False,
+                "insertion_order": entry.insertion_depth,
+                "enabled": entry.enabled,
+                "position": "before_char",
+                "case_sensitive": entry.case_sensitive,
+                "token_budget": entry.token_budget,
+                "extensions": {},
+            }
+            for index, entry in enumerate(character.lorebook)
+        ],
+    }
+
+    data = {
+        "name": character.name,
+        "description": character.persona,
+        "personality": "",
+        "scenario": character.scenario,
+        "first_mes": character.first_mes,
+        "mes_example": character.example_dialogue,
+        "creator_notes": "Exported by Personal Tavern",
+        "system_prompt": character.system_prompt,
+        "post_history_instructions": "",
+        "alternate_greetings": [],
+        "tags": [],
+        "creator": "",
+        "character_version": str(character.version),
+        "character_book": book,
+        "extensions": {
+            "personal_tavern": {
+                "version": character.version,
+                "state_schema": payload["state_schema"],
+                "nudges": character.nudges,
+                "pfp_set": character.pfp_set,
+                "backgrounds": character.backgrounds,
+                "default_toggles": character.default_toggles,
+                "colours": character.colours,
+            }
+        },
+    }
+
     return {
+        # v1 fields at the top level, for importers that never learned v2.
+        "name": data["name"],
+        "description": data["description"],
+        "personality": data["personality"],
+        "scenario": data["scenario"],
+        "first_mes": data["first_mes"],
+        "mes_example": data["mes_example"],
         "spec": "chara_card_v2",
         "spec_version": "2.0",
-        "data": {
-            "name": character.name,
-            "description": character.persona,
-            "personality": "",
-            "scenario": character.scenario,
-            "first_mes": character.first_mes,
-            "mes_example": character.example_dialogue,
-            "system_prompt": character.system_prompt,
-            "creator_notes": "Exported by Personal Tavern",
-            "character_book": {
-                "entries": [
-                    {
-                        "keys": entry.keys,
-                        "content": entry.content,
-                        "insertion_order": entry.insertion_depth,
-                        "constant": entry.constant,
-                        "enabled": entry.enabled,
-                        "case_sensitive": entry.case_sensitive,
-                        "token_budget": entry.token_budget,
-                    }
-                    for entry in character.lorebook
-                ]
-            },
-            "extensions": {
-                "personal_tavern": {
-                    "version": character.version,
-                    "state_schema": payload["state_schema"],
-                    "nudges": character.nudges,
-                    "pfp_set": character.pfp_set,
-                    "backgrounds": character.backgrounds,
-                    "default_toggles": character.default_toggles,
-                    "colours": character.colours,
-                }
-            },
-        },
+        "data": data,
     }
 
 

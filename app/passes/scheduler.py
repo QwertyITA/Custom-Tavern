@@ -813,6 +813,67 @@ class PassScheduler:
             yield {"type": "background_queued", "passes": launched}
         yield {"type": "turn_end", "turn": ctx.turn}
 
+    async def run_impersonate(self, chat_id: str) -> AsyncIterator[dict]:
+        """Draft the user's next message in their own voice.
+
+        It borrows the reply pass's context — the character, the history, the
+        state — because writing the user's line convincingly needs to know
+        exactly what the character has just said and what has happened. What
+        it does not borrow is the state contract: this never becomes a message,
+        never writes a slice and never advances the turn, so there is nothing
+        for the `<<<state>>>` suffix to carry and asking for one would only
+        give the model something else to get wrong. The text lands in the
+        composer, where the user can rewrite it before sending.
+        """
+        chat = repo.get_chat(self.db, chat_id)
+        character = repo.get_character(self.db, chat["character_id"]) if chat else None
+        if chat is None or character is None:
+            yield {"type": "error", "error": "unknown chat"}
+            return
+
+        definition = registry.get_pass(self.db, "basic") or registry.CANONICAL_PASSES[0]
+        toggle_states = registry.toggle_states(self.db, character.id, chat_id)
+        injections = registry.active_injections(self.db, toggle_states, "basic")
+        assembled = assembly.build_reply_context(
+            self.db, chat, character, self.settings, toggle_injections=injections
+        )
+
+        system = (
+            f"{assembled.system}\n\n"
+            "## This turn\n"
+            f"Write the USER's next message, not {character.name}'s. You are "
+            "drafting the user's side of the conversation for them: stay in "
+            "their voice as it appears in the transcript, keep it to the length "
+            "they usually write, and move the scene forward.\n"
+            f"Write only the message. No name prefix, no quotation marks around "
+            f"the whole thing, and nothing from {character.name}."
+        )
+        request = GenRequest(
+            system=system,
+            messages=assembled.messages,
+            sampling=definition.sampling,
+            pass_id="impersonate",
+        )
+
+        provider = provider_for_tier(definition.model_tier, self.settings)
+        collected: list[str] = []
+        sink = GenResult()
+        try:
+            async for delta in provider.stream(request, sink):
+                collected.append(delta)
+                yield {"type": "delta", "text": delta}
+        except (ProviderError, asyncio.TimeoutError, OSError) as exc:
+            yield {"type": "error", "error": f"impersonate failed: {exc}"}
+            return
+
+        body, _thinking = split_thinking("".join(collected))
+        # The model was told not to prefix a name; models do it anyway.
+        text = clean_reply(body, strip_leakage=False, user_names=()).strip()
+        for prefix in ("You:", "User:", "{{user}}:"):
+            if text.lower().startswith(prefix.lower()):
+                text = text[len(prefix):].lstrip()
+        yield {"type": "impersonated", "text": text}
+
     def run_pass_now(self, chat_id: str, pass_id: str) -> dict:
         """Run one pass on demand, outside the turn cycle.
 
