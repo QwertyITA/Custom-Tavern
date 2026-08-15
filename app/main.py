@@ -552,6 +552,33 @@ async def impersonate(chat_id: str):
     return await _stream(scheduler().run_impersonate(chat_id))
 
 
+@app.get("/api/messages/{message_id}/prompt")
+async def message_prompt(message_id: str) -> dict:
+    """What was actually sent to produce this reply, section by section (§15).
+
+    The record, not a re-assembly: rebuilding it now would use today's state,
+    today's memories and today's layout, and quietly answer a different
+    question than the one being asked.
+    """
+    db = get_db()
+    if repo.get_message(db, message_id) is None:
+        raise HTTPException(404, "message not found")
+    record = repo.prompt_record(db, message_id)
+    if record is None:
+        return {
+            "ok": False,
+            "kept_turns": repo.PROMPT_HISTORY_TURNS,
+            "reason": "This one is too far back — only the last "
+            f"{repo.PROMPT_HISTORY_TURNS} turns keep their prompt.",
+        }
+    # `total_tokens` is the sum of the rows on screen and always adds up to
+    # them; `tokens_in` is what the backend counted for the same prompt. They
+    # differ by a token or two because our estimate rounds per section, and
+    # both are shown rather than one being quietly presented as the other.
+    record["total_tokens"] = sum(p["tokens"] for p in record["parts"])
+    return {"ok": True, **record}
+
+
 @app.post("/api/messages/{message_id}/hidden")
 async def set_hidden(message_id: str, payload: dict = Body(...)) -> dict:
     """Keep a message on screen but out of the prompt.

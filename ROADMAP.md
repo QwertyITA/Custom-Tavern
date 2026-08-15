@@ -59,7 +59,7 @@ Everything else leans on these.
 - [x] **14. Prompt Manager.** Reorder and enable/disable prompt sections, and
       inject custom blocks at a chosen position. Must not break the KV-cache
       rule (§7.1): the volatile suffix stays last, and the UI has to say so.
-- [ ] **15. Prompt itemisation.** What was actually sent, section by section
+- [x] **15. Prompt itemisation.** What was actually sent, section by section
       with token counts. Reached from the message's long-press wheel.
 - [ ] **17. Advanced samplers.** min-p, top-k, typical-p, repetition/frequency/
       presence penalty, DRY, XTC, seed. Per pass, only where the backend

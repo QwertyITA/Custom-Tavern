@@ -313,3 +313,171 @@ def test_saving_a_layout_keeps_it(client, isolated_settings):
     again = client.get("/api/settings").json()["prompt_sections"]
     block = next(s for s in again if s["custom"])
     assert block["text"] == "Under 80 words." and block["band"] == "volatile"
+
+
+# ------------------------------------------------- itemisation (§15)
+
+
+def send(client, chat_id: str, text: str) -> None:
+    with client.stream("POST", f"/api/chats/{chat_id}/send", json={"text": text}) as response:
+        assert response.status_code == 200
+        for _ in response.iter_lines():
+            pass
+
+
+def a_chat(client) -> tuple[str, str]:
+    character_id = client.get("/api/characters").json()[0]["id"]
+    chat_id = client.post("/api/chats", json={"character_id": character_id}).json()["id"]
+    return character_id, chat_id
+
+
+def last_reply(client, chat_id: str) -> dict:
+    messages = client.get(f"/api/chats/{chat_id}/messages").json()
+    return [m for m in messages if m["role"] == "assistant"][-1]
+
+
+def test_a_reply_records_what_was_sent(client):
+    _, chat_id = a_chat(client)
+    send(client, chat_id, "Is the ferry running?")
+    body = client.get(f"/api/messages/{last_reply(client, chat_id)['id']}/prompt").json()
+
+    assert body["ok"] is True
+    assert body["model"] and body["tokens_in"] > 0
+    ids_seen = [p["id"] for p in body["parts"]]
+    assert "instruction" in ids_seen and "conversation" in ids_seen
+
+
+def test_the_itemisation_is_in_prompt_order(client):
+    _, chat_id = a_chat(client)
+    send(client, chat_id, "Hello there.")
+    parts = client.get(f"/api/messages/{last_reply(client, chat_id)['id']}/prompt").json()["parts"]
+    bands = [p["band"] for p in parts]
+    assert bands == sorted(bands, key=prompt_layout.BAND_IDS.index)
+
+
+def test_every_part_carries_a_token_count_and_a_name(client):
+    _, chat_id = a_chat(client)
+    send(client, chat_id, "Hello there.")
+    parts = client.get(f"/api/messages/{last_reply(client, chat_id)['id']}/prompt").json()["parts"]
+    assert all(p["label"] and isinstance(p["tokens"], int) for p in parts)
+
+
+def test_the_conversation_carries_a_count_rather_than_a_copy(client):
+    """Storing the transcript once per turn would grow the database with the
+    square of the chat, and it is already on screen."""
+    _, chat_id = a_chat(client)
+    send(client, chat_id, "Hello there.")
+    parts = client.get(f"/api/messages/{last_reply(client, chat_id)['id']}/prompt").json()["parts"]
+    conversation = next(p for p in parts if p["id"] == "conversation")
+    assert conversation["text"] == ""
+    assert conversation["count"] >= 1
+    assert conversation["tokens"] > 0
+
+
+def test_the_rows_add_up_to_the_total_shown(client):
+    """A breakdown that does not add up is worse than none, because it is
+    believed."""
+    _, chat_id = a_chat(client)
+    send(client, chat_id, "Hello there.")
+    body = client.get(f"/api/messages/{last_reply(client, chat_id)['id']}/prompt").json()
+    assert sum(p["tokens"] for p in body["parts"]) == body["total_tokens"]
+    # And that total is the same prompt the backend was charged for, give or
+    # take our per-section rounding.
+    assert abs(body["total_tokens"] - body["tokens_in"]) <= 0.02 * body["tokens_in"]
+
+
+def test_the_state_contract_is_accounted_for(client):
+    """The scheduler bolts it onto the system prompt, so it is the one part
+    the assembler never sees — and the one that would silently unbalance the
+    breakdown."""
+    _, chat_id = a_chat(client)
+    send(client, chat_id, "Hello there.")
+    parts = client.get(f"/api/messages/{last_reply(client, chat_id)['id']}/prompt").json()["parts"]
+    contract = next(p for p in parts if p["id"] == "state_contract")
+    assert contract["tokens"] > 0
+    # At the end of the prefix, which is where it actually sits in the prompt.
+    assert [p["band"] for p in parts].index("middle") > parts.index(contract)
+
+
+def test_a_switched_off_section_is_absent_from_the_itemisation(client, isolated_settings):
+    client.put("/api/settings", json={
+        "backends": [{"name": "echo", "kind": "echo", "model": "echo-1"}],
+        "tiers": {"blocking": "echo", "foreground": "echo", "background": "echo"},
+        "prompt_sections": [{"id": "examples", "enabled": False}],
+    })
+    _, chat_id = a_chat(client)
+    send(client, chat_id, "Hello there.")
+    parts = client.get(f"/api/messages/{last_reply(client, chat_id)['id']}/prompt").json()["parts"]
+    assert "examples" not in [p["id"] for p in parts]
+
+
+def test_a_custom_block_shows_up_by_its_own_name(client, isolated_settings):
+    client.put("/api/settings", json={
+        "backends": [{"name": "echo", "kind": "echo", "model": "echo-1"}],
+        "tiers": {"blocking": "echo", "foreground": "echo", "background": "echo"},
+        "prompt_sections": [custom(band="volatile", label="Length", text="Under 80 words.")],
+    })
+    _, chat_id = a_chat(client)
+    send(client, chat_id, "Hello there.")
+    parts = client.get(f"/api/messages/{last_reply(client, chat_id)['id']}/prompt").json()["parts"]
+    block = next(p for p in parts if p["custom"])
+    assert block["label"] == "Length" and "Under 80 words." in block["text"]
+
+
+def test_a_reroll_records_its_own_prompt(client):
+    """A re-roll is assembled after whatever the last attempt changed, so
+    showing the first attempt's breakdown next to the third's text would be
+    worse than showing nothing (§9)."""
+    _, chat_id = a_chat(client)
+    send(client, chat_id, "Tell me about the wreck.")
+    message = last_reply(client, chat_id)
+
+    with client.stream("POST", f"/api/messages/{message['id']}/swipe", json={}) as response:
+        assert response.status_code == 200
+        for _ in response.iter_lines():
+            pass
+
+    after = client.get(f"/api/chats/{chat_id}/messages").json()
+    rerolled = next(m for m in after if m["id"] == message["id"])
+    assert rerolled["variant_count"] > 1
+
+    body = client.get(f"/api/messages/{message['id']}/prompt").json()
+    assert body["ok"] is True, "the variant on screen has a record of its own"
+
+
+def test_an_old_turn_says_its_prompt_was_not_kept(client, monkeypatch):
+    from app import repo as repo_mod
+
+    monkeypatch.setattr(repo_mod, "PROMPT_HISTORY_TURNS", 1)
+    _, chat_id = a_chat(client)
+    send(client, chat_id, "One.")
+    first = last_reply(client, chat_id)
+    for text in ("Two.", "Three.", "Four."):
+        send(client, chat_id, text)
+
+    body = client.get(f"/api/messages/{first['id']}/prompt").json()
+    assert body["ok"] is False
+    assert str(body["kept_turns"]) in body["reason"]
+    assert "too far back" in body["reason"]
+
+
+def test_recent_turns_keep_theirs_while_old_ones_are_pruned(client, monkeypatch):
+    from app import repo as repo_mod
+
+    monkeypatch.setattr(repo_mod, "PROMPT_HISTORY_TURNS", 1)
+    _, chat_id = a_chat(client)
+    for text in ("One.", "Two.", "Three."):
+        send(client, chat_id, text)
+    assert client.get(f"/api/messages/{last_reply(client, chat_id)['id']}/prompt").json()["ok"]
+
+
+def test_asking_about_a_message_that_does_not_exist_is_a_404(client):
+    assert client.get("/api/messages/nope/prompt").status_code == 404
+
+
+def test_the_greeting_has_no_prompt_because_none_was_sent(client):
+    """It came off the card. Saying 'not kept' would be a lie, but so would
+    inventing a breakdown for a generation that never happened."""
+    _, chat_id = a_chat(client)
+    greeting = last_reply(client, chat_id)
+    assert client.get(f"/api/messages/{greeting['id']}/prompt").json()["ok"] is False

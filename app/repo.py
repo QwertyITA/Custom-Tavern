@@ -473,3 +473,65 @@ def set_meta(db: Database, key: str, value: str) -> None:
             (key, value),
         )
     )
+
+
+# ------------------------------------------------------- itemised prompts
+
+# How many turns of a chat keep the full breakdown of what was sent. The
+# itemisation is roughly the size of the prompt, so keeping every turn's would
+# grow the database with the square of the conversation — on a phone, on the
+# one file the user cannot afford to lose. Recent turns are the ones anyone
+# asks about; older messages say plainly that theirs was not kept.
+PROMPT_HISTORY_TURNS = 20
+
+
+def save_prompt_record(db: Database, run_id: str, chat_id: str, parts: list[dict]) -> None:
+    """Store the itemisation for one run, then prune the old ones."""
+    payload = json.dumps(parts, ensure_ascii=False)
+
+    def _write(conn) -> None:
+        conn.execute("UPDATE pass_runs SET prompt=? WHERE id=?", (payload, run_id))
+        conn.execute(
+            "UPDATE pass_runs SET prompt=NULL WHERE chat_id=? AND prompt IS NOT NULL "
+            "AND turn <= (SELECT MAX(turn) FROM pass_runs WHERE chat_id=?) - ?",
+            (chat_id, chat_id, PROMPT_HISTORY_TURNS),
+        )
+
+    db.write_sync(_write)
+
+
+def prompt_record(db: Database, message_id: str) -> dict | None:
+    """What was sent for the reply shown in this message.
+
+    Matched on the variant rather than the turn: a re-roll is a different
+    prompt, assembled after whatever the previous attempt changed, and showing
+    the first attempt's breakdown next to the third attempt's text would be
+    worse than showing nothing (§9).
+    """
+    message = get_message(db, message_id)
+    if message is None:
+        return None
+    # `prompt IS NOT NULL` is the filter that identifies a reply run, rather
+    # than a name: `kind` is the pass definition's kind (canonical/custom) and
+    # `pass_id` is configurable, but only the pass that assembles a full reply
+    # ever stores an itemisation.
+    row = db.query_one(
+        "SELECT prompt, model, tier, tokens_in, started_at FROM pass_runs "
+        "WHERE chat_id=? AND turn=? AND prompt IS NOT NULL "
+        "AND (variant_id=? OR variant_id IS NULL) "
+        "ORDER BY (variant_id IS NULL), started_at DESC, rowid DESC LIMIT 1",
+        (message["chat_id"], message["turn"], message["variant_id"]),
+    )
+    if row is None or not row["prompt"]:
+        return None
+    try:
+        parts = json.loads(row["prompt"])
+    except json.JSONDecodeError:
+        return None
+    return {
+        "parts": parts,
+        "model": row["model"],
+        "tier": row["tier"],
+        "tokens_in": row["tokens_in"],
+        "sent_at": row["started_at"],
+    }

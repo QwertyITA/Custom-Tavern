@@ -151,6 +151,26 @@ the story survive the cut. Impersonate deliberately does not use the
 character's — that is your line, and a sequence that ends their replies has no
 business cutting off yours.
 
+### What was sent
+
+Hold a reply, pick **What was sent**. It breaks that reply's prompt into its
+sections with a token count and a share for each, and any section opens to show
+the text it actually contained.
+
+It is the record of that generation, not a re-assembly. Rebuilding it now would
+use today's state, today's memories and today's layout, and quietly answer a
+different question than the one being asked. A re-roll keeps its own record for
+the same reason (§9).
+
+Two numbers appear when they differ: the rows always add up to the total shown,
+and *backend counted* is what the model's own tokeniser made of the same
+prompt. Our estimate rounds per section, so they land a token or two apart.
+
+The conversation shows its size and message count but not a copy of itself —
+it is already on screen, and storing it once per turn would grow the database
+with the square of the chat. For the same reason only the last 20 turns keep
+their breakdown; older messages say so rather than showing a guess.
+
 ### What goes into the prompt
 
 Under ☰ → brain. The prompt is built in three groups, always in this order:

@@ -1488,3 +1488,57 @@ input.mono {
 }
 .p-add:hover, .p-add:focus-visible { color: var(--accent); border-color: var(--accent); }
 .p-add .icon { width: 15px; height: 15px; }
+
+/* ---- what was sent (§15) ------------------------------------------------
+   One row per prompt section, with a bar for its share. The bar is measured
+   against the largest section rather than the total: with a dozen sections
+   every bar against the total would be a slit, and the question being asked
+   is which of these is the expensive one. */
+.sent-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.sent-head .kind-note { margin: 2px 0 0; display: block; }
+
+.sent-row { margin-bottom: 10px; }
+.sent-name {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+.sent-tokens { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
+.sent-bar {
+  height: 5px;
+  margin: 4px 0 2px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+/* Grows from nothing when the panel opens, so the column reads as filling
+   rather than as arriving already drawn. */
+.sent-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transform-origin: left center;
+  animation: sent-fill 420ms var(--ease-out) both;
+}
+@keyframes sent-fill {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+.sent-share { margin: 0; font-size: 11px; }
+.sent-row .preview { margin-top: 6px; max-height: 34vh; }

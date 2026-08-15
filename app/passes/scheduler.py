@@ -36,6 +36,7 @@ from ..markup import to_plain
 from ..models import Character, PassDef, Sampling, VariableSchema
 from ..postprocess import clean_reply, split_thinking
 from ..providers import GenRequest, GenResult, ProviderError, provider_for_tier
+from ..providers.base import estimate_tokens
 from ..state import SLICE_SIGNALS, SLICE_VARS
 from . import registry
 from .contract import (
@@ -265,7 +266,8 @@ class PassScheduler:
             self.db, ctx.chat, ctx.character, self.settings, toggle_injections=injections
         )
 
-        system = assembled.system + "\n\n" + _suffix_instructions(ctx)
+        contract = _suffix_instructions(ctx)
+        system = assembled.system + "\n\n" + contract
         request = GenRequest(
             system=system,
             messages=assembled.messages,
@@ -282,6 +284,12 @@ class PassScheduler:
             started_at=time.time(),
             tokens_in=assembled.total_tokens,
             attempts=1,
+        )
+        # What was actually sent, kept so the message can be asked about later
+        # (§15). Recorded before the stream rather than after: a reply that
+        # fails or is stopped is exactly the one someone wants to look at.
+        repo.save_prompt_record(
+            self.db, run_id, ctx.chat_id, _itemised(assembled, contract)
         )
         yield {
             "type": "assembly",
@@ -313,11 +321,16 @@ class PassScheduler:
                 user_names=("You", "{{user}}"),
             ).strip()
             if partial:
-                repo.add_message(
+                kept = repo.add_message(
                     self.db, ctx.chat_id, "assistant", partial, turn=ctx.turn,
                     provider=sink.provider or provider.name,
                     model=sink.model or provider.model,
                 )
+                # So the run points at the message it produced. A stopped reply
+                # is one of the likeliest things to be asked about afterwards,
+                # and without this its prompt record would be unreachable.
+                ctx.message_id = kept["id"]
+                ctx.variant_id = kept["variant_id"]
             self._record_run(
                 ctx, definition, "stopped", run_id=run_id,
                 tokens_in=sink.tokens_in or assembled.total_tokens,
@@ -884,8 +897,9 @@ class PassScheduler:
             toggle_injections=injections,
             exclude_message_id=message_id,
         )
+        contract = _suffix_instructions(ctx)
         request = GenRequest(
-            system=assembled.system + "\n\n" + _suffix_instructions(ctx),
+            system=assembled.system + "\n\n" + contract,
             messages=assembled.messages,
             sampling=_with_character_stops(definition.sampling, character),
             pass_id=definition.id,
@@ -894,6 +908,10 @@ class PassScheduler:
         run_id = self._record_run(
             ctx, definition, "running", model=provider.model, started_at=time.time()
         )
+        # A re-roll is its own prompt, assembled after whatever the last attempt
+        # changed, so it gets its own record rather than sharing the first
+        # attempt's (§9).
+        repo.save_prompt_record(self.db, run_id, chat["id"], assembled.parts)
 
         sink = GenResult()
         suffix = SuffixStreamFilter()
@@ -1163,6 +1181,33 @@ def _state_view(
 
 def _clean_panel_payload(payload: dict) -> dict:
     return {k: v for k, v in payload.items() if isinstance(v, (str, int, float, bool))}
+
+
+def _itemised(assembled: assembly.Assembled, contract: str) -> list[dict]:
+    """The assembled sections plus the one the scheduler adds itself.
+
+    The state contract is bolted onto the system prompt here rather than in
+    assembly, so without this it would be the one part of the prompt that the
+    "what was sent" view could not account for — and a breakdown that does not
+    add up to what was charged is worse than no breakdown, because it is
+    believed.
+    """
+    parts = list(assembled.parts)
+    if not contract.strip():
+        return parts
+    # It is appended to the system prompt, so it belongs at the end of the
+    # prefix run — not at the end of the list, which would show it sitting
+    # after the volatile block it actually precedes.
+    after_prefix = len([p for p in parts if p["band"] == "prefix"])
+    parts.insert(after_prefix, {
+        "id": "state_contract",
+        "label": "How to report state",
+        "band": "prefix",
+        "custom": False,
+        "tokens": estimate_tokens(contract),
+        "text": contract,
+    })
+    return parts
 
 
 def _suffix_instructions(ctx: TurnContext) -> str:

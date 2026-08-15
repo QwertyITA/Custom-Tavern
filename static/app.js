@@ -210,6 +210,9 @@ function tavern() {
     previewText: "",
     previewStop: "",
     previewTimer: 0,
+    sent: null,
+    sentError: "",
+    openPart: "",
     openBlock: "",
     armedBlock: "",
     armedBlockTimer: 0,
@@ -395,6 +398,7 @@ function tavern() {
         character: "Edit character",
         persona: "Edit persona",
         story: "Story state",
+        sent: "What was sent",
       }[this.panel] || "";
     },
 
@@ -498,6 +502,57 @@ function tavern() {
         this.previewText = String(e.message || e);
         this.previewStop = "";
       }
+    },
+
+    // ---- what was sent (§15) ----
+
+    async showPrompt(message) {
+      this.sent = null;
+      this.sentError = "";
+      this.openPart = "";
+      this.openPanel("sent");
+      try {
+        const body = await api.get(`/api/messages/${message.id}/prompt`);
+        if (body.ok) this.sent = body;
+        else this.sentError = body.reason || "No record of this one.";
+      } catch (e) {
+        this.sentError = String(e.message || e);
+      }
+    },
+
+    // Rows are grouped under their band, in the order they were sent.
+    sentBands() {
+      if (!this.sent) return [];
+      const known = this.settings.prompt_bands || [];
+      const out = [];
+      for (const part of this.sent.parts) {
+        const last = out[out.length - 1];
+        if (last && last.id === part.band) last.parts.push(part);
+        else {
+          const band = known.find((b) => b.id === part.band);
+          out.push({ id: part.band, label: band ? band.label : part.band, parts: [part] });
+        }
+      }
+      return out;
+    },
+
+    // A share of the whole prompt, for the bar next to each row. Against the
+    // largest section rather than the total: at a hundred sections every bar
+    // would otherwise be a slit, and the question being asked is which of
+    // these is the expensive one.
+    partWidth(part) {
+      const most = Math.max(...this.sent.parts.map((p) => p.tokens), 1);
+      return `${Math.max(3, Math.round((part.tokens / most) * 100))}%`;
+    },
+
+    partShare(part) {
+      const total = this.sent.total_tokens || 1;
+      return `${Math.round((part.tokens / total) * 100)}%`;
+    },
+
+    togglePart(part) {
+      if (!part.text) return this.flashHint("These are the messages on screen");
+      this.openPart = this.openPart === part.id ? "" : part.id;
     },
 
     // ---- prompt manager ----
@@ -1828,6 +1883,10 @@ function tavern() {
         },
         ...(isReply ? [{ id: "continue", label: "Continue", icon: "#i-continue" }] : []),
         { id: "copy", label: "Copy", icon: "#i-copy" },
+        // Only on replies: a message you typed had no prompt behind it.
+        ...(message && message.role === "assistant"
+          ? [{ id: "prompt", label: "What was sent", icon: "#i-list" }]
+          : []),
         { id: "delete", label: "Delete", icon: "#i-delete", danger: true },
         { id: "suggest", label: "Suggest edit", icon: "#i-suggest", soon: true },
         { id: "react", label: "React", icon: "#i-react", soon: true },
@@ -1974,6 +2033,7 @@ function tavern() {
       if (option.id === "copy") return this.copyMessage(message);
       if (option.id === "continue") return this.continueReply(message);
       if (option.id === "hide") return this.toggleHidden(message);
+      if (option.id === "prompt") return this.showPrompt(message);
       if (option.id === "delete") {
         // Arm the bubble's own delete rather than deleting outright. A drag
         // that lands one option over should not be able to destroy a message.

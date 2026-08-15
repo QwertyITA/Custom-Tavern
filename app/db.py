@@ -145,7 +145,7 @@ class Database:
             self._writer_thread.join(timeout=5)
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 def _run_migration_step(conn: sqlite3.Connection, step: str) -> None:
     """Apply one migration statement, tolerating one that has already landed.
@@ -177,6 +177,10 @@ MIGRATIONS: dict[int, list[str]] = {
     # stage and moves messages through it, so a hidden message expressed that
     # way would be promoted back into the prompt the next time it ran.
     3: ["ALTER TABLE messages ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0"],
+    # The itemised prompt for a reply (§15). Nullable and pruned, because it is
+    # the one record whose size is proportional to the prompt rather than to
+    # the reply, and keeping every turn's would grow with the square of a chat.
+    4: ["ALTER TABLE pass_runs ADD COLUMN prompt TEXT"],
 }
 
 

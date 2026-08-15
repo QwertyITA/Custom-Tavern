@@ -48,6 +48,11 @@ class Assembled:
     lore_hits: list[str] = field(default_factory=list)
     memories: list[dict] = field(default_factory=list)
     trimmed: int = 0  # messages cut by the token budget this turn
+    # Every built section in prompt order, with the text it contributed (§15).
+    # `sections` above is the same information collapsed to a total per kind,
+    # which is what the live HUD wants; this is what "show me what was sent"
+    # wants, and the two are filled from the same place so they cannot drift.
+    parts: list[dict] = field(default_factory=list)
 
     @property
     def total_tokens(self) -> int:
@@ -57,6 +62,20 @@ class Assembled:
 def _section(assembled: Assembled, name: str, text: str) -> None:
     if text:
         assembled.sections[name] = estimate_tokens(text)
+
+
+def _part(assembled: Assembled, section: dict, text: str) -> str:
+    """Record one built section and hand the text back for assembly."""
+    if text:
+        assembled.parts.append({
+            "id": section["id"],
+            "label": section["label"],
+            "band": section["band"],
+            "custom": bool(section.get("custom")),
+            "tokens": estimate_tokens(text),
+            "text": text,
+        })
+    return text
 
 
 def current_values(
@@ -179,7 +198,7 @@ def build_reply_context(
     }
 
     prefix = [
-        custom_text(s) if s["custom"] else prefix_parts.get(s["id"], "")
+        _part(assembled, s, custom_text(s) if s["custom"] else prefix_parts.get(s["id"], ""))
         for s in prompt_layout.order_for(layout, "prefix")
     ]
 
@@ -248,13 +267,17 @@ def build_reply_context(
     before_conversation: list[str] = []
     after_conversation: list[str] = []
     bucket = before_conversation
+    conversation_at: int | None = None
     for section in middle_order:
         if section["id"] == "conversation":
             bucket = after_conversation
+            conversation_at = len(assembled.parts)
             continue
         text = custom_text(section) if section["custom"] else middle_parts.get(section["id"], "")
-        if text:
+        if _part(assembled, section, text):
             bucket.append(text)
+    if conversation_at is None:  # only reachable from a hand-broken layout
+        conversation_at = len(assembled.parts)
 
     if before_conversation:
         assembled.messages.append(
@@ -273,13 +296,36 @@ def build_reply_context(
     # said rather than as a standing condition.
     note = authors_note_for(chat, character)
     current_turn = window[-1]["turn"] if window else 0
+    note_text = ""
     if note.active_on(current_turn):
-        text = expand(note.text).strip()
-        if text:
+        note_text = expand(note.text).strip()
+        if note_text:
             position = max(0, len(turn_messages) - max(0, note.depth))
-            turn_messages.insert(position, {"role": "system", "content": text})
-            _section(assembled, "authors_note", text)
+            turn_messages.insert(position, {"role": "system", "content": note_text})
+            _section(assembled, "authors_note", note_text)
     assembled.messages.extend(turn_messages)
+
+    # The conversation itself, and the note buried inside it, take their place
+    # in the itemisation where they take it in the prompt. The transcript's own
+    # text is deliberately not copied in: it is already on screen, and storing
+    # it once per turn would grow the database with the square of the chat.
+    conversation_part = {
+        "id": "conversation",
+        "label": prompt_layout.BUILTIN_BY_ID["conversation"]["label"],
+        "band": "middle",
+        "custom": False,
+        "tokens": assembled.sections.get("verbatim", 0),
+        "text": "",
+        "count": len(window),
+    }
+    inserted = [conversation_part]
+    if note_text:
+        inserted.append({
+            "id": "authors_note", "label": "Author's note", "band": "middle",
+            "custom": False, "tokens": estimate_tokens(note_text), "text": note_text,
+            "depth": note.depth,
+        })
+    assembled.parts[conversation_at:conversation_at] = inserted
 
     if after_conversation:
         assembled.messages.append(
@@ -301,7 +347,7 @@ def build_reply_context(
         else "",
     }
     volatile = [
-        custom_text(s) if s["custom"] else volatile_parts.get(s["id"], "")
+        _part(assembled, s, custom_text(s) if s["custom"] else volatile_parts.get(s["id"], ""))
         for s in prompt_layout.order_for(layout, "volatile")
     ]
 

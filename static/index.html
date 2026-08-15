@@ -112,6 +112,8 @@
     <g id="i-plus"><path d="M12 5v14M5 12h14"/></g>
     <!-- Reordering a prompt section. Chevrons rather than filled triangles:
          next to a row of text they read as direction, not as a warning. -->
+    <!-- "What was sent": a prompt broken into its parts. -->
+    <g id="i-list"><path d="M8 7h12M8 12h12M8 17h12M4 7h.01M4 12h.01M4 17h.01"/></g>
     <g id="i-up"><path d="M5.4 15 12 8.4l6.6 6.6"/></g>
     <g id="i-down"><path d="M5.4 9 12 15.6 18.6 9"/></g>
     <g id="i-scales">
@@ -1197,6 +1199,57 @@
           <input type="checkbox" x-model="hud">
           <span>Pass HUD and cost</span>
         </label>
+      </div>
+    </template>
+
+    <!-- (8) what was actually sent for one reply (§15). The record, not a
+         re-assembly: rebuilding it now would use today's state and today's
+         memories, and answer a different question than the one being asked. -->
+    <template x-if="panel === 'sent'">
+      <div>
+        <p class="note" x-show="sentError" x-text="sentError"></p>
+
+        <template x-if="sent">
+          <div>
+            <div class="sent-head">
+              <div>
+                <strong x-text="`${sent.total_tokens} tokens`"></strong>
+                <span class="kind-note" x-text="`${sent.model || 'unknown model'} · ${sent.tier}`"></span>
+              </div>
+              <!-- Both numbers, rather than one quietly standing in for the
+                   other: the rows add up to the first, and the backend counted
+                   the second for the same prompt. -->
+              <span class="p-count"
+                    x-show="sent.tokens_in && sent.tokens_in !== sent.total_tokens"
+                    x-text="`backend counted ${sent.tokens_in}`"></span>
+            </div>
+
+            <template x-for="band in sentBands()" :key="band.id + band.parts[0].id">
+              <section class="p-band">
+                <div class="p-band-head"><h4 x-text="band.label"></h4></div>
+                <template x-for="part in band.parts" :key="part.id">
+                  <div class="sent-row">
+                    <button class="sent-name" @click="togglePart(part)"
+                            :aria-expanded="openPart === part.id">
+                      <span class="sent-label" x-text="part.label"></span>
+                      <span class="sent-tokens" x-text="part.tokens"></span>
+                    </button>
+                    <div class="sent-bar"><span :style="`width: ${partWidth(part)}`"></span></div>
+                    <span class="kind-note sent-share"
+                          x-text="part.id === 'conversation'
+                            ? `${part.count} messages · ${partShare(part)}`
+                            : partShare(part)"></span>
+                    <div class="fold" :class="{ open: openPart === part.id }">
+                      <div class="fold-clip">
+                        <pre class="preview" x-text="part.text"></pre>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+              </section>
+            </template>
+          </div>
+        </template>
       </div>
     </template>
 

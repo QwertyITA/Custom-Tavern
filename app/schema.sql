@@ -111,7 +111,10 @@ CREATE TABLE IF NOT EXISTS pass_runs (
     error       TEXT,
     variant_id  TEXT,
     started_at  REAL,
-    finished_at REAL
+    finished_at REAL,
+    -- The itemised prompt as JSON (§15): what each section actually held for
+    -- this run. Kept only for recent turns -- see prune_prompt_records.
+    prompt      TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_pass_runs_chat ON pass_runs(chat_id, turn);
 
