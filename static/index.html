@@ -1172,6 +1172,24 @@
           <p class="kind-note">Higher washes the image out further behind the text.</p>
         </div>
 
+        <h3>Motion</h3>
+        <div class="num-field">
+          <div class="num-head">
+            <span class="num-label">How much things move</span>
+            <span class="num-unit" x-text="motionLabel"></span>
+          </div>
+          <input class="num-slider" type="range" min="0" max="100" step="10"
+                 :value="settings.motion"
+                 @input="setMotion($event.target.value)"
+                 aria-label="How much things move">
+          <p class="kind-note">
+            Everything is timed against this, so it scales the whole interface
+            rather than switching individual things off. At nothing, the
+            spinners and shimmers stop too. If your phone is set to reduce
+            motion, that wins whatever this says.
+          </p>
+        </div>
+
         <h3>Colour</h3>
         <div class="preset-row">
           <template x-for="preset in themePresets()" :key="preset.id">
@@ -1364,6 +1382,12 @@
                 <span class="char-name" x-text="c.name"></span>
                 <span class="char-meta" x-text="`${c.chats} chat${c.chats === 1 ? '' : 's'}`"></span>
               </div>
+              <!-- Grouped so the row can drop them onto a line of their own
+                   rather than squeezing the name out of existence. Six 40px
+                   buttons and a portrait do not fit beside a name on a 360px
+                   screen, and flex was resolving that by giving the name zero
+                   width. -->
+              <div class="char-tools">
               <button class="glyph-btn star" :class="{ on: c.favourite }"
                       @click="toggleFavourite(c)"
                       :title="c.favourite ? 'Starred — sorts to the top' : 'Star this character'"
@@ -1393,6 +1417,7 @@
                       :title="confirmChar === c.id ? 'Tap again to delete — this deletes its chats too' : 'Delete character'"
                       aria-label="Delete character"
                       x-text="confirmChar === c.id ? '⚠&#xFE0E;' : '✕&#xFE0E;'"></button>
+              </div>
             </div>
 
             <ul class="chat-list" x-show="historyFor === c.id" x-cloak>
@@ -1607,7 +1632,7 @@
         <h3>State</h3>
         <div class="bands">
           <template x-for="b in bands" :key="b.variable">
-            <div class="band">
+            <div class="band" :class="{ moved: bandsMoved.includes(b.variable) }">
               <span class="band-var" x-text="b.variable"></span>
               <span class="band-label" x-text="b.band"></span>
               <span class="band-guide" x-text="b.guidance"></span>

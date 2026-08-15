@@ -296,6 +296,12 @@ class Settings:
     background: str = "tavern.svg"
     background_dim: int = 70
 
+    # How much of the motion to run, 0–100. `prefers-reduced-motion` is a
+    # switch and this is a dial: someone who finds the interface busy but does
+    # not want it dead has nowhere to go otherwise. 0 is off; the OS setting
+    # still wins over any value here.
+    motion: int = 100
+
     @property
     def data_dir(self) -> Path:
         return DATA_DIR
@@ -521,6 +527,13 @@ def build_settings(payload: dict[str, Any], current: Settings) -> Settings:
     if not 0 <= dim <= 100:
         raise SettingsError("background_dim must be between 0 and 100")
     settings.background_dim = dim
+    try:
+        motion = int(payload.get("motion", current.motion))
+    except (TypeError, ValueError):
+        raise SettingsError("motion must be a number") from None
+    if not 0 <= motion <= 100:
+        raise SettingsError("motion must be between 0 and 100")
+    settings.motion = motion
     settings.prompt_sections = _prompt_sections(
         payload["prompt_sections"] if "prompt_sections" in payload else current.prompt_sections
     )

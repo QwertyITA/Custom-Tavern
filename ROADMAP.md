@@ -15,8 +15,10 @@ These apply to every item, not just the ones that mention them.
 - **Minimal surface, complete behaviour.** Every feature has to earn its
   control. Prefer one thing that does the job over three that nearly do.
 - **Motion.** Everything that appears, moves, grows or leaves is animated, and
-  animated *out* as well as in. Use `--ease-out` / `--ease-in-out` /
-  `--ease-back`; never a bare bezier, never linear (except continuous spin).
+  animated *out* as well as in. Use the `--ease-*` and `--dur-*` tokens; never
+  a bare bezier or a literal duration, never linear (except the three
+  continuous ones). See the motion section of CLAUDE.md, including the
+  `content-visibility` trap that silently kills animations on message rows.
 - **Verify by measurement.** Animations get a per-frame trace, not a look.
   Behaviour gets a browser run, not an assumption.
 - **Tests** for anything with a server side. The suite is hermetic.
@@ -137,10 +139,16 @@ each one measured. The first was a bug rather than a suggestion.
       Left alone deliberately: it replaces working code rather than filling a
       gap, and it is the one item that needs the Chrome-only assumption
       confirmed first.
-- [ ] **I. The rest of ANIMATIONS.md.** A motion slider in the theme panel
-      (§1.3), state bands that move when they change (§2.4), message delete and
-      swipe direction (§2.5), staggered sheet contents and slider feedback
-      (§3), more haptics (§4.2), scroll-driven animations (§5.2).
+- [x] **I. The rest of ANIMATIONS.md.** Motion dial (§1.3), state bands that
+      move (§2.4), message delete collapse and variant swipe direction (§2.5),
+      staggered sheet and slider feedback (§3), haptics through one helper
+      (§4.2). Scroll-driven animations stay with H.
+- [x] **J. GUI sweep.** Five viewport sizes, every panel and sub-panel, long
+      content and the action wheel. Two real bugs, both regressions from the
+      touch-target work: character names collapsed to **zero width** at 360px,
+      and the wheel's widest option hung off the left edge in a corner.
+- [ ] **K. Scroll-to-bottom button.** The one item from §2.5 not built: on a
+      long chat scrolled up there is no way back down.
 
 ## Not wanted
 

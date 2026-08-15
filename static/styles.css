@@ -2,7 +2,26 @@
    Every element's colour is a variable so a character or chat can override it
    (§18.4: one global palette, per-element overrides). */
 
+/* Registered so they compute. Two things need this: the durations are written
+   as calc() against --motion, and an unregistered custom property hands
+   JavaScript back the literal "calc(...)" string rather than a resolved time —
+   which is exactly what `dur()` in app.js reads. Registering also gives every
+   one of them a working initial value if the scale is ever missing.
+
+   The 1ms floor is deliberate: at motion 0 a plain 0ms transition never fires
+   `transitionend`, and several sequences here wait on it. */
+@property --motion { syntax: "<number>"; inherits: true; initial-value: 1; }
+@property --dur-fast { syntax: "<time>"; inherits: true; initial-value: 140ms; }
+@property --dur-base { syntax: "<time>"; inherits: true; initial-value: 240ms; }
+@property --dur-slow { syntax: "<time>"; inherits: true; initial-value: 340ms; }
+@property --dur-text-fade { syntax: "<time>"; inherits: true; initial-value: 170ms; }
+@property --dur-bubble-resize { syntax: "<time>"; inherits: true; initial-value: 300ms; }
+@property --dur-panel-leave { syntax: "<time>"; inherits: true; initial-value: 260ms; }
+@property --dur-message-send { syntax: "<time>"; inherits: true; initial-value: 420ms; }
+@property --dur-message-leave { syntax: "<time>"; inherits: true; initial-value: 220ms; }
+
 :root {
+  --motion: 1;
   /* Tells the browser this page manages its own colours, which is what opts it
      out of Chromium's "force dark mode for web contents" (Brave exposes this in
      Appearance settings, and it is on by default in some builds). Without it
@@ -78,9 +97,9 @@
        --dur-fast   a colour, a border, a tap acknowledging itself
        --dur-base   most things moving or changing size
        --dur-slow   something large, or travelling the width of the screen */
-  --dur-fast: 140ms;
-  --dur-base: 240ms;
-  --dur-slow: 340ms;
+  --dur-fast: max(1ms, calc(140ms * var(--motion)));
+  --dur-base: max(1ms, calc(240ms * var(--motion)));
+  --dur-slow: max(1ms, calc(340ms * var(--motion)));
 
   /* The five that JavaScript has to wait on. These were duplicated as
      constants in app.js with a comment admitting they "must stay in step with
@@ -88,11 +107,11 @@
      animation ran 420ms while the code waited 460. app.js reads these values
      from here now, so there is one number rather than two that agree by
      hand. */
-  --dur-text-fade: 170ms;
-  --dur-bubble-resize: 300ms;
-  --dur-panel-leave: 260ms;
-  --dur-message-send: 420ms;
-  --dur-message-leave: 220ms;
+  --dur-text-fade: max(1ms, calc(170ms * var(--motion)));
+  --dur-bubble-resize: max(1ms, calc(300ms * var(--motion)));
+  --dur-panel-leave: max(1ms, calc(260ms * var(--motion)));
+  --dur-message-send: max(1ms, calc(420ms * var(--motion)));
+  --dur-message-leave: max(1ms, calc(220ms * var(--motion)));
 
   --radius: 10px;
   --font-size: 15px;
@@ -653,7 +672,17 @@ body {
   background: var(--panel-2);
 }
 .char.current { border-color: var(--accent); }
-.char-head { display: flex; align-items: center; gap: 8px; }
+/* Wraps rather than crushes. `.char-id` used to carry `min-width: 0` so its
+   name could ellipsis, which also let flex collapse it to nothing — and once
+   the action buttons grew to a 40px touch target, that is exactly what
+   happened: on a 360px screen the row showed a portrait, a chat count and six
+   icons, with the name at zero width. Giving the name a floor and letting the
+   tools take their own line keeps every row legible at any width. */
+.char-head { display: flex; align-items: center; gap: 8px; row-gap: 0; flex-wrap: wrap; }
+/* Right-aligned whether it shares the name's line or takes its own, so the
+   row reads the same either way. No row-gap above: on the wrapped layout the
+   buttons' own 44px height is already the separation. */
+.char-tools { display: flex; gap: 2px; margin-left: auto; }
 .char-pfp {
   position: relative;
   width: 38px; height: 38px; flex: none;
@@ -679,7 +708,7 @@ body {
   stroke-width: 1.7;
   stroke-linecap: round;
 }
-.char-id { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.char-id { flex: 1 1 9em; min-width: 9em; display: flex; flex-direction: column; }
 .char-name {
   font-size: 14px; font-weight: 600; color: var(--text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -1280,6 +1309,13 @@ body {
 @keyframes message-leave {
   to { transform: scale(.86); opacity: 0; }
 }
+/* The row closing behind it. Height and the column gap together — collapsing
+   the height alone leaves a 10px band where the message was, which is exactly
+   the snap this is meant to remove. */
+.msg.collapsing {
+  transition: height var(--dur-message-leave) var(--ease-in-out),
+              margin-bottom var(--dur-message-leave) var(--ease-in-out);
+}
 
 /* --------------------------------------------------------- number fields */
 
@@ -1630,8 +1666,11 @@ body {
 /* Never the one being animated: skipping work for an element mid-transition is
    how a bubble ends up jumping instead of moving. */
 .msg.sending,
+.msg.collapsing,
+.msg.animating,
 .msg:has(.bubble.leaving),
-.msg:has(.bubble.clipping) {
+.msg:has(.bubble.clipping),
+.msg:has(.mk-new) {
   content-visibility: visible;
 }
 
@@ -2251,3 +2290,96 @@ input.mono {
 .skeleton .sk-msg:nth-child(2) { animation-delay: 60ms; }
 .skeleton .sk-msg:nth-child(3) { animation-delay: 120ms; }
 .skeleton .sk-msg:nth-child(4) { animation-delay: 180ms; }
+
+
+/* --------------------------------------------------------- the motion dial */
+
+/* Motion set to zero in the theme panel. The durations already collapse to
+   1ms through --motion, so what is left is the handful of animations that
+   repeat forever and would otherwise keep going at 1ms a cycle — which is not
+   "off", it is a strobe. Stopped by name, and the shimmer's text put back,
+   for the same reasons as the reduced-motion block above. */
+:root.motion-off .icon-btn.refresh.spinning,
+:root.motion-off .anim-ambient::before,
+:root.motion-off .sk-line,
+:root.motion-off .chip.working,
+:root.motion-off .composing-label {
+  animation: none !important;
+}
+:root.motion-off .composing-label {
+  background: none !important;
+  color: var(--muted) !important;
+  -webkit-text-fill-color: var(--muted) !important;
+}
+
+/* ------------------------------------------------- a band that just moved */
+
+/* Trust and mood shift every turn, and the panel used to re-render with
+   different words and no other sign — the most distinctive thing this engine
+   does, invisible unless you were already reading closely.
+
+   The row slides a little and its label takes the accent for a beat. Slides
+   from the left rather than scaling: a value moving along a scale is travel,
+   and travel is what the eye reads as change. The colour is what says *which*
+   row, once several move on the same turn. */
+.band.moved { animation: band-moved calc(var(--dur-slow) * 2) var(--ease-out) both; }
+.band.moved .band-label {
+  animation: band-label calc(var(--dur-slow) * 2) var(--ease-out) both;
+}
+@keyframes band-moved {
+  from { transform: translateX(-10px); }
+  60%  { transform: none; }
+  to   { transform: none; }
+}
+@keyframes band-label {
+  0%   { color: var(--accent); transform: scale(1.12); transform-origin: left center; }
+  45%  { color: var(--accent); transform: none; }
+  to   { color: var(--accent); transform: none; }
+}
+
+/* --------------------------------------------------- variant, arriving */
+
+/* Which way you moved. A cross-fade says the text changed; a slide says you
+   walked one step along the row of variants, which is what actually happened.
+   Small travel on purpose — it has to read as a step, not a page turn, and
+   text that travels far is text you cannot read on the way. */
+/* The slide itself is in app.js — see slideVariant. Only the timing lives
+   here, which is where every other duration and easing lives too. */
+
+/* --------------------------------------------- the sheet, assembling */
+
+/* The panel used to arrive as one slab. Its sections now come in just behind
+   it, each a beat after the one above, so it reads as a panel assembling
+   rather than a wall landing.
+
+   Driven off the h3 headings and the blocks that follow them rather than every
+   child: staggering a hundred elements would take longer than anyone will wait
+   for, and the headings are what the eye scans down anyway. Five steps, then
+   everything below arrives together — past the fold there is nothing to
+   stagger for. */
+/* Two levels down, not one: each panel's body is wrapped in a single div by
+   its own `x-if`, so `.sheet-body > *` is that one wrapper and there is
+   nothing there to stagger. The sections are its children. */
+.sheet-body > div > * { animation: sheet-part var(--dur-base) var(--ease-out) backwards; }
+.sheet-body > div > :nth-child(1)  { animation-delay: 30ms; }
+.sheet-body > div > :nth-child(2)  { animation-delay: 60ms; }
+.sheet-body > div > :nth-child(3)  { animation-delay: 90ms; }
+.sheet-body > div > :nth-child(4)  { animation-delay: 120ms; }
+.sheet-body > div > :nth-child(n+5) { animation-delay: 150ms; }
+@keyframes sheet-part {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ------------------------------------------- a number acknowledging a drag */
+
+/* Every action should answer within 100ms, and a slider changing a number with
+   no motion on the readout is the one place here that did not. Nineteen
+   samplers across eight passes is a lot of surface with nothing confirming the
+   touch. */
+.num-unit { transition: transform var(--dur-fast) var(--ease-spring), color var(--dur-fast) var(--ease-out); }
+.num-field:has(.num-slider:active) .num-unit,
+.num-field:has(.num-box:focus) .num-unit {
+  transform: scale(1.14);
+  color: var(--accent);
+}

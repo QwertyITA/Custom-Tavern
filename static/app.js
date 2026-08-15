@@ -42,6 +42,21 @@ function luminance(hex) {
 // Read once and cached: these are custom properties on :root, so they cannot
 // change without a stylesheet edit, and getComputedStyle is not something to
 // do inside an animation sequence.
+// Haptics, in one place so the rule lives with the code rather than in six
+// call sites. Only for state changes you were *not* looking at — a reply
+// starting, a delete arming, a variant landing under your thumb. Never for an
+// ordinary tap: the screen already answered that, and a phone that buzzes on
+// every touch is a phone people turn the feature off on.
+//
+// Android honours this; iOS ignores it, which is fine — the deploy target is
+// Termux. Silent when the page is not in front of you, because a buzz from an
+// app you are not looking at is a notification, and this is not one.
+function buzz(ms) {
+  if (!navigator.vibrate || document.visibilityState !== "visible") return;
+  if (document.documentElement.classList.contains("motion-off")) return;
+  navigator.vibrate(ms);
+}
+
 const durations = new Map();
 function dur(name, fallback = 0) {
   if (!durations.has(name)) {
@@ -52,9 +67,21 @@ function dur(name, fallback = 0) {
     const value = raw.endsWith("s") && !raw.endsWith("ms")
       ? parseFloat(raw) * 1000
       : parseFloat(raw);
-    durations.set(name, Number.isFinite(value) && value > 0 ? value : fallback);
+    durations.set(name, Number.isFinite(value) ? value : fallback);
   }
   return durations.get(name);
+}
+
+// The easing tokens, for the few animations driven from JavaScript. Same rule
+// as the durations: read the token, never write a bezier inline.
+const easings = new Map();
+function ease(name) {
+  if (!easings.has(name)) {
+    const raw = getComputedStyle(document.documentElement)
+      .getPropertyValue(`--ease-${name}`).trim();
+    easings.set(name, raw || "ease-out");
+  }
+  return easings.get(name);
 }
 
 const TEXT_FADE_MS = () => dur("text-fade", 170);
@@ -84,6 +111,9 @@ const SAMPLING_DEFAULTS = { temp: 0.8, top_p: 0.95, top_k: 40, rep_penalty: 1.1 
 const HOLD_MS = 380;          // press this long and the wheel opens
 const HOLD_SLOP = 10;         // finger movement that cancels the hold instead
 const WHEEL_RADIUS = 78;      // how far the options sit from the press point
+// Half the widest option box, plus a little. Keeps the whole circle on screen
+// when it opens against an edge — see the clamp in openWheel.
+const WHEEL_OPTION_REACH = 52;
 const WHEEL_PICK_MIN = 34;    // drag at least this far before a release picks
 // Magnet. Within this distance an option starts leaning towards the finger,
 // travelling at most WHEEL_MAGNET_MAX px from where it sits. It is what makes
@@ -251,6 +281,8 @@ function tavern() {
     historyFor: "",
     // Raised while a different chat's transcript is being fetched.
     loadingChat: false,
+    // Variables whose band changed on the last update.
+    bandsMoved: [],
     confirmChar: "",
     confirmChat: "",
     confirmMsg: "",
@@ -382,6 +414,28 @@ function tavern() {
       }
     },
 
+    // Which variables changed on the last update, so the rows that moved can
+    // say so. Trust and mood shift every turn and the panel used to just
+    // re-render with different words — the most distinctive thing the engine
+    // does, and invisible unless you were already reading carefully.
+    //
+    // `quiet` is for opening a chat: everything is new then, and flashing
+    // every row would say nothing.
+    setBands(next, { quiet = false } = {}) {
+      const before = new Map(this.bands.map((b) => [b.variable, b.band]));
+      this.bandsMoved = quiet || !before.size
+        ? []
+        : next.filter((b) => before.has(b.variable) && before.get(b.variable) !== b.band)
+              .map((b) => b.variable);
+      this.bands = next;
+      if (!this.bandsMoved.length) return;
+      buzz(8);
+      clearTimeout(this._bandsTimer);
+      // Cleared so a later re-render of the same rows does not replay it.
+      this._bandsTimer = setTimeout(() => { this.bandsMoved = []; },
+                                    dur("slow", 340) * 2 + 80);
+    },
+
     // The shape the skeleton draws. Fixed rather than random: a placeholder
     // that reshuffles every time it appears draws attention to itself, and the
     // one thing it must not do is look like content arriving.
@@ -461,7 +515,7 @@ function tavern() {
       this.character = data.character;
       this.characterId = data.chat.character_id;
       this.messages = data.messages;
-      this.bands = data.state.bands || [];
+      this.setBands(data.state.bands || [], { quiet: true });
       this.summary = data.summary;
       this.toggleStates = data.toggles || {};
       this.persona = data.persona || null;
@@ -1741,6 +1795,7 @@ function tavern() {
     // together, and arming one must visibly cancel the other rather than
     // leaving two buttons that both look ready.
     arm(field, id) {
+      buzz(14);
       this.confirmChar = "";
       this.confirmChat = "";
       this[field] = id;
@@ -1780,6 +1835,20 @@ function tavern() {
       this.applyColours(this.character);
       this.updateColorScheme();
       this.applyBackground();
+      this.applyMotion();
+    },
+
+    // The motion dial, as a multiplier every duration is written against.
+    // `prefers-reduced-motion` is a switch; this is the dial between it and
+    // full — someone who finds the interface busy but does not want it dead
+    // has nowhere to go otherwise. Durations are cached from the tokens on
+    // first read, so the cache is dropped whenever the scale changes.
+    applyMotion() {
+      const raw = Number.isFinite(this.settings.motion) ? this.settings.motion : 100;
+      const scale = Math.max(0, Math.min(100, raw)) / 100;
+      document.documentElement.style.setProperty("--motion", String(scale));
+      document.documentElement.classList.toggle("motion-off", scale === 0);
+      durations.clear();
     },
 
     // Declare which scheme the palette actually is. Both "only light" and
@@ -1877,6 +1946,26 @@ function tavern() {
       this.applyBackground();
     },
 
+    // Named rather than a bare percentage: "40%" says nothing about what it
+    // will feel like, and the ends of the range are the two anyone actually
+    // reaches for.
+    get motionLabel() {
+      const v = Number.isFinite(this.settings.motion) ? this.settings.motion : 100;
+      if (v === 0) return "nothing moves";
+      if (v <= 40) return "brisk";
+      if (v <= 80) return "calm";
+      if (v < 100) return "gentle";
+      return "full";
+    },
+
+    // Applied live and persisted by the panel's Save, exactly like the
+    // backdrop fade below it — you have to be able to feel the setting while
+    // you are choosing it.
+    setMotion(value) {
+      this.settings.motion = parseInt(value, 10);
+      this.applyMotion();
+    },
+
     setBackgroundDim(value) {
       this.settings.background_dim = parseInt(value, 10);
       this.applyBackground();
@@ -1934,7 +2023,7 @@ function tavern() {
           this.composingLabel = event.count ? "Reading…" : "Typing…";
           break;
         case "state":
-          this.bands = event.state.bands || [];
+          this.setBands(event.state.bands || []);
           this.stateProvisional = !!event.state.provisional;
           break;
         case "summary":
@@ -2169,6 +2258,7 @@ function tavern() {
 
       let target = null;
       let buffer = "";
+      let firstToken = false;
       try {
         const response = await fetch(url, {
           method: "POST",
@@ -2243,6 +2333,15 @@ function tavern() {
                 }
               }
               if (target) target.text = buffer;
+              if (!firstToken) { firstToken = true; buzz(6); }
+              // `content-visibility: auto` on a message row skips style and
+              // layout for its whole subtree, so the per-token fade ran as a
+              // perfectly healthy animation that never moved a pixel. The
+              // `:has(.mk-new)` rule cannot fix it — the animation starts in
+              // the frame the subtree is still being skipped in. Marking the
+              // row for the length of the stream can, and there is exactly one
+              // row streaming at a time.
+              this.markStreamingRow(target.id);
               // No scroll call here on purpose: the observer follows the text
               // as it grows, and forcing it per delta would drag the user back
               // down every token if they had scrolled up to read.
@@ -2253,7 +2352,7 @@ function tavern() {
               const message = { ...event.message, text: event.message.text };
               if (index === -1) this.messages.push(message);
               else this.messages[index] = message;
-              this.bands = event.state.bands || [];
+              this.setBands(event.state.bands || []);
               this.stateProvisional = !!event.state.provisional;
               break;
             }
@@ -2266,7 +2365,7 @@ function tavern() {
                 message.variant_count = event.variant.idx + 1;
                 message.edited = false;
               }
-              this.bands = event.state.bands || [];
+              this.setBands(event.state.bands || []);
               this.stateProvisional = !!event.state.provisional;
               break;
             }
@@ -2299,6 +2398,7 @@ function tavern() {
         this.streaming = false;
         this.composing = false;
         this.streamAbort = null;
+        this.markStreamingRow(null);
         // Only release here if no token ever arrived — a stream that failed or
         // returned nothing. When endRegen ran it already owns the release, and
         // clearing the caps underneath it mid-animation drops the bubble to
@@ -2374,6 +2474,23 @@ function tavern() {
         // Let it shrink out of the column rather than blinking away and
         // yanking everything below it up a bubble's height.
         el.classList.add("leaving");
+        // The bubble fading was only half of it: the row it sits in kept its
+        // height until the element left the DOM, so everything below still
+        // snapped up in one frame at the end. Collapsing the row — and the
+        // column gap with it, which height alone does not touch — is what
+        // makes the list close rather than jump.
+        const row = el.closest(".msg");
+        if (row) {
+          const height = row.getBoundingClientRect().height;
+          row.style.height = `${height}px`;
+          row.style.overflow = "hidden";
+          void row.offsetHeight;          // commit the start value before moving
+          row.classList.add("collapsing");
+          row.style.height = "0px";
+          row.style.marginBottom = `-${getComputedStyle(
+            row.parentElement
+          ).rowGap || "0px"}`;
+        }
         await sleep(MESSAGE_LEAVE_MS());
       }
       this.messages = this.messages.filter((m) => m.id !== message.id);
@@ -2451,9 +2568,66 @@ function tavern() {
       const updated = await api.post(
         `/api/messages/${message.id}/variants/${variants[next].id}`
       );
+      // Slide in from the side you came from. The text used to cross-fade,
+      // which says something changed but not which way you moved — and the
+      // whole point of variants is that they sit in an order you are walking
+      // along. Forward arrives from the right, back from the left.
+      const row = this.bubbleFor(message.id)?.closest(".msg");
       message.text = updated.text;
       message.variant_index = updated.variant_index;
       message.variant_count = updated.variant_count;
+      // Driven from JS rather than a class, because a class here has to win a
+      // cascade fight it keeps losing: `.body.regen` is still on the element
+      // from the swipe that made this variant, and the row carries
+      // `content-visibility: auto`, so a rule turning that off through
+      // `:has()` does not land in the frame the animation would have started
+      // in. An explicit animation has no cascade to lose and no subtree to be
+      // skipped in.
+      //
+      // Still on the tokens: the easing and the duration are read from :root,
+      // so the motion dial scales this like everything else and there is no
+      // bezier written inline.
+      this.slideVariant(this.bubbleFor(message.id), direction);
+      buzz(8);
+    },
+
+    // The row tokens are currently arriving into. Kept as a single element
+    // reference rather than a class on every render, so the common case costs
+    // one identity comparison per frame.
+    markStreamingRow(messageId) {
+      const row = messageId
+        ? this.bubbleFor(messageId)?.closest(".msg") || null
+        : null;
+      if (row === this._streamRow) return;
+      this._streamRow?.classList.remove("animating");
+      row?.classList.add("animating");
+      this._streamRow = row;
+    },
+
+    // Which way you moved. A cross-fade says the text changed; a slide says
+    // you walked one step along the row of variants, which is what happened.
+    // Small travel on purpose — a step, not a page turn, and text that travels
+    // far is text you cannot read on the way.
+    slideVariant(bubble, direction) {
+      // `:not(.regen)` matters: every bubble holds two `.body` elements, and
+      // the first is the hidden regeneration cue. Animating that one creates a
+      // perfectly healthy animation on a zero-width box.
+      const body = bubble && bubble.querySelector(".body:not(.regen)");
+      if (!body || !body.animate) return;
+      // The row carries `content-visibility: auto`, which does not merely skip
+      // painting — it skips style and layout for the whole subtree, so an
+      // animation on the text runs while nothing about it is ever recomputed.
+      // The animation object exists, the pixels never move. Lifting it for the
+      // duration is the same trick the send and delete animations already use.
+      const row = bubble.closest(".msg");
+      row?.classList.add("animating");
+      const from = direction > 0 ? 14 : -14;
+      const run = body.animate(
+        [{ opacity: 0, transform: `translateX(${from}px)` },
+         { opacity: 1, transform: "none" }],
+        { duration: dur("base", 240), easing: ease("out"), fill: "both" }
+      );
+      run.finished.catch(() => {}).then(() => row?.classList.remove("animating"));
     },
 
     // ---- swipe gestures (§9) ----
@@ -2600,7 +2774,12 @@ function tavern() {
       // Keep the whole circle on screen: opened against an edge it would put
       // half its options where no finger can reach them.
       const options = this.wheelOptions(message);
-      const margin = WHEEL_RADIUS + 42;
+      // The clamp has to clear the option *box*, not just the radius: an
+      // option sits WHEEL_RADIUS from the centre and then extends half its own
+      // width past that. 42 was tuned against the short labels and let the
+      // widest one ("What was sent", 88px) hang 3px off the left edge when the
+      // wheel opened in a corner. Half the widest box, plus slack.
+      const margin = WHEEL_RADIUS + WHEEL_OPTION_REACH;
       const step = 360 / options.length;
       this.wheel = {
         message,
@@ -2620,7 +2799,7 @@ function tavern() {
         }),
       };
       this.hold = null;
-      if (navigator.vibrate) navigator.vibrate(12);
+      buzz(12);
 
       // The fly-out is a keyframe animation holding its end state, which would
       // override any transform the magnet sets. Once it has finished the wheel
@@ -3333,7 +3512,7 @@ function tavern() {
       if (armed !== this.revealArmed) {
         this.revealArmed = armed;
         // The one moment worth a buzz: past here, letting go does something.
-        if (armed && navigator.vibrate) navigator.vibrate(14);
+        if (armed) buzz(14);
       }
     },
 

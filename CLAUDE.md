@@ -102,6 +102,14 @@ The load-bearing ideas, each of which has a test protecting it:
     or end to ease between: the refresh spinner, the composing-label shimmer
     and the skeleton sweep. Easing any of them makes it hesitate once per
     cycle.
+  - **`content-visibility: auto` on a message row silently kills animations
+    inside it.** Not just painting — style and layout for the whole subtree, so
+    `getAnimations()` hands back a live animation whose effect is never
+    computed and nothing moves. Add the row to the `content-visibility:
+    visible` list *before* the animation starts; a `:has()` rule is too late,
+    because the animation begins in the frame the subtree is still skipped in.
+    Also: every bubble holds two `.body` elements and the first is the hidden
+    regeneration cue, so `querySelector(".body")` finds the one with no box.
   - **Reduced motion is a wildcard, not a list.** `@media
     (prefers-reduced-motion: reduce)` stops everything with `*` and then names
     the few exceptions. Do not add per-selector entries — the allowlist version

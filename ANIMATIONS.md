@@ -3,17 +3,30 @@
 Research pass over what the app already does, what current practice says, and
 what is worth adding.
 
-**Status: §0 and §1.1–1.2 and §2.1–2.3 and §4.1 are built.** Each carries a
-note saying what shipped and what it measured. The rest is still a list to pick
-from — §1.3, §2.4–2.5, §3, §4.2 and §5 are untouched.
+**Status: everything here is built except §5** — View Transitions and
+scroll-driven animations, which replace working code rather than fill a gap and
+want the Chrome-only assumption confirmed first. Each section carries a note
+saying what shipped and what it measured.
+
+**Correction to the first pass.** §2.1 was reported as verified and was not.
+The fade was measured on a `.body` appended straight to the chat column, which
+has no `content-visibility: auto` above it; every real message row does, and
+that skips style and layout for the whole subtree, so the animation existed as
+a live object that never moved a pixel. Three later animations hit the same
+wall. The row being animated is now marked explicitly — see §2.1 — and the
+fade was re-measured inside a real row.
 
 ## What is already there
 
-Counted, not estimated: **20 `@keyframes`, 33 `animation:` rules, 43
-`transition:` rules**, three easing tokens, and a hand-rolled FLIP in four
+Counted at the time of the research: **20 `@keyframes`, 33 `animation:` rules,
+43 `transition:` rules**, three easing tokens, and a hand-rolled FLIP in four
 places (prompt sections, regex rules, character rows, chats). The rule that
-nothing moves linearly is held everywhere except the two continuous rotations,
+nothing moves linearly was held everywhere except the two continuous rotations,
 which is correct — easing a spinner makes it hesitate once per turn.
+
+Those counts are the *before* picture. After this pass there are four easing
+tokens, eight duration tokens, a motion dial, and linear is right in three
+places rather than two.
 
 So this is not a bare app getting its first motion pass. Most of what follows
 is either a system-level upgrade or a surface that was never covered.
@@ -162,6 +175,18 @@ The theme panel has 16 colour tokens and no motion control. One slider —
 it down without turning it off, which the binary `prefers-reduced-motion` does
 not offer.
 
+**Built.** Every duration token is now `max(1ms, calc(<n>ms * var(--motion)))`,
+so one dial scales the whole interface rather than switching individual things
+off. Two details it needed: the tokens had to be registered with `@property`
+so they compute (an unregistered custom property hands JavaScript back the
+literal `calc(...)` string, which is exactly what `dur()` reads), and at zero
+the handful of animations that repeat forever have to be stopped by name —
+1ms a cycle is not "off", it is a strobe. The OS setting still wins.
+Measured at 100 / 50 / 0: CSS and JS both read 240 / 120 / 1ms, and the
+shimmer becomes solid text at zero. Twelve tests in `tests/test_motion.py`,
+including one pinning that 0 survives the round trip rather than being read as
+"unset".
+
 ---
 
 ## 2. The chat surface — where the eye actually is
@@ -193,6 +218,20 @@ a rewrite and appears without a flourish. Opacity only, deliberately: text that
 slides is text you cannot read while it moves. Measured over a simulated token
 stream — each chunk marked exactly once, **12 distinct opacity steps** on a
 decelerating curve, nothing left marked once the reply settles.
+
+**And then it did not work.** That measurement was taken on an element appended
+directly to the chat column. Real messages sit in a `.msg` row carrying
+`content-visibility: auto`, which does not merely skip painting — it skips
+style and layout for the subtree, so `getAnimations()` returned a running
+animation whose effect was never computed. `runStream` now marks the row it is
+streaming into for the length of the stream, and there is exactly one at a
+time. Re-measured **inside a real row**: 12 distinct opacity steps, same curve.
+
+This is the trap to know about in this codebase. Two rules already existed for
+it (`.msg:has(.bubble.leaving)`, `.msg:has(.bubble.clipping)`) and `:has()` is
+not enough on its own — the animation starts in the frame the subtree is still
+being skipped in, so the class has to be on the row *before* the animation
+begins.
 
 ### 2.2 A shimmer on the composing cue
 
@@ -252,7 +291,7 @@ content arriving. Raised only when the chat is actually changing, so reopening
 the one already on screen does not blank it. The View Transition version is
 still open.
 
-### 2.4 The state bands never move
+### 2.4 The state bands never move  — **built**
 
 Trust and mood change every turn and the bands just re-render with new text.
 Since §6 says raw numbers never reach a prompt but the *panel* may show them,
@@ -263,12 +302,21 @@ carefully.
 
 ### 2.5 Small ones on the same surface
 
-- **Message delete** currently removes the row; `message-leave` exists but a
-  collapse of the surrounding gap would stop the list snapping shut.
-- **Variant swipe** cross-fades; a horizontal slide in the swipe direction
-  would say *which way* you moved.
-- **Scroll-to-bottom** — there is no button, and on a long chat scrolled up
-  there should be, arriving with a spring when you leave the bottom.
+- **Message delete** — **built.** The bubble already faded; the row it sat in
+  kept its height until the element left the DOM, so everything below still
+  snapped up in one frame at the end. The row now collapses, and the column gap
+  with it, which height alone does not touch. Measured 93px to 0 over 14
+  distinct heights.
+- **Variant swipe** — **built.** Forward arrives from the right, back from the
+  left, 14px of travel: a step, not a page turn, and text that travels far is
+  text you cannot read on the way. Driven from JavaScript rather than a class,
+  because a class has a cascade fight to lose against `.body.regen` and a
+  subtree to be skipped in; the easing and duration still come from the tokens.
+  Measured 14px to 0 over 14 distinct positions.
+  - Worth knowing: every bubble holds **two** `.body` elements, and the first
+    is the hidden regeneration cue. `querySelector('.body')` finds the one with
+    no box.
+- **Scroll-to-bottom** — still open.
 
 ---
 
@@ -280,6 +328,12 @@ The sheet slides up as one block. Its sections arriving 40–50ms apart would
 make it read as a panel assembling rather than a slab landing. The empty state
 added this session already does this — it is the pattern to copy, not to invent.
 
+**Built**, at two levels down rather than one: each panel's body is wrapped in
+a single div by its own `x-if`, so `.sheet-body > *` is that one wrapper and
+there is nothing there to stagger. Five steps, then everything below arrives
+together — past the fold there is nothing to stagger for. Measured: 18 frames
+where the sections sit at different opacities.
+
 ### 3.2 The lists that reorder are hand-rolled FLIP
 
 Four places measure `getBoundingClientRect()`, mutate, invert and release. It
@@ -290,7 +344,7 @@ while moving, or one that enters and leaves in the same frame (5.1).
 Not urgent. Worth knowing the manual code has a replacement when it next needs
 touching.
 
-### 3.3 Number fields have no feedback
+### 3.3 Number fields have no feedback — **built**
 
 Dragging a slider changes a number with no motion on the value. A brief scale or
 colour pulse on the readout confirms the drag registered — this is the
@@ -334,6 +388,13 @@ ignores it, which is fine since the target is Termux.
 
 Rule of thumb: haptics for **state changes you did not look at**, never for
 ordinary taps.
+
+**Built**, through one `buzz()` helper so the rule lives with the code rather
+than in six call sites: a reply's first token (6ms), a band moving (8ms), a
+variant landing (8ms), a destructive action arming (14ms), the wheel arming
+(14ms). Silent when the page is not in front of you — a buzz from an app you
+are not looking at is a notification, and this is not one — and silent when the
+motion dial is at zero.
 
 ---
 
