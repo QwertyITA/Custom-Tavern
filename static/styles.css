@@ -1683,3 +1683,18 @@ input.mono {
   font: inherit;
   font-size: 13px;
 }
+
+/* ---- favourites (§11) ---------------------------------------------------
+   One star, no tags and no folders: a taxonomy for a roster of a dozen is more
+   work to maintain than to scroll past. */
+.char { transition: opacity 220ms var(--ease-out); }
+.glyph-btn.star { opacity: .4; transition: opacity 200ms var(--ease-out); }
+.glyph-btn.star.on { opacity: 1; color: var(--accent); }
+.glyph-btn.star.on .icon-btn-glyph { fill: currentColor; }
+/* The moment of starring gets a small pop, so the row that is about to move
+   acknowledges the tap before it travels. */
+.glyph-btn.star.on .icon-btn-glyph { animation: star-pop 320ms var(--ease-back) both; }
+@keyframes star-pop {
+  from { transform: scale(.6); }
+  to   { transform: scale(1); }
+}

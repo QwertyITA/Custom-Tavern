@@ -70,7 +70,7 @@ Everything else leans on these.
 ## Phase 4 — living with it
 
 - [x] **10. Chat management.** Rename, search, export and import a chat.
-- [ ] **11. Favourites.** Star a character; starred sort first. (Tags and
+- [x] **11. Favourites.** Star a character; starred sort first. (Tags and
       folders explicitly not wanted.)
 - [ ] **19. File attachments.** Images and text files on a message. Text goes
       into context; images are stored and shown, and go to the model only when

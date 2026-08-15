@@ -341,3 +341,60 @@ def test_an_imported_chat_can_be_continued(client):
     after = client.get(f"/api/chats/{restored['id']}/messages").json()
     assert len(after) > before
     assert after[-1]["turn"] > after[0]["turn"]
+
+
+# --------------------------------------------------------------- favourites
+
+
+def test_a_character_starts_unstarred(client):
+    assert all(c["favourite"] is False for c in client.get("/api/characters").json())
+
+
+def test_starring_a_character_sticks(client):
+    character_id = client.get("/api/characters").json()[0]["id"]
+    assert client.post(f"/api/characters/{character_id}/favourite",
+                       json={"favourite": True}).json()["favourite"] is True
+    listed = {c["id"]: c["favourite"] for c in client.get("/api/characters").json()}
+    assert listed[character_id] is True
+
+
+def test_starred_characters_sort_first(client):
+    """The one thing the star is for."""
+    names = ["Alpha", "Zeta"]
+    ids = [client.post("/api/characters", json={"name": n}).json()["id"] for n in names]
+    client.post(f"/api/characters/{ids[1]}/favourite", json={"favourite": True})
+
+    listed = client.get("/api/characters").json()
+    assert listed[0]["id"] == ids[1], "Zeta is starred, so it beats Alpha"
+    assert listed[0]["favourite"] is True
+
+
+def test_the_rest_stay_in_name_order(client):
+    """Not recency: a roster that reorders itself as you use it is one you have
+    to re-read every time."""
+    for name in ("Charlie", "Alpha", "Bravo"):
+        client.post("/api/characters", json={"name": name})
+    unstarred = [c["name"] for c in client.get("/api/characters").json() if not c["favourite"]]
+    assert unstarred == sorted(unstarred)
+
+
+def test_unstarring_puts_it_back(client):
+    character_id = client.get("/api/characters").json()[0]["id"]
+    client.post(f"/api/characters/{character_id}/favourite", json={"favourite": True})
+    client.post(f"/api/characters/{character_id}/favourite", json={"favourite": False})
+    listed = {c["id"]: c["favourite"] for c in client.get("/api/characters").json()}
+    assert listed[character_id] is False
+
+
+def test_starring_a_character_that_is_not_there_is_a_404(client):
+    assert client.post("/api/characters/nope/favourite", json={"favourite": True}).status_code == 404
+
+
+def test_a_star_survives_editing_the_character(client):
+    """The flag lives in its own column, not in the card JSON that an edit
+    rewrites wholesale."""
+    character_id = client.get("/api/characters").json()[0]["id"]
+    client.post(f"/api/characters/{character_id}/favourite", json={"favourite": True})
+    client.put(f"/api/characters/{character_id}", json={"persona": "Changed."})
+    listed = {c["id"]: c["favourite"] for c in client.get("/api/characters").json()}
+    assert listed[character_id] is True

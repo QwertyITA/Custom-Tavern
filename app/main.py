@@ -407,6 +407,22 @@ async def update_character(character_id: str, payload: dict = Body(...)) -> dict
     return json.loads(character.model_dump_json())
 
 
+@app.post("/api/characters/{character_id}/favourite")
+async def set_favourite(character_id: str, payload: dict = Body(...)) -> dict:
+    """Star a character so it sorts to the top (§11).
+
+    Tags and folders were deliberately not built. One flag answers the question
+    anyone actually has of a roster this size — which of these do I use — and a
+    taxonomy for a dozen characters is more work to maintain than to scroll.
+    """
+    db = get_db()
+    if repo.get_character(db, character_id) is None:
+        raise HTTPException(404, "character not found")
+    favourite = bool(payload.get("favourite", True))
+    repo.set_favourite(db, character_id, favourite)
+    return {"ok": True, "favourite": favourite}
+
+
 @app.post("/api/characters/import")
 async def import_character(request: Request, filename: str = Query("card.json")) -> dict:
     """Import a card. Body is the raw file (JSON or PNG) — no multipart needed."""

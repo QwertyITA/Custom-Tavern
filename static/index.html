@@ -1113,7 +1113,7 @@
         </p>
 
         <template x-for="c in characters" :key="c.id">
-          <div class="char" :class="{ current: c.id === characterId }">
+          <div class="char" :data-cid="c.id" :class="{ current: c.id === characterId }">
             <div class="char-head">
               <!-- Every row gets a portrait slot, filled or not: a card can
                    name an image that was never copied in, and a character
@@ -1131,6 +1131,12 @@
                 <span class="char-name" x-text="c.name"></span>
                 <span class="char-meta" x-text="`${c.chats} chat${c.chats === 1 ? '' : 's'}`"></span>
               </div>
+              <button class="glyph-btn star" :class="{ on: c.favourite }"
+                      @click="toggleFavourite(c)"
+                      :title="c.favourite ? 'Starred — sorts to the top' : 'Star this character'"
+                      :aria-pressed="c.favourite" aria-label="Star character">
+                <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-star"/></svg>
+              </button>
               <button class="glyph-btn" @click="editCharacter(c.id)"
                       title="Edit character" aria-label="Edit character">
                 <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-edit"/></svg>

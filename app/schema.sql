@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS characters (
     version     INTEGER NOT NULL DEFAULT 1,
     data        TEXT NOT NULL,          -- json: persona, state_schema, pfp_set, backgrounds, ...
     persona_id  TEXT NOT NULL DEFAULT '',  -- the persona new chats with them use
+    favourite   INTEGER NOT NULL DEFAULT 0,  -- starred; sorts to the top (§11)
     created_at  REAL NOT NULL,
     updated_at  REAL NOT NULL
 );

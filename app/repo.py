@@ -65,7 +65,12 @@ def list_characters(db: Database) -> list[dict]:
         for row in db.query("SELECT character_id, COUNT(*) AS n FROM chats GROUP BY character_id")
     }
     out: list[dict] = []
-    for row in db.query("SELECT id, name, version, data FROM characters ORDER BY name"):
+    # Starred first, then by name. Not by recency: a roster that reorders
+    # itself as you use it is one you have to re-read every time.
+    for row in db.query(
+        "SELECT id, name, version, data, favourite FROM characters "
+        "ORDER BY favourite DESC, name"
+    ):
         try:
             card = json.loads(row["data"])
         except (TypeError, ValueError):
@@ -78,9 +83,19 @@ def list_characters(db: Database) -> list[dict]:
                 "version": row["version"],
                 "pfp": pfp_set.get("neutral") or next(iter(pfp_set.values()), ""),
                 "chats": counts.get(row["id"], 0),
+                "favourite": bool(row["favourite"]),
             }
         )
     return out
+
+
+def set_favourite(db: Database, character_id: str, favourite: bool) -> None:
+    db.write_sync(
+        lambda conn: conn.execute(
+            "UPDATE characters SET favourite=? WHERE id=?",
+            (int(favourite), character_id),
+        )
+    )
 
 
 # ----------------------------------------------------------------- personas

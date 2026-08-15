@@ -151,6 +151,17 @@ the story survive the cut. Impersonate deliberately does not use the
 character's — that is your line, and a sequence that ends their replies has no
 business cutting off yours.
 
+### Favourites
+
+The star on a character row. Starred characters sort to the top; everything
+else stays in name order, deliberately not in order of use — a roster that
+rearranges itself as you use it is one you have to re-read every time. The row
+travels to its new place rather than reappearing there.
+
+There are no tags and no folders, on purpose. One flag answers the question
+anyone actually has of a roster this size ("which of these do I use"), and a
+taxonomy for a dozen characters is more work to maintain than to scroll past.
+
 ### Chats: naming, finding, moving them around
 
 Under ☰ → characters & chats.

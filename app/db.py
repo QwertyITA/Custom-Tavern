@@ -145,7 +145,7 @@ class Database:
             self._writer_thread.join(timeout=5)
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 def _run_migration_step(conn: sqlite3.Connection, step: str) -> None:
     """Apply one migration statement, tolerating one that has already landed.
@@ -181,6 +181,10 @@ MIGRATIONS: dict[int, list[str]] = {
     # the one record whose size is proportional to the prompt rather than to
     # the reply, and keeping every turn's would grow with the square of a chat.
     4: ["ALTER TABLE pass_runs ADD COLUMN prompt TEXT"],
+    # Starring a character (§11). Tags and folders were deliberately not built:
+    # one flag answers "which of these do I actually use", and a taxonomy for a
+    # roster of a dozen is more work to maintain than to scroll past.
+    5: ["ALTER TABLE characters ADD COLUMN favourite INTEGER NOT NULL DEFAULT 0"],
 }
 
 

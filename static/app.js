@@ -1180,6 +1180,50 @@ function tavern() {
       }
     },
 
+    // Starred characters sort to the top. The row travels there rather than
+    // reappearing somewhere else in the list — a roster that rearranges itself
+    // in one frame is one you have to re-read.
+    async toggleFavourite(character) {
+      const wanted = !character.favourite;
+      try {
+        await api.post(`/api/characters/${character.id}/favourite`, { favourite: wanted });
+      } catch (e) {
+        this.error = String(e.message || e);
+        return;
+      }
+      character.favourite = wanted;
+      this.flipCharacters(() => {
+        this.characters = [...this.characters].sort(
+          (a, b) => (b.favourite ? 1 : 0) - (a.favourite ? 1 : 0) || a.name.localeCompare(b.name),
+        );
+      });
+      this.flashHint(wanted ? `${character.name} starred` : `${character.name} unstarred`);
+    },
+
+    flipCharacters(mutate) {
+      const before = new Map(
+        [...document.querySelectorAll(".char")].map((r) => [
+          r.dataset.cid, r.getBoundingClientRect().top,
+        ]),
+      );
+      mutate();
+      this.$nextTick(() => {
+        for (const row of document.querySelectorAll(".char")) {
+          const was = before.get(row.dataset.cid);
+          if (was === undefined) continue;
+          const delta = was - row.getBoundingClientRect().top;
+          if (!delta) continue;
+          row.style.transition = "none";
+          row.style.transform = `translateY(${delta}px)`;
+          requestAnimationFrame(() => {
+            row.style.transition = `transform ${SECTION_MOVE_MS}ms var(--ease-out)`;
+            row.style.transform = "";
+            setTimeout(() => { row.style.transition = ""; }, SECTION_MOVE_MS);
+          });
+        }
+      });
+    },
+
     // ---- chat management (§10) ----
 
     async importChat(event) {
