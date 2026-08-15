@@ -33,7 +33,7 @@ Everything else leans on these.
       `{{newline}}`. Substituted everywhere a card's text reaches a prompt or
       the screen. Without this, imported cards talk about someone called
       `{{user}}`.
-- [ ] **2. Card fields we currently drop.** `alternate_greetings` (pick the
+- [x] **2. Card fields we currently drop.** `alternate_greetings` (pick the
       opening message, swipeable on the greeting) and
       `post_history_instructions` (injected after the history).
 - [ ] **3. User personas.** Name, avatar, description. Several of them,

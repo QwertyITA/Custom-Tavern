@@ -210,6 +210,13 @@ def build_reply_context(
         volatile.append(f"## Setting\n{scene}")
     for injection in toggle_injections or []:
         volatile.append(injection)
+    # The card's own last word. It belongs after the history — that is the
+    # whole point of the field, and where a card puts the instruction it wants
+    # obeyed over whatever the conversation has drifted into — and it is stable
+    # per character, so it sits at the end of the volatile block rather than
+    # before the parts that change every turn.
+    if character.post_history_instructions.strip():
+        volatile.append(expand(character.post_history_instructions).strip())
 
     assembled.volatile = "\n\n".join(volatile)
     if assembled.volatile:

@@ -133,6 +133,19 @@ Editing only rewrites the text fields; portraits, backgrounds, lorebook and
 state schema come from the card and are left alone. Deleting a character
 deletes its chats with it, which is why both deletes take two taps.
 
+### Opening messages
+
+A card may offer several. They arrive as **swipe variants of the opening
+message**, so choosing between them is the gesture that already exists rather
+than a picker that appears once and never again. A new chat opens on the card's
+own `first_mes`; swipe left for the alternates, and past the last one to have
+the model write a fresh opening.
+
+A card's **final instruction** (`post_history_instructions`) is read *after*
+the conversation, which is the point of the field — it is where a card puts the
+rule it wants obeyed over whatever the scene has drifted into. Both are
+editable under **chats → edit**.
+
 ### Macros
 
 Cards are written with placeholders, because a card is meant to be portable

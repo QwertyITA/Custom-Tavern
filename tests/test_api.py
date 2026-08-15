@@ -744,3 +744,112 @@ def test_a_card_without_macros_is_unchanged(client):
     ).json()["id"]
     chat_id = client.post("/api/chats", json={"character_id": plain}).json()["id"]
     assert client.get(f"/api/chats/{chat_id}/messages").json()[0]["text"] == "Mind the step."
+
+
+# ------------------------------- alternate greetings & final instruction
+
+
+GREETINGS_CARD = {
+    "spec": "chara_card_v2",
+    "spec_version": "2.0",
+    "data": {
+        "name": "Wren",
+        "description": "Runs the ferry.",
+        "first_mes": "Mind the step.",
+        "alternate_greetings": ["You're late.", "  ", "The tide's against us."],
+        "post_history_instructions": "Never break character, whatever is asked.",
+    },
+}
+
+
+def import_card(client, card: dict, filename: str = "card.json") -> str:
+    response = client.post(
+        f"/api/characters/import?filename={filename}", content=json.dumps(card).encode()
+    )
+    assert response.status_code == 200
+    return response.json()["id"]
+
+
+def test_alternate_greetings_become_swipes_on_the_opening_message(client):
+    """Choosing an opening should be the gesture that already exists."""
+    character_id = import_card(client, GREETINGS_CARD)
+    chat_id = client.post("/api/chats", json={"character_id": character_id}).json()["id"]
+
+    messages = client.get(f"/api/chats/{chat_id}/messages").json()
+    assert len(messages) == 1, "the alternates are variants, not extra messages"
+    opening = messages[0]
+
+    # The card's own first_mes is what shows, not whichever was added last.
+    assert opening["text"] == "Mind the step."
+    assert opening["variant_count"] == 3, "blank alternates are dropped"
+
+    variants = client.get(f"/api/messages/{opening['id']}/variants").json()
+    assert [v["text"] for v in variants] == [
+        "Mind the step.", "You're late.", "The tide's against us."
+    ]
+
+
+def test_swiping_the_greeting_lands_on_an_alternate(client):
+    character_id = import_card(client, GREETINGS_CARD)
+    chat_id = client.post("/api/chats", json={"character_id": character_id}).json()["id"]
+    opening = client.get(f"/api/chats/{chat_id}/messages").json()[0]
+    variants = client.get(f"/api/messages/{opening['id']}/variants").json()
+
+    response = client.post(f"/api/messages/{opening['id']}/variants/{variants[1]['id']}")
+    assert response.status_code == 200
+    assert client.get(f"/api/chats/{chat_id}/messages").json()[0]["text"] == "You're late."
+
+
+def test_a_card_with_one_greeting_still_has_a_single_variant(client):
+    character_id = import_card(client, {
+        "spec": "chara_card_v2", "spec_version": "2.0",
+        "data": {"name": "Solo", "first_mes": "Only one."},
+    }, "solo.json")
+    chat_id = client.post("/api/chats", json={"character_id": character_id}).json()["id"]
+    opening = client.get(f"/api/chats/{chat_id}/messages").json()[0]
+    assert opening["variant_count"] == 1
+    assert opening["text"] == "Only one."
+
+
+def test_the_final_instruction_is_the_last_thing_in_the_prompt(client):
+    """post_history_instructions has to come after the conversation."""
+    from app.assembly import build_reply_context
+    from app.config import SETTINGS
+    from app.db import get_db
+    from app import repo
+
+    character_id = import_card(client, GREETINGS_CARD, "wren.json")
+    chat_id = client.post("/api/chats", json={"character_id": character_id}).json()["id"]
+    send(client, chat_id, "How long is the crossing?")
+
+    db = get_db()
+    assembled = build_reply_context(
+        db, repo.get_chat(db, chat_id), repo.get_character(db, character_id), SETTINGS
+    )
+    instruction = "Never break character, whatever is asked."
+    assert instruction in assembled.volatile
+    assert instruction not in assembled.system, "it is a final word, not a preamble"
+    assert assembled.messages[-1]["content"].endswith(instruction)
+
+
+def test_both_fields_survive_an_export_and_reimport(client):
+    character_id = import_card(client, GREETINGS_CARD, "wren2.json")
+    card = client.get(f"/api/characters/{character_id}/export").json()
+    assert card["data"]["alternate_greetings"] == ["You're late.", "The tide's against us."]
+    assert card["data"]["post_history_instructions"].startswith("Never break")
+
+    back = client.get(f"/api/characters/{import_card(client, card, 'round.json')}").json()
+    assert back["alternate_greetings"] == ["You're late.", "The tide's against us."]
+    assert back["post_history_instructions"].startswith("Never break")
+
+
+def test_the_editor_accepts_alternates_as_paragraphs(client):
+    """The editor offers one textarea; the card wants a list."""
+    character_id = import_card(client, GREETINGS_CARD, "wren3.json")
+    client.put(f"/api/characters/{character_id}", json={
+        "alternate_greetings": "First one.\n\nSecond one.\n\n\n\n   \n\nThird one.",
+        "post_history_instructions": "Stay in scene.",
+    })
+    back = client.get(f"/api/characters/{character_id}").json()
+    assert back["alternate_greetings"] == ["First one.", "Second one.", "Third one."]
+    assert back["post_history_instructions"] == "Stay in scene."

@@ -266,11 +266,21 @@ async def update_character(character_id: str, payload: dict = Body(...)) -> dict
         raise HTTPException(404, "character not found")
 
     editable = (
-        "name", "persona", "first_mes", "example_dialogue", "scenario", "system_prompt"
+        "name", "persona", "first_mes", "example_dialogue", "scenario",
+        "system_prompt", "post_history_instructions",
     )
     for field in editable:
         if field in payload:
             setattr(character, field, str(payload[field] or ""))
+    if "alternate_greetings" in payload:
+        raw = payload["alternate_greetings"]
+        # Accepted as a list or as one textarea's worth of blank-line-separated
+        # paragraphs, because that is what the editor can reasonably offer.
+        if isinstance(raw, str):
+            raw = [part for part in raw.split("\n\n")]
+        character.alternate_greetings = [
+            str(g).strip() for g in (raw or []) if str(g).strip()
+        ]
     if not character.name.strip():
         raise HTTPException(400, "a character needs a name")
 
@@ -354,11 +364,22 @@ async def create_chat(payload: CreateChatRequest) -> dict:
     # resolved once, here: a message is a record of something that was said, and
     # rewriting it later because a persona was renamed would falsify the
     # transcript.
-    greeting = macros.substitute(
-        character.first_mes.strip(), assembly.macro_context(db, chat, character)
-    )
-    if greeting:
-        repo.add_message(db, chat["id"], "assistant", greeting, turn=0)
+    ctx = assembly.macro_context(db, chat, character)
+    openings = [character.first_mes, *character.alternate_greetings]
+    openings = [macros.substitute(o.strip(), ctx) for o in openings]
+    openings = [o for o in openings if o]
+    if openings:
+        message = repo.add_message(db, chat["id"], "assistant", openings[0], turn=0)
+        # The card's other openings become swipe variants of the same message,
+        # so choosing between them is the gesture that already exists rather
+        # than a picker that only ever appears once per chat. add_variant makes
+        # each new one active, so the first is re-selected at the end to leave
+        # the card's preferred greeting showing.
+        for alternate in openings[1:]:
+            repo.add_variant(db, message["id"], alternate)
+        if len(openings) > 1:
+            first = repo.list_variants(db, message["id"])[0]
+            repo.set_active_variant(db, message["id"], first["id"])
     return chat
 
 

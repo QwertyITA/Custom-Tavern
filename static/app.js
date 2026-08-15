@@ -184,6 +184,10 @@ function tavern() {
     // for the keyframes to run; a class left on would replay on every re-render.
     sendingId: "",
     draftCharacter: { id: "", name: "" },
+    // The alternates are a list on the card and a paragraph-separated textarea
+    // in the editor. Held separately so the textarea can be edited freely —
+    // splitting on every keystroke would renumber the list under the cursor.
+    altGreetings: "",
     savingCharacter: false,
     charMsg: "",
     charError: "",
@@ -637,6 +641,7 @@ function tavern() {
       this.charError = "";
       try {
         this.draftCharacter = await api.get(`/api/characters/${characterId}`);
+        this.altGreetings = (this.draftCharacter.alternate_greetings || []).join("\n\n");
         this.panel = "character";
       } catch (e) {
         this.error = String(e.message || e);
@@ -656,6 +661,8 @@ function tavern() {
           example_dialogue: draft.example_dialogue,
           scenario: draft.scenario,
           system_prompt: draft.system_prompt,
+          post_history_instructions: draft.post_history_instructions,
+          alternate_greetings: this.altGreetings,
         });
         this.characters = await api.get("/api/characters");
         // The open chat holds its own copy of the card, and the header reads

@@ -824,6 +824,13 @@
         <label class="col-field"><span class="row-label wide-label">Greeting</span>
           <textarea x-model="draftCharacter.first_mes" rows="4"
                     placeholder="The first message, sent when a chat opens."></textarea></label>
+        <label class="col-field">
+          <span class="row-label wide-label">Other greetings</span>
+          <textarea x-model="altGreetings" rows="4"
+                    placeholder="One per paragraph. Swipe the opening message to choose between them."></textarea>
+          <span class="kind-note">Separate them with a blank line. A new chat opens on
+            the first greeting; the rest are swipes on it.</span>
+        </label>
         <label class="col-field"><span class="row-label wide-label">Scenario</span>
           <textarea x-model="draftCharacter.scenario" rows="3"
                     placeholder="Where this is happening."></textarea></label>
@@ -833,6 +840,11 @@
         <label class="col-field"><span class="row-label wide-label">System prompt</span>
           <textarea x-model="draftCharacter.system_prompt" rows="3"
                     placeholder="Extra instructions, prepended to every reply pass."></textarea></label>
+        <label class="col-field">
+          <span class="row-label wide-label">Final instruction</span>
+          <textarea x-model="draftCharacter.post_history_instructions" rows="3"
+                    placeholder="Read after the conversation, so it wins over anything the scene has drifted into."></textarea>
+        </label>
 
         <div class="sheet-actions">
           <button class="wide primary" @click="saveCharacter()" :disabled="savingCharacter">

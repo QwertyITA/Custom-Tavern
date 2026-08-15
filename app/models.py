@@ -127,9 +127,16 @@ class Character(BaseModel):
     version: int = 1
     persona: str = ""
     first_mes: str = ""
+    # Extra opening messages the card offers. They become swipe variants of the
+    # greeting, so choosing between them is the gesture that already exists.
+    alternate_greetings: list[str] = Field(default_factory=list)
     example_dialogue: str = ""
     scenario: str = ""
     system_prompt: str = ""
+    # Injected after the history rather than before it — the last thing the
+    # model reads, which is where a card puts an instruction it wants obeyed
+    # over anything the conversation has drifted into.
+    post_history_instructions: str = ""
     pfp_set: dict[str, str] = Field(default_factory=dict)  # emotion -> image
     backgrounds: list[dict[str, Any]] = Field(default_factory=list)  # {img, metadata}
     state_schema: dict[str, VariableSchema] = Field(default_factory=dict)
