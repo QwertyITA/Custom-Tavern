@@ -26,7 +26,7 @@ from .lorebook import render as render_lore
 from .lorebook import scan as scan_lore
 from .markup import to_plain
 from . import macros
-from .models import Character, VariableSchema
+from .models import AuthorsNote, Character, VariableSchema
 from .providers.base import estimate_tokens
 from .state import SLICE_SCENE, SLICE_VARS, initial_values, load_schema, read_slice
 from .state import render_bands
@@ -84,6 +84,22 @@ def macro_context(db: Database, chat: dict, character: Character) -> macros.Macr
         seed=chat["id"],
         idle_seconds=macros.idle_since(last_at),
     )
+
+
+def authors_note_for(chat: dict, character: Character) -> AuthorsNote:
+    """The note in force: the chat's own if it has one, else the character's.
+
+    A chat overrides wholesale rather than field by field. Half a note — this
+    chat's text at the character's depth — is not something anyone means, and
+    it would make "why is it not where I put it" impossible to answer.
+    """
+    override = (chat.get("settings") or {}).get("authors_note")
+    if isinstance(override, dict) and str(override.get("text") or "").strip():
+        try:
+            return AuthorsNote.model_validate(override)
+        except ValueError:
+            pass
+    return character.authors_note
 
 
 def scene_line(db: Database, chat_id: str) -> str:
@@ -205,10 +221,25 @@ def build_reply_context(
     if middle:
         assembled.messages.append({"role": "system", "content": "\n\n".join(middle)})
 
+    turn_messages: list[Message] = []
     for message in window:
         role = message["role"] if message["role"] in ("user", "assistant") else "system"
-        assembled.messages.append({"role": role, "content": message["text"]})
+        turn_messages.append({"role": role, "content": message["text"]})
     _section(assembled, "verbatim", "".join(m["text"] for m in window))
+
+    # The author's note goes *inside* the recent history, `depth` messages from
+    # the end. That placement is the whole feature: at the top it is buried
+    # under everything since, and at the very end it reads as the newest thing
+    # said rather than as a standing condition.
+    note = authors_note_for(chat, character)
+    current_turn = window[-1]["turn"] if window else 0
+    if note.active_on(current_turn):
+        text = expand(note.text).strip()
+        if text:
+            position = max(0, len(turn_messages) - max(0, note.depth))
+            turn_messages.insert(position, {"role": "system", "content": text})
+            _section(assembled, "authors_note", text)
+    assembled.messages.extend(turn_messages)
 
     # ---- volatile suffix (LAST — the cache rule) -------------------------
     volatile: list[str] = []

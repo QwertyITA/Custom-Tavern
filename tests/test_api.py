@@ -1225,3 +1225,101 @@ def test_a_hidden_message_does_not_survive_as_a_stage(client):
         m for m in client.get(f"/api/chats/{chat_id}/messages").json() if m["id"] == message["id"]
     )
     assert after["stage"] == "verbatim", "hiding is a flag, not a stage"
+
+
+# ---------------------------------------------------------- author's note
+
+
+def assembled_for(chat_id: str):
+    from app.assembly import build_reply_context
+    from app.config import SETTINGS
+    from app.db import get_db
+    from app import repo
+
+    db = get_db()
+    chat = repo.get_chat(db, chat_id)
+    return build_reply_context(
+        db, chat, repo.get_character(db, chat["character_id"]), SETTINGS
+    )
+
+
+def test_the_note_lands_at_the_depth_it_was_given(client):
+    """Placement is the whole feature — at the top it would be buried."""
+    chat_id = new_chat(client)
+    for line in ("One.", "Two.", "Three."):
+        send(client, chat_id, line)
+
+    client.put(f"/api/chats/{chat_id}/note", json={"text": "Keep her guarded.", "depth": 0})
+    contents = [m["content"] for m in assembled_for(chat_id).messages]
+    # depth 0 means after everything in the history, before the volatile block.
+    note_at = contents.index("Keep her guarded.")
+    assert note_at == len(contents) - 2, contents[-3:]
+
+    client.put(f"/api/chats/{chat_id}/note", json={"text": "Keep her guarded.", "depth": 2})
+    contents = [m["content"] for m in assembled_for(chat_id).messages]
+    deeper = contents.index("Keep her guarded.")
+    assert deeper == len(contents) - 4, "two messages should sit after it"
+
+
+def test_an_empty_note_injects_nothing(client):
+    chat_id = new_chat(client)
+    send(client, chat_id, "Hello.")
+    before = len(assembled_for(chat_id).messages)
+    client.put(f"/api/chats/{chat_id}/note", json={"text": "   "})
+    assert len(assembled_for(chat_id).messages) == before
+
+
+def test_frequency_skips_turns(client):
+    """Every other turn costs half as much and fades in between."""
+    chat_id = new_chat(client)
+    client.put(f"/api/chats/{chat_id}/note", json={"text": "Rain is coming.", "frequency": 2})
+
+    seen = []
+    for line in ("One.", "Two.", "Three.", "Four."):
+        send(client, chat_id, line)
+        contents = [m["content"] for m in assembled_for(chat_id).messages]
+        seen.append("Rain is coming." in contents)
+    assert any(seen) and not all(seen), seen
+
+
+def test_a_chat_note_overrides_the_characters(client):
+    character_id = client.get("/api/characters").json()[0]["id"]
+    client.put(f"/api/characters/{character_id}", json={
+        "authors_note": {"text": "From the card.", "depth": 1}
+    })
+    chat_id = client.post("/api/chats", json={"character_id": character_id}).json()["id"]
+    send(client, chat_id, "Hello.")
+
+    body = client.get(f"/api/chats/{chat_id}/note").json()
+    assert body["note"]["text"] == "From the card."
+    assert body["from_chat"] is False
+
+    client.put(f"/api/chats/{chat_id}/note", json={"text": "Just here.", "depth": 0})
+    body = client.get(f"/api/chats/{chat_id}/note").json()
+    assert body["note"]["text"] == "Just here."
+    assert body["from_chat"] is True
+    assert body["character_note"]["text"] == "From the card."
+
+    contents = [m["content"] for m in assembled_for(chat_id).messages]
+    assert "Just here." in contents and "From the card." not in contents
+
+
+def test_clearing_a_chat_note_falls_back_to_the_card(client):
+    character_id = client.get("/api/characters").json()[0]["id"]
+    client.put(f"/api/characters/{character_id}", json={"authors_note": {"text": "From the card."}})
+    chat_id = client.post("/api/chats", json={"character_id": character_id}).json()["id"]
+    client.put(f"/api/chats/{chat_id}/note", json={"text": "Just here."})
+    client.put(f"/api/chats/{chat_id}/note", json={"text": ""})
+
+    body = client.get(f"/api/chats/{chat_id}/note").json()
+    assert body["note"]["text"] == "From the card."
+    assert body["from_chat"] is False
+
+
+def test_the_note_resolves_macros(client):
+    make_persona(client, "Tomas")
+    chat_id = new_chat(client)
+    send(client, chat_id, "Hello.")
+    client.put(f"/api/chats/{chat_id}/note", json={"text": "{{char}} is wary of {{user}}."})
+    contents = [m["content"] for m in assembled_for(chat_id).messages]
+    assert any("is wary of Tomas." in c for c in contents), contents

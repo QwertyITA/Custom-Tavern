@@ -121,6 +121,33 @@ class LorebookEntry(BaseModel):
     case_sensitive: bool = False
 
 
+class AuthorsNote(BaseModel):
+    """A standing instruction placed inside the recent history.
+
+    The point is the placement. Put at the end it reads as the newest thing
+    said and the model answers it; put at the top it is buried under everything
+    since. `depth` messages from the end is close enough to still carry weight
+    and far enough back that the model treats it as a standing condition rather
+    than a line of dialogue.
+
+    Depth costs cache: everything after the insertion point has to be
+    recomputed each turn (§7.1). Depth 0 — right at the end — is both the
+    strongest and the cheapest, which is why it is the default.
+    """
+
+    text: str = ""
+    # Messages from the end to insert before. 0 puts it after everything.
+    depth: int = 0
+    # Turns between insertions. 1 is every turn; higher costs less and fades.
+    frequency: int = 1
+
+    def active_on(self, turn: int) -> bool:
+        if not self.text.strip():
+            return False
+        every = max(1, self.frequency)
+        return turn % every == 0
+
+
 class Character(BaseModel):
     id: str
     name: str
@@ -137,6 +164,9 @@ class Character(BaseModel):
     # model reads, which is where a card puts an instruction it wants obeyed
     # over anything the conversation has drifted into.
     post_history_instructions: str = ""
+    # A standing note steered *into* the recent conversation rather than
+    # appended to it (§7.1). See AuthorsNote for what depth and frequency mean.
+    authors_note: AuthorsNote = Field(default_factory=lambda: AuthorsNote())
     pfp_set: dict[str, str] = Field(default_factory=dict)  # emotion -> image
     backgrounds: list[dict[str, Any]] = Field(default_factory=list)  # {img, metadata}
     state_schema: dict[str, VariableSchema] = Field(default_factory=dict)

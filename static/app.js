@@ -202,6 +202,9 @@ function tavern() {
     // splitting on every keystroke would renumber the list under the cursor.
     altGreetings: "",
     personas: [],
+    note: { text: "", depth: 0, frequency: 1 },
+    noteFromChat: false,
+    noteMsg: "",
     persona: null,
     draftPersona: { id: "", name: "", description: "", avatar: "", is_default: false },
     savingPersona: false,
@@ -347,6 +350,8 @@ function tavern() {
           this.bgMsg = "";
           await this.loadSettings();
           await this.loadBackdrops();
+        } else if (name === "story") {
+          await this.loadNote();
         } else if (name === "chats") {
           this.characters = await api.get("/api/characters");
           this.chats = await api.get("/api/chats");
@@ -411,6 +416,37 @@ function tavern() {
       try {
         this.messages = await api.get(`/api/chats/${this.chatId}/messages`);
       } catch (_) { /* the chat may have gone */ }
+    },
+
+    // ---- author's note ----
+
+    async loadNote() {
+      if (!this.chatId) return;
+      this.noteMsg = "";
+      try {
+        const body = await api.get(`/api/chats/${this.chatId}/note`);
+        this.note = body.note;
+        this.noteFromChat = body.from_chat;
+      } catch (e) {
+        this.error = String(e.message || e);
+      }
+    },
+
+    // Saved on change rather than behind a button: there is one field and a
+    // couple of sliders, and a note you thought you had set is worse than a
+    // save you did not notice.
+    async saveNote() {
+      if (!this.chatId) return;
+      try {
+        const body = await api.put(`/api/chats/${this.chatId}/note`, this.note);
+        this.note = body.note;
+        this.noteFromChat = body.from_chat;
+        this.noteMsg = body.note.text.trim() ? "Saved" : "Cleared";
+        clearTimeout(this._noteTimer);
+        this._noteTimer = setTimeout(() => { this.noteMsg = ""; }, HINT_MS);
+      } catch (e) {
+        this.error = String(e.message || e);
+      }
     },
 
     // ---- personas ----

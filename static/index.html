@@ -986,6 +986,52 @@
     <!-- ----------------------------------------------------------- story -->
     <template x-if="panel === 'story'">
       <div>
+        <!-- A standing instruction, placed inside the recent conversation
+             rather than at the top of the prompt. It is here rather than in
+             settings because it is about *this story*, and it is the first
+             thing in the panel because it is the one thing here you write
+             rather than read. -->
+        <h3>Author's note</h3>
+        <p class="note">
+          A standing instruction, slipped into the conversation near the end so
+          it stays in view. Use it to steer — <em>keep the pace slow</em>,
+          <em>she is hiding something</em> — not to describe the character.
+        </p>
+        <label class="col-field">
+          <textarea x-model="note.text" rows="3" @change="saveNote()"
+                    placeholder="Left empty, nothing is added."></textarea>
+        </label>
+        <div class="num-field">
+          <div class="num-head">
+            <span class="num-label">How far back</span>
+            <span class="num-unit" x-text="note.depth === 0 ? 'at the end' :
+              `${note.depth} message${note.depth === 1 ? '' : 's'} back`"></span>
+          </div>
+          <input class="num-slider" type="range" min="0" max="8" :value="note.depth"
+                 @input="note.depth = +$event.target.value" @change="saveNote()"
+                 aria-label="How far back">
+          <p class="kind-note">
+            At the end it carries most weight and costs least. Further back it
+            reads as a standing condition rather than as something just said —
+            but everything after it has to be re-read by the model each turn.
+          </p>
+        </div>
+        <div class="num-field">
+          <div class="num-head">
+            <span class="num-label">How often</span>
+            <span class="num-unit" x-text="note.frequency === 1 ? 'every turn' :
+              `every ${note.frequency} turns`"></span>
+          </div>
+          <input class="num-slider" type="range" min="1" max="6" :value="note.frequency"
+                 @input="note.frequency = +$event.target.value" @change="saveNote()"
+                 aria-label="How often">
+        </div>
+        <p class="kind-note" x-show="noteMsg" x-text="noteMsg"></p>
+        <p class="kind-note" x-show="!noteFromChat && note.text">
+          This one comes from the character card. Editing it here makes it this
+          chat's own.
+        </p>
+
         <h3>State</h3>
         <div class="bands">
           <template x-for="b in bands" :key="b.variable">

@@ -133,6 +133,23 @@ Editing only rewrites the text fields; portraits, backgrounds, lorebook and
 state schema come from the card and are left alone. Deleting a character
 deletes its chats with it, which is why both deletes take two taps.
 
+### Author's note
+
+A standing instruction, under **☰ → story**. Unlike the character's own text it
+goes *inside* the recent conversation rather than at the top of the prompt, and
+that placement is the whole feature: at the top it is buried under everything
+said since. Use it to steer — *keep the pace slow*, *she is hiding something* —
+rather than to describe the character.
+
+**How far back** is how many messages from the end it sits. At the end it
+carries most weight and costs least; further back it reads as a standing
+condition rather than as something just said, but everything after it has to be
+re-read by the model each turn (§7.1). **How often** trades cost for presence.
+
+A note written here belongs to this chat. A character card can carry its own as
+a default, editable under **chats → edit**; writing one here overrides it
+wholesale, and clearing the text falls back to the card's.
+
 ### Hiding a message
 
 **Hide**, in a message's hold-wheel, keeps it on screen and takes it out of the

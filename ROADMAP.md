@@ -46,7 +46,7 @@ Everything else leans on these.
 - [x] **6. Continue.** Extend the last reply instead of re-rolling it.
 - [x] **7. Hide from prompt.** A message stays on screen but leaves the
       context. Visibly marked.
-- [ ] **4. Author's Note.** Free text injected at a chosen depth from the end.
+- [x] **4. Author's Note.** Free text injected at a chosen depth from the end.
       Per chat and per character, with depth and frequency.
 - [ ] **13. Custom stop strings.** Per backend and per character.
 

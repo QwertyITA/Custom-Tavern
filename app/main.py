@@ -23,6 +23,7 @@ from .db import get_db
 from .events import BUS
 from .markup import parse_to_dicts
 from .models import (
+    AuthorsNote,
     Character,
     CreateChatRequest,
     EditMessageRequest,
@@ -272,6 +273,11 @@ async def update_character(character_id: str, payload: dict = Body(...)) -> dict
     for field in editable:
         if field in payload:
             setattr(character, field, str(payload[field] or ""))
+    if "authors_note" in payload:
+        try:
+            character.authors_note = AuthorsNote.model_validate(payload["authors_note"] or {})
+        except ValueError as exc:
+            raise HTTPException(400, f"invalid author's note: {exc}") from exc
     if "alternate_greetings" in payload:
         raw = payload["alternate_greetings"]
         # Accepted as a list or as one textarea's worth of blank-line-separated
@@ -644,6 +650,43 @@ async def remove_persona(persona_id: str) -> dict:
     if not any(p["is_default"] for p in remaining):
         repo.save_persona(db, {**remaining[0], "is_default": True})
     return {"ok": True, "default": repo.default_persona(db)}
+
+
+@app.get("/api/chats/{chat_id}/note")
+async def get_authors_note(chat_id: str) -> dict:
+    """The note in force here, and whether it is this chat's or the card's."""
+    db = get_db()
+    chat = repo.get_chat(db, chat_id)
+    if chat is None:
+        raise HTTPException(404, "chat not found")
+    character = repo.get_character(db, chat["character_id"])
+    override = (chat.get("settings") or {}).get("authors_note")
+    return {
+        "note": json.loads(assembly.authors_note_for(chat, character).model_dump_json()),
+        "from_chat": bool(isinstance(override, dict) and str(override.get("text") or "").strip()),
+        "character_note": json.loads(character.authors_note.model_dump_json()),
+    }
+
+
+@app.put("/api/chats/{chat_id}/note")
+async def set_authors_note(chat_id: str, payload: dict = Body(...)) -> dict:
+    """Write this chat's own note. Empty text clears it back to the card's."""
+    db = get_db()
+    chat = repo.get_chat(db, chat_id)
+    if chat is None:
+        raise HTTPException(404, "chat not found")
+    try:
+        note = AuthorsNote.model_validate(payload or {})
+    except ValueError as exc:
+        raise HTTPException(400, f"invalid author's note: {exc}") from exc
+
+    settings = dict(chat.get("settings") or {})
+    if note.text.strip():
+        settings["authors_note"] = json.loads(note.model_dump_json())
+    else:
+        settings.pop("authors_note", None)
+    repo.update_chat_settings(db, chat_id, settings)
+    return await get_authors_note(chat_id)
 
 
 @app.post("/api/chats/{chat_id}/persona")
