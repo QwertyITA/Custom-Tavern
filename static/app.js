@@ -46,28 +46,36 @@ const SWIPE_CLAIM = 12;   // movement before a drag counts as horizontal at all
 const SWIPE_COMMIT = 64;  // release past this and the variant changes
 const SWIPE_MAX = 130;    // furthest the bubble travels
 
+// FastAPI puts a rejection's reason in `detail`; our own handlers use `error`.
+// Without this a 400 that says exactly what is wrong — "a character needs a
+// name" — reaches the user as "Bad Request".
+async function apiError(response) {
+  const body = await response.json().catch(() => ({}));
+  return new Error(body.detail || body.error || response.statusText);
+}
+
+const jsonRequest = (method) => async function (path, body) {
+  const r = await fetch(path, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+  });
+  if (!r.ok) throw await apiError(r);
+  return r.json();
+};
+
 const api = {
   async get(path) {
     const r = await fetch(path);
-    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+    if (!r.ok) throw await apiError(r);
     return r.json();
   },
-  async post(path, body) {
-    const r = await fetch(path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body ?? {}),
-    });
-    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
-    return r.json();
-  },
-  async patch(path, body) {
-    const r = await fetch(path, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body ?? {}),
-    });
-    if (!r.ok) throw new Error(r.statusText);
+  post: jsonRequest("POST"),
+  put: jsonRequest("PUT"),
+  patch: jsonRequest("PATCH"),
+  async del(path) {
+    const r = await fetch(path, { method: "DELETE" });
+    if (!r.ok) throw await apiError(r);
     return r.json();
   },
 };
@@ -129,7 +137,19 @@ function tavern() {
     // restored when they come back down or ask for the newest message.
     stick: true,
     scrollPort: null,
-    drawer: false,
+    // The header menu, and which of its destinations is open. One panel at a
+    // time — "" means the conversation is unobstructed.
+    menu: false,
+    panel: "",
+    historyFor: "",
+    confirmChar: "",
+    confirmChat: "",
+    draftCharacter: { id: "", name: "" },
+    savingCharacter: false,
+    charMsg: "",
+    charError: "",
+    passes: [],
+    passMsg: "",
     hud: false,
     error: "",
 
@@ -183,11 +203,12 @@ function tavern() {
       return file ? `/static/characters/${file}` : "";
     },
 
-    async newChat() {
-      const chat = await api.post("/api/chats", { character_id: this.characterId });
+    async newChat(characterId) {
+      const id = characterId || this.characterId;
+      const chat = await api.post("/api/chats", { character_id: id });
       this.chats = await api.get("/api/chats");
       await this.openChat(chat.id);
-      this.drawer = false;
+      this.closePanel();
     },
 
     async openChat(id) {
@@ -218,7 +239,189 @@ function tavern() {
       // Resume following before the messages render — the observer re-pins
       // once they do, so this does not need to wait for layout.
       this.scrollDown();
-      this.drawer = false;
+    },
+
+    // ---- header menu & panels ----
+
+    // Every destination loads what it needs on the way in, so nothing is
+    // fetched for a panel the user never opens. Opening one closes the menu:
+    // the icon row has done its job and the world line can come back up.
+    async openPanel(name) {
+      if (this.panel === name) return this.closePanel();
+      this.panel = name;
+      this.menu = false;
+      this.saveMsg = "";
+      this.saveError = "";
+      try {
+        if (name === "brain") {
+          this.passMsg = "";
+          await this.loadSettings();
+          this.passes = await api.get("/api/passes");
+        } else if (name === "theme") {
+          await this.loadSettings();
+        } else if (name === "chats") {
+          this.characters = await api.get("/api/characters");
+          this.chats = await api.get("/api/chats");
+          this.historyFor = this.characterId;
+        }
+      } catch (e) {
+        this.error = String(e.message || e);
+      }
+    },
+
+    closePanel() {
+      this.panel = "";
+      this.confirmChar = "";
+      this.confirmChat = "";
+    },
+
+    panelTitle() {
+      return {
+        brain: "Model & engine",
+        theme: "Appearance",
+        chats: "Characters & chats",
+        character: "Edit character",
+        story: "Story state",
+      }[this.panel] || "";
+    },
+
+    // Refresh the world line by hand. The pass runs on the server and reports
+    // over the same event stream as a scheduled run, so the indicator, the HUD
+    // and the resulting write all behave identically — this only bypasses the
+    // decision about *when*.
+    async refreshWorld() {
+      if (!this.chatId || this.refreshing.scene) return;
+      this.refreshing.scene = true;
+      try {
+        await api.post(`/api/chats/${this.chatId}/passes/scene/run`, {});
+      } catch (e) {
+        this.refreshing.scene = false;
+        this.error = String(e.message || e);
+      }
+    },
+
+    // ---- characters ----
+
+    chatsFor(characterId) {
+      return this.chats.filter((c) => c.character_id === characterId);
+    },
+
+    whenLabel(chat) {
+      const when = chat.updated_at || chat.created_at;
+      if (!when) return "";
+      const date = new Date(when * (when > 1e11 ? 1 : 1000));
+      if (Number.isNaN(date.getTime())) return "";
+      const days = Math.floor((Date.now() - date.getTime()) / 86400000);
+      if (days <= 0) return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      if (days === 1) return "yesterday";
+      if (days < 7) return `${days}d ago`;
+      return date.toLocaleDateString([], { day: "numeric", month: "short" });
+    },
+
+    toggleHistory(characterId) {
+      this.historyFor = this.historyFor === characterId ? "" : characterId;
+    },
+
+    async newCharacter() {
+      try {
+        const created = await api.post("/api/characters", { name: "New character" });
+        this.characters = await api.get("/api/characters");
+        await this.editCharacter(created.id);
+      } catch (e) {
+        this.error = String(e.message || e);
+      }
+    },
+
+    async editCharacter(characterId) {
+      this.charMsg = "";
+      this.charError = "";
+      try {
+        this.draftCharacter = await api.get(`/api/characters/${characterId}`);
+        this.panel = "character";
+      } catch (e) {
+        this.error = String(e.message || e);
+      }
+    },
+
+    async saveCharacter() {
+      this.savingCharacter = true;
+      this.charMsg = "";
+      this.charError = "";
+      const draft = this.draftCharacter;
+      try {
+        const saved = await api.put(`/api/characters/${draft.id}`, {
+          name: draft.name,
+          persona: draft.persona,
+          first_mes: draft.first_mes,
+          example_dialogue: draft.example_dialogue,
+          scenario: draft.scenario,
+          system_prompt: draft.system_prompt,
+        });
+        this.characters = await api.get("/api/characters");
+        // The open chat holds its own copy of the card, and the header reads
+        // the name off that — without this the title keeps the old name until
+        // the chat is reopened.
+        if (this.character && this.character.id === saved.id) this.character = saved;
+        this.charMsg = "saved";
+      } catch (e) {
+        this.charError = String(e.message || e);
+      } finally {
+        this.savingCharacter = false;
+      }
+    },
+
+    // Two taps rather than a confirm dialog: a modal over a sheet on a phone is
+    // its own problem, and the second tap is the same finger in the same place.
+    async deleteCharacter(character) {
+      if (this.confirmChar !== character.id) {
+        this.confirmChar = character.id;
+        this.confirmChat = "";
+        return;
+      }
+      this.confirmChar = "";
+      try {
+        await api.del(`/api/characters/${character.id}`);
+        this.characters = await api.get("/api/characters");
+        this.chats = await api.get("/api/chats");
+        // Deleting the character behind the open chat takes the chat with it,
+        // so the app has to land somewhere real rather than on a dead id.
+        if (character.id === this.characterId) await this.fallbackChat();
+      } catch (e) {
+        this.error = String(e.message || e);
+      }
+    },
+
+    async deleteChat(chat) {
+      if (this.confirmChat !== chat.id) {
+        this.confirmChat = chat.id;
+        this.confirmChar = "";
+        return;
+      }
+      this.confirmChat = "";
+      try {
+        await api.del(`/api/chats/${chat.id}`);
+        this.chats = await api.get("/api/chats");
+        this.characters = await api.get("/api/characters");
+        if (chat.id === this.chatId) await this.fallbackChat();
+      } catch (e) {
+        this.error = String(e.message || e);
+      }
+    },
+
+    // Land on something after deleting whatever was open.
+    async fallbackChat() {
+      if (this.chats.length) return this.openChat(this.chats[0].id);
+      this.chatId = "";
+      this.messages = [];
+      this.character = null;
+      localStorage.removeItem("tavern:chat");
+      if (this.characters.length) {
+        this.characterId = this.characters[0].id;
+        await this.newChat(this.characterId);
+      } else {
+        this.characterId = "";
+        this.error = "No characters left. Add one from Characters & chats.";
+      }
     },
 
     // Two layers, applied in order: the saved theme is the global palette, and
@@ -785,7 +988,6 @@ function tavern() {
     settings: { backends: [], tiers: {}, tier_names: [], kinds: [], templates: [],
                 kind_defaults: {}, theme_tokens: [], theme: {},
                 backgrounds: [], background: "none", background_dim: 70, path: "" },
-    settingsOpen: false,
     saving: false,
     saveMsg: "",
     saveError: "",
@@ -795,23 +997,69 @@ function tavern() {
     modelErrors: {},
     loadingModels: "",
 
-    async openSettings() {
-      this.saveMsg = "";
-      this.saveError = "";
+    async loadSettings() {
       this.tests = {};
       this.models = {};
       this.modelErrors = {};
-      try {
-        const loaded = await api.get("/api/settings");
-        // Show a dot placeholder rather than the literal mask, so it reads as
-        // "a key is set" instead of looking like a corrupted value.
-        loaded.backends.forEach((b) => { if (b.api_key === "***") b.api_key = MASK_DISPLAY; });
-        this.settings = loaded;
-        this.applyTheme();
-        this.settingsOpen = true;
-      } catch (e) {
-        this.error = `could not load settings: ${e.message || e}`;
-      }
+      const loaded = await api.get("/api/settings");
+      // Show a dot placeholder rather than the literal mask, so it reads as
+      // "a key is set" instead of looking like a corrupted value.
+      loaded.backends.forEach((b) => { if (b.api_key === "***") b.api_key = MASK_DISPLAY; });
+      this.settings = loaded;
+      this.applyTheme();
+    },
+
+    // The numbers behind the reply, grouped by what a change to them actually
+    // does. Defined here rather than in the markup so each one can carry the
+    // sentence explaining what it costs.
+    numberFields(group) {
+      const fields = {
+        context: [
+          { key: "token_budget", label: "Context budget", min: 512, max: 131072, step: 256,
+            note: "total tokens of prompt the reply pass is allowed to build." },
+          { key: "verbatim_window", label: "Verbatim messages", min: 2, max: 200,
+            note: "how many recent messages stay in full before the ladder starts trimming." },
+          { key: "summary_budget", label: "Summary budget", min: 100, max: 4000, step: 50,
+            note: "how long the rolling summary may grow before it is re-summarised." },
+          { key: "memory_max_injected", label: "Memories injected", min: 0, max: 30,
+            note: "extracted memories added to a prompt at most." },
+          { key: "lorebook_scan_depth", label: "Lorebook scan depth", min: 0, max: 40,
+            note: "how many recent messages are scanned for lorebook keywords." },
+          { key: "lorebook_total_budget", label: "Lorebook budget", min: 0, max: 4000, step: 50,
+            note: "tokens of lorebook entries allowed into one prompt." },
+        ],
+        engine: [
+          { key: "background_retries", label: "Retries", min: 0, max: 6 },
+          { key: "pass_timeout", label: "Pass timeout (s)", min: 5, max: 900, step: 5, float: true },
+          { key: "blocking_await_ms", label: "Blocking grace (ms)", min: 0, max: 20000, step: 100 },
+        ],
+      };
+      return fields[group] || [];
+    },
+
+    setNumber(field, raw) {
+      const value = field.float ? parseFloat(raw) : parseInt(raw, 10);
+      if (Number.isNaN(value)) return;
+      this.settings[field.key] = Math.min(field.max, Math.max(field.min, value));
+    },
+
+    // Sampling is saved per pass as it is edited. It lives in the pass registry,
+    // not in settings.json, so it does not ride along on the settings save —
+    // and a number typed here that then needed a second, different-looking
+    // button pressed to take effect would be its own bug report.
+    async setSampling(definition, key, raw) {
+      const value = parseFloat(raw);
+      if (Number.isNaN(value)) return;
+      definition.sampling[key] = key === "max_tokens" ? Math.round(value) : value;
+      clearTimeout(this._passSaveTimer);
+      this._passSaveTimer = setTimeout(async () => {
+        try {
+          await api.put(`/api/passes/${definition.id}`, definition);
+          this.passMsg = "sampling saved";
+        } catch (e) {
+          this.passMsg = `could not save ${definition.id}: ${e.message || e}`;
+        }
+      }, 500);
     },
 
     // Turn the edited form back into what the API expects.

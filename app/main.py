@@ -22,6 +22,7 @@ from .db import get_db
 from .events import BUS
 from .markup import parse_to_dicts
 from .models import (
+    Character,
     CreateChatRequest,
     EditMessageRequest,
     PassDef,
@@ -232,6 +233,47 @@ async def get_character(character_id: str) -> dict:
     character = repo.get_character(get_db(), character_id)
     if character is None:
         raise HTTPException(404, "character not found")
+    return json.loads(character.model_dump_json())
+
+
+@app.post("/api/characters")
+async def create_character(payload: dict = Body(default={})) -> dict:
+    """A blank character to fill in from the editor.
+
+    Importing a card is still the fast path, but a card file is a poor
+    requirement for someone who just wants to write a character on the phone
+    they are holding.
+    """
+    name = str(payload.get("name") or "New character").strip() or "New character"
+    character = Character(id=repo.new_id(), name=name)
+    repo.save_character(get_db(), character)
+    return {"id": character.id, "name": character.name}
+
+
+@app.put("/api/characters/{character_id}")
+async def update_character(character_id: str, payload: dict = Body(...)) -> dict:
+    """Edit the written parts of a card.
+
+    Merged onto the stored character rather than replacing it: portraits,
+    backgrounds, lorebook, state schema and nudges come from the card and are
+    not editable here, and a PUT that dropped them would quietly destroy the
+    parts of an imported character the editor cannot show.
+    """
+    db = get_db()
+    character = repo.get_character(db, character_id)
+    if character is None:
+        raise HTTPException(404, "character not found")
+
+    editable = (
+        "name", "persona", "first_mes", "example_dialogue", "scenario", "system_prompt"
+    )
+    for field in editable:
+        if field in payload:
+            setattr(character, field, str(payload[field] or ""))
+    if not character.name.strip():
+        raise HTTPException(400, "a character needs a name")
+
+    repo.save_character(db, character)
     return json.loads(character.model_dump_json())
 
 
@@ -461,6 +503,22 @@ async def upsert_pass(pass_id: str, payload: dict = Body(...)) -> dict:
 async def remove_pass(pass_id: str) -> dict:
     deleted = await registry.delete_pass(get_db(), pass_id)
     return {"deleted": deleted, "disabled": not deleted}
+
+
+@app.post("/api/chats/{chat_id}/passes/{pass_id}/run")
+async def run_pass(chat_id: str, pass_id: str) -> dict:
+    """Run one pass now, without waiting for its trigger to fire.
+
+    The world-info bar is written by a pass that only runs when the reply
+    suggests the scene moved, which is right nearly always and wrong exactly
+    when the user is looking at a stale line and knows it.
+    """
+    if SCHEDULER is None:
+        raise HTTPException(503, "scheduler not ready")
+    result = SCHEDULER.run_pass_now(chat_id, pass_id)
+    if not result.get("ok"):
+        raise HTTPException(400, result.get("error", "could not run pass"))
+    return result
 
 
 @app.get("/api/toggles")

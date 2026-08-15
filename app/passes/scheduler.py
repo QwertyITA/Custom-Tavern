@@ -813,6 +813,58 @@ class PassScheduler:
             yield {"type": "background_queued", "passes": launched}
         yield {"type": "turn_end", "turn": ctx.turn}
 
+    def run_pass_now(self, chat_id: str, pass_id: str) -> dict:
+        """Run one pass on demand, outside the turn cycle.
+
+        The trigger is the only thing bypassed. Everything else is the ordinary
+        path — same context, same slice write, same run row, same pass_status
+        events — so a hand-refreshed panel is indistinguishable from one the
+        scheduler decided to refresh, and arbitration still applies. Slice
+        writes are rejected only by a *newer* source turn (§5.5), so refreshing
+        at the turn already on screen is a real refresh, not a no-op.
+
+        Launched rather than awaited: a background-tier pass can take as long
+        as any other, and the caller follows it over the event stream that
+        already drives the refreshing indicator.
+        """
+        chat = repo.get_chat(self.db, chat_id)
+        character = repo.get_character(self.db, chat["character_id"]) if chat else None
+        if chat is None or character is None:
+            return {"ok": False, "error": "unknown chat"}
+
+        definition = registry.get_pass(self.db, pass_id)
+        if definition is None or not definition.enabled:
+            return {"ok": False, "error": f"unknown pass {pass_id!r}"}
+
+        messages = repo.list_messages(self.db, chat_id, include_dropped=False)
+        if not messages:
+            return {"ok": False, "error": "nothing said yet"}
+        last = messages[-1]
+
+        ctx = TurnContext(
+            chat=chat,
+            character=character,
+            settings=self.settings,
+            turn=last["turn"],
+            message_id=last["id"],
+            variant_id=last.get("variant_id", ""),
+            schema=state_mod.load_schema(
+                {k: v.model_dump() for k, v in character.state_schema.items()}
+                if character.state_schema
+                else None
+            ),
+        )
+        ctx.toggle_states = registry.toggle_states(self.db, character.id, chat_id)
+        ctx.pre_values = assembly.current_values(self.db, chat_id, ctx.schema)
+
+        run_id = self._record_run(ctx, definition, "pending")
+        task = asyncio.create_task(
+            self._run_background(ctx, definition, [], asyncio.Event(), run_id),
+            name=f"manual:{pass_id}:{chat_id}",
+        )
+        self._track(chat_id, task)
+        return {"ok": True, "run_id": run_id, "pass_id": pass_id}
+
     async def reaudit(self, message_id: str) -> dict:
         """Re-run the auditor against an edited message (§9)."""
         message = repo.get_message(self.db, message_id)

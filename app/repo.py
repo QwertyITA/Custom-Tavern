@@ -54,10 +54,33 @@ def get_character(db: Database, character_id: str) -> Character | None:
 
 
 def list_characters(db: Database) -> list[dict]:
-    return [
-        {"id": row["id"], "name": row["name"], "version": row["version"]}
-        for row in db.query("SELECT id, name, version FROM characters ORDER BY name")
-    ]
+    """Enough to draw a character row without fetching every card in full.
+
+    The portrait and chat count are here rather than on the client because a
+    roster of ten characters would otherwise be ten more round trips, on a
+    phone, before the list can be drawn at all.
+    """
+    counts = {
+        row["character_id"]: row["n"]
+        for row in db.query("SELECT character_id, COUNT(*) AS n FROM chats GROUP BY character_id")
+    }
+    out: list[dict] = []
+    for row in db.query("SELECT id, name, version, data FROM characters ORDER BY name"):
+        try:
+            card = json.loads(row["data"])
+        except (TypeError, ValueError):
+            card = {}
+        pfp_set = card.get("pfp_set") or {}
+        out.append(
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "version": row["version"],
+                "pfp": pfp_set.get("neutral") or next(iter(pfp_set.values()), ""),
+                "chats": counts.get(row["id"], 0),
+            }
+        )
+    return out
 
 
 def delete_character(db: Database, character_id: str) -> None:

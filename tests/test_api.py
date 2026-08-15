@@ -428,3 +428,86 @@ def test_the_backdrop_is_actually_served(client):
     response = client.get("/static/backgrounds/tavern.svg")
     assert response.status_code == 200
     assert "svg" in response.headers["content-type"]
+
+
+# ------------------------------------------------- characters & manual passes
+
+
+def test_a_character_can_be_written_from_scratch(client):
+    created = client.post("/api/characters", json={"name": "Tomas"})
+    assert created.status_code == 200
+    character_id = created.json()["id"]
+
+    listed = client.get("/api/characters").json()
+    assert any(c["id"] == character_id and c["name"] == "Tomas" for c in listed)
+
+    # A blank character is usable immediately: a chat on it must open.
+    chat = client.post("/api/chats", json={"character_id": character_id})
+    assert chat.status_code == 200
+
+
+def test_editing_a_character_keeps_what_the_editor_cannot_show(client):
+    """The card carries more than the six text fields the editor exposes."""
+    character_id = client.get("/api/characters").json()[0]["id"]
+    before = client.get(f"/api/characters/{character_id}").json()
+    assert before["pfp_set"], "fixture character should have portraits"
+
+    response = client.put(
+        f"/api/characters/{character_id}",
+        json={"name": "Renamed", "persona": "Rewritten persona."},
+    )
+    assert response.status_code == 200
+
+    after = client.get(f"/api/characters/{character_id}").json()
+    assert after["name"] == "Renamed"
+    assert after["persona"] == "Rewritten persona."
+    assert after["pfp_set"] == before["pfp_set"]
+    assert after["lorebook"] == before["lorebook"]
+    assert after["state_schema"] == before["state_schema"]
+
+
+def test_a_character_cannot_be_left_nameless(client):
+    character_id = client.get("/api/characters").json()[0]["id"]
+    assert client.put(f"/api/characters/{character_id}", json={"name": "   "}).status_code == 400
+
+
+def test_the_character_list_carries_a_portrait_and_chat_count(client):
+    character_id = client.get("/api/characters").json()[0]["id"]
+    before = next(c for c in client.get("/api/characters").json() if c["id"] == character_id)
+    client.post("/api/chats", json={"character_id": character_id})
+    after = next(c for c in client.get("/api/characters").json() if c["id"] == character_id)
+    assert after["chats"] == before["chats"] + 1
+    assert after["pfp"]
+
+
+def test_deleting_a_character_takes_its_chats_with_it(client):
+    character_id = client.post("/api/characters", json={"name": "Doomed"}).json()["id"]
+    chat_id = client.post("/api/chats", json={"character_id": character_id}).json()["id"]
+    assert client.get(f"/api/chats/{chat_id}").status_code == 200
+
+    assert client.delete(f"/api/characters/{character_id}").status_code == 200
+    assert client.get(f"/api/chats/{chat_id}").status_code == 404
+
+
+def test_a_pass_can_be_run_without_waiting_for_its_trigger(client):
+    """The world-info bar refreshes on demand, not only when a reply moves it."""
+    chat_id = new_chat(client)
+    send(client, chat_id, "We step out into the rain.")
+
+    response = client.post(f"/api/chats/{chat_id}/passes/scene/run")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] and body["pass_id"] == "scene" and body["run_id"]
+
+
+def test_running_an_unknown_pass_is_rejected(client):
+    chat_id = new_chat(client)
+    send(client, chat_id, "hello")
+    assert client.post(f"/api/chats/{chat_id}/passes/nonsense/run").status_code == 400
+
+
+def test_a_manual_pass_needs_something_to_look_at(client):
+    """A brand-new chat with no greeting has no material for a pass."""
+    character_id = client.post("/api/characters", json={"name": "Silent"}).json()["id"]
+    chat_id = client.post("/api/chats", json={"character_id": character_id}).json()["id"]
+    assert client.post(f"/api/chats/{chat_id}/passes/scene/run").status_code == 400

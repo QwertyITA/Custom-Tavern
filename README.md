@@ -92,6 +92,31 @@ That puts "Personal Tavern" and "Personal Tavern (stop)" in `~/.shortcuts`.
 Add the Termux:Widget widget to your home screen and the app is one tap away —
 it updates and starts.
 
+### Getting around
+
+The header is three lines: who you are talking to, the menu, and the world
+line. Tapping **☰** eases a row of four destinations down between them, which
+pushes the world line down rather than covering the conversation.
+
+| | Destination | What is behind it |
+|---|---|---|
+| brain | Model & engine | tier assignment, backends and keys, context budget, per-pass sampling |
+| theme | Appearance | backdrop, backdrop fade, and every colour and size in the palette |
+| chats | Characters & chats | one row per character — portrait, edit, new chat, history, delete |
+| story | Story state | state bands, toggles, the rolling summary, and the pass HUD |
+
+The world line — place, weather, time — is written by the `scene` pass, which
+only runs when a reply suggests the setting moved. That is right nearly always,
+and wrong exactly when you are looking at a stale line and can see it is stale,
+so **⟳** at the end of the line runs the pass on demand. It is the ordinary
+path with the trigger bypassed: same slice write, same run row, same HUD entry.
+
+Characters can be written in the app — **chats → + new character** — as well as
+imported from a card. Editing only rewrites the text fields; portraits,
+backgrounds, lorebook and state schema come from the card and are left alone.
+Deleting a character deletes its chats with it, which is why both deletes take
+two taps rather than one.
+
 ### Backdrop
 
 A tavern scene sits behind the chat by default. It is original vector art
@@ -100,7 +125,7 @@ is public, so an image with no licence question attached is worth more than a
 photograph, and a few kilobytes of SVG stays sharp on any screen where a JPEG
 would not.
 
-Change it under **⚙ → Appearance**: pick a different backdrop or `none`, and
+Change it under **☰ → theme**: pick a different backdrop or `none`, and
 set how strongly the theme colour washes over it. Drop your own files into
 `static/backgrounds/` and they appear in the list — the folder is enumerated,
 not hardcoded. A backdrop set by the `background_swap` pass takes precedence
@@ -150,10 +175,9 @@ cp data/settings.example.json data/settings.json   # then edit
 
 ## Credentials
 
-Set backends and keys in the app: **menu (☰) → settings & API keys**. Assign
-each tier a backend, fill in the URL/model/key, and use *test connection* to
-check one before relying on it. Everything is written to `data/settings.json`
-on the device.
+Set backends and keys in the app: **☰ → brain**. Assign each tier a backend,
+fill in the URL/model/key, and use *test connection* to check one before
+relying on it. Everything is written to `data/settings.json` on the device.
 
 Nothing has to be typed from memory. Picking a **kind** fills in the URL,
 template, timeout and a sensible model, with a note on what that backend is
@@ -224,8 +248,9 @@ eligible passes run in parallel across tiers, each writing its own slice
 on arrival — order between different slices is irrelevant (§5.5)
 ```
 
-Watch it happen: open the ⚙ HUD. Every pass this turn shows its tier, model,
-status and token counts, and the cost panel breaks spend down per pass.
+Watch it happen: **☰ → story → Pass HUD & cost**. Every pass this turn shows
+its tier, model, status and token counts, and the cost panel breaks spend down
+per pass.
 
 ## Layout
 

@@ -12,28 +12,94 @@
 <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
 <link rel="stylesheet" href="/static/styles.css">
 </head>
-<body x-data="tavern()" x-init="boot()" :class="{ 'drawer-open': drawer }">
+<body x-data="tavern()" x-init="boot()" @keydown.escape="menu ? menu = false : closePanel()">
 
-<!-- (1) pinned world-info bar: place · weather · time (§12) -->
+<!-- (1) pinned header: who you are talking to, then the menu, then the world
+     info. Three stacked rows rather than one, so the menu can open between the
+     name and the world line and push the world line down instead of covering
+     the conversation. -->
 <header class="worldbar">
-  <button class="icon-btn glyph" @click="drawer = !drawer" aria-label="Chats and state" title="Chats">☰&#xFE0E;</button>
-  <div class="world-fields">
-    <span class="field" :class="{ refreshing: refreshing.scene }">
-      <span class="field-label">place</span>
-      <span class="field-value" x-text="scene.place || '—'"></span>
-    </span>
-    <span class="sep">·</span>
-    <span class="field" :class="{ refreshing: refreshing.scene }">
-      <span class="field-label">weather</span>
-      <span class="field-value" x-text="scene.weather || '—'"></span>
-    </span>
-    <span class="sep">·</span>
-    <span class="field" :class="{ refreshing: refreshing.scene }">
-      <span class="field-label">time</span>
-      <span class="field-value" x-text="scene.time || '—'"></span>
-    </span>
+
+  <div class="bar-row">
+    <button class="icon-btn glyph" :class="{ on: menu }" @click="menu = !menu"
+            :aria-expanded="menu" aria-controls="main-menu"
+            aria-label="Menu" title="Menu">☰&#xFE0E;</button>
+    <span class="who" x-text="character ? character.name : '—'"></span>
   </div>
-  <button class="icon-btn glyph" @click="openSettings()" aria-label="Settings" title="Settings">⚙&#xFE0E;</button>
+
+  <!-- The row of destinations. Collapsed to nothing until the menu opens; see
+       the grid-rows note in styles.css for why it animates the way it does. -->
+  <div class="menu-wrap" :class="{ open: menu }" id="main-menu">
+    <div class="menu-clip">
+      <!-- Inline SVG rather than emoji: an emoji is drawn by whichever font
+           the phone happens to have, so the four of them arrive in different
+           weights and refuse to take the theme colour. These are stroked in
+           currentColor and match whatever the palette is set to. -->
+      <nav class="menu-row">
+        <button class="menu-btn" :class="{ on: panel === 'brain' }" @click="openPanel('brain')"
+                aria-label="Model and engine" title="Model and engine">
+          <svg class="menu-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 5.4A3 3 0 0 0 6.4 4 2.8 2.8 0 0 0 4 6.7a3 3 0 0 0-.4 5.2A3 3 0 0 0 5 17a3 3 0 0 0 4.4 2.4A2.6 2.6 0 0 0 12 21z"/>
+            <path d="M12 5.4A3 3 0 0 1 17.6 4 2.8 2.8 0 0 1 20 6.7a3 3 0 0 1 .4 5.2A3 3 0 0 1 19 17a3 3 0 0 1-4.4 2.4A2.6 2.6 0 0 1 12 21z"/>
+            <path d="M12 5.4V21"/>
+          </svg>
+          <span class="menu-label">brain</span>
+        </button>
+        <button class="menu-btn" :class="{ on: panel === 'theme' }" @click="openPanel('theme')"
+                aria-label="Appearance" title="Appearance">
+          <svg class="menu-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.6" aria-hidden="true">
+            <circle cx="12" cy="12" r="8.4"/>
+            <path d="M12 3.6a8.4 8.4 0 0 1 0 16.8z" fill="currentColor" stroke="none"/>
+          </svg>
+          <span class="menu-label">theme</span>
+        </button>
+        <button class="menu-btn" :class="{ on: panel === 'chats' }" @click="openPanel('chats')"
+                aria-label="Characters and chats" title="Characters and chats">
+          <svg class="menu-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M20.5 11.7c0 3.9-3.8 7-8.5 7-1 0-2-.15-2.9-.42L4 20l1.4-3.6a6.6 6.6 0 0 1-1.9-4.7c0-3.9 3.8-7 8.5-7s8.5 3.1 8.5 7z"/>
+          </svg>
+          <span class="menu-label">chats</span>
+        </button>
+        <button class="menu-btn" :class="{ on: panel === 'story' }" @click="openPanel('story')"
+                aria-label="Story state" title="Story state">
+          <svg class="menu-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 6.6C10.4 5.3 8.3 4.6 5.6 4.6H3.5v13h2.1c2.7 0 4.8.7 6.4 2 1.6-1.3 3.7-2 6.4-2h2.1v-13h-2.1c-2.7 0-4.8.7-6.4 2z"/>
+            <path d="M12 6.6v13"/>
+          </svg>
+          <span class="menu-label">story</span>
+        </button>
+      </nav>
+    </div>
+  </div>
+
+  <div class="bar-row world-row">
+    <div class="world-fields">
+      <span class="field" :class="{ refreshing: refreshing.scene }">
+        <span class="field-label">place</span>
+        <span class="field-value" x-text="scene.place || '—'"></span>
+      </span>
+      <span class="sep">·</span>
+      <span class="field" :class="{ refreshing: refreshing.scene }">
+        <span class="field-label">weather</span>
+        <span class="field-value" x-text="scene.weather || '—'"></span>
+      </span>
+      <span class="sep">·</span>
+      <span class="field" :class="{ refreshing: refreshing.scene }">
+        <span class="field-label">time</span>
+        <span class="field-value" x-text="scene.time || '—'"></span>
+      </span>
+    </div>
+    <!-- The scene pass only fires when a reply suggests the setting moved.
+         That is right nearly always, and wrong exactly when you are looking
+         at a stale line and can see that it is stale. -->
+    <button class="icon-btn glyph refresh" :class="{ spinning: refreshing.scene }"
+            @click="refreshWorld()" :disabled="refreshing.scene || !chatId"
+            aria-label="Refresh world info" title="Refresh world info">⟳&#xFE0E;</button>
+  </div>
 </header>
 
 <!-- pass-status HUD (debug, toggleable) (§12) -->
@@ -169,191 +235,350 @@
   <button class="send" @click="send()" :disabled="streaming || !draft.trim()">↑</button>
 </footer>
 
-<!-- drawer: characters, chats, toggles, state -->
-<aside class="drawer" x-show="drawer" x-cloak @click.outside="drawer = false">
-  <h2>Chats</h2>
-  <select x-model="characterId" @change="newChat()">
-    <template x-for="c in characters" :key="c.id">
-      <option :value="c.id" x-text="c.name"></option>
-    </template>
-  </select>
-  <button class="wide" @click="newChat()">new chat</button>
-  <ul class="chat-list">
-    <template x-for="c in chats" :key="c.id">
-      <li :class="{ active: c.id === chatId }" @click="openChat(c.id)">
-        <span x-text="c.title || 'untitled'"></span>
-      </li>
-    </template>
-  </ul>
-
-  <h2>State</h2>
-  <div class="bands">
-    <template x-for="b in bands" :key="b.variable">
-      <div class="band">
-        <span class="band-var" x-text="b.variable"></span>
-        <span class="band-label" x-text="b.band"></span>
-        <span class="band-guide" x-text="b.guidance"></span>
-      </div>
-    </template>
-    <div class="provisional" x-show="stateProvisional">provisional — auditor pending</div>
-  </div>
-
-  <h2>Toggles</h2>
-  <template x-for="t in toggles" :key="t.id">
-    <label class="toggle">
-      <input type="checkbox" :checked="toggleStates[t.id]" @change="setToggle(t.id, $event.target.checked)">
-      <span x-text="t.label"></span>
-    </label>
-  </template>
-
-  <h2>Summary</h2>
-  <p class="summary" x-text="summary.text || 'nothing summarised yet'"></p>
-
-  <h2>Debug</h2>
-  <label class="toggle">
-    <input type="checkbox" x-model="hud">
-    <span>Pass HUD &amp; cost</span>
-  </label>
-</aside>
-
-<!-- Settings: backends, keys, tier assignment (§3, §13) -->
-<section class="sheet" x-show="settingsOpen" x-cloak>
+<!-- Every destination in the menu opens the same sheet with a different body.
+     One sheet rather than four: they share the head, the scroll behaviour and
+     the safe-area padding, and only ever one is on screen. -->
+<section class="sheet" x-show="panel" x-cloak>
   <header class="sheet-head">
-    <h2>Settings</h2>
-    <button class="icon-btn" @click="settingsOpen = false" aria-label="Close">✕</button>
+    <button class="icon-btn" x-show="panel === 'character'" @click="panel = 'chats'"
+            aria-label="Back">‹</button>
+    <h2 x-text="panelTitle()"></h2>
+    <button class="icon-btn" @click="closePanel()" aria-label="Close">✕</button>
   </header>
 
   <div class="sheet-body">
-    <p class="note">
-      Keys are stored in <code x-text="settings.path"></code> on this phone only.
-      That file is gitignored and written owner-readable. Saved keys are never sent
-      back to this page — a field showing <code>•••</code> already has one.
-    </p>
 
-    <h3>Tiers</h3>
-    <p class="note">Assign by latency tolerance, not importance. Never point
-      <em>background</em> at an on-device model — those passes must survive the
-      screen going off.</p>
-    <template x-for="tier in settings.tier_names" :key="tier">
-      <label class="row">
-        <span class="row-label" x-text="tier"></span>
-        <select x-model="settings.tiers[tier]">
-          <template x-for="b in settings.backends" :key="b.name">
-            <option :value="b.name" x-text="b.name"></option>
-          </template>
-        </select>
-      </label>
-    </template>
+    <!-- ----------------------------------------------------------- brain -->
+    <template x-if="panel === 'brain'">
+      <div>
+        <p class="note">
+          Keys are stored in <code x-text="settings.path"></code> on this phone only.
+          That file is gitignored and written owner-readable. Saved keys are never sent
+          back to this page — a field showing <code>•••</code> already has one.
+        </p>
 
-    <h3>Backends</h3>
-    <template x-for="(b, i) in settings.backends" :key="i">
-      <div class="backend">
-        <div class="backend-head">
-          <input class="grow" x-model="b.name" placeholder="name" aria-label="Backend name">
-          <select x-model="b.kind" @change="onKindChange(b)">
-            <template x-for="k in settings.kinds" :key="k">
-              <option :value="k" x-text="k"></option>
-            </template>
-          </select>
-          <button class="link danger" @click="removeBackend(i)"
-                  :disabled="settings.backends.length < 2">remove</button>
-        </div>
-
-        <p class="kind-note" x-show="kindNote(b.kind)" x-text="kindNote(b.kind)"></p>
-
-        <label class="row"><span class="row-label">model</span>
-          <!-- datalist, not select: the options are what the backend reports,
-               but a model you are about to pull must still be typeable. -->
-          <input x-model="b.model" :list="`models-${i}`" placeholder="llama3.1:8b"
-                 autocomplete="off" spellcheck="false">
-          <datalist :id="`models-${i}`">
-            <template x-for="m in (models[b.name] || [])" :key="m">
-              <option :value="m"></option>
-            </template>
-          </datalist>
-          <button class="link" @click.prevent="loadModels(b)" :disabled="loadingModels === b.name">
-            <span x-text="loadingModels === b.name ? '…' : 'load'"></span>
-          </button>
-        </label>
-        <p class="kind-note" x-show="modelHint(b.name)" x-text="modelHint(b.name)"></p>
-        <label class="row" x-show="b.kind !== 'echo'"><span class="row-label">url</span>
-          <input x-model="b.base_url" placeholder="http://100.x.y.z:11434" inputmode="url"></label>
-        <label class="row" x-show="b.kind === 'openai' || b.kind === 'horde'">
-          <span class="row-label">key</span>
-          <input type="password" x-model="b.api_key" autocomplete="off"
-                 spellcheck="false" :placeholder="b.kind === 'horde' ? '0000000000 for anonymous' : 'API key'">
-        </label>
-        <label class="row"><span class="row-label">template</span>
-          <select x-model="b.template">
-            <template x-for="t in settings.templates" :key="t">
-              <option :value="t" x-text="t"></option>
-            </template>
-          </select>
-        </label>
-
-        <div class="backend-foot">
-          <button class="link" @click="testBackend(b)" :disabled="testing === b.name">
-            <span x-text="testing === b.name ? 'testing…' : 'test connection'"></span>
-          </button>
-          <span class="test-result" :class="{ ok: (tests[b.name]||{}).ok, bad: tests[b.name] && !tests[b.name].ok }"
-                x-show="tests[b.name]" x-text="testLabel(b.name)"></span>
-        </div>
-      </div>
-    </template>
-
-    <button class="wide" @click="addBackend()">+ add backend</button>
-
-    <h3>Appearance</h3>
-    <p class="note">Changes preview live. Nothing here needs a file edited by hand.</p>
-
-    <label class="row theme-row">
-      <span class="row-label wide-label">Backdrop</span>
-      <select :value="settings.background" @change="setBackground($event.target.value)">
-        <option value="none">none</option>
-        <template x-for="file in settings.backgrounds || []" :key="file">
-          <option :value="file" x-text="file.replace(/\.[^.]+$/, '')"></option>
-        </template>
-      </select>
-    </label>
-    <label class="row theme-row" x-show="settings.background !== 'none'">
-      <span class="row-label wide-label">Backdrop fade</span>
-      <input type="range" min="40" max="100" :value="settings.background_dim"
-             @input="setBackgroundDim($event.target.value)">
-      <span class="theme-value" x-text="`${settings.background_dim}%`"></span>
-    </label>
-    <p class="note" x-show="settings.background !== 'none'">
-      Higher fade washes the image out further behind the text. Drop your own
-      files in <code>static/backgrounds/</code> and they appear in this list.
-    </p>
-    <template x-for="group in themeGroups()" :key="group">
-      <div class="theme-group">
-        <div class="theme-group-name" x-text="group"></div>
-        <template x-for="token in themeIn(group)" :key="token.var">
-          <label class="row theme-row">
-            <span class="row-label wide-label" x-text="token.label"></span>
-            <template x-if="token.type === 'color'">
-              <input type="color" :value="themeValue(token)"
-                     @input="setTheme(token, $event.target.value)">
-            </template>
-            <template x-if="token.type !== 'color'">
-              <input type="range" :min="token.type === 'pct' ? 40 : 0"
-                     :max="token.type === 'pct' ? 100 : 30"
-                     :value="parseInt(themeValue(token))"
-                     @input="setTheme(token, $event.target.value + (token.type === 'pct' ? '%' : 'px'))">
-            </template>
-            <span class="theme-value" x-text="themeValue(token)"></span>
+        <h3>Tiers</h3>
+        <p class="note">Assign by latency tolerance, not importance. Never point
+          <em>background</em> at an on-device model — those passes must survive the
+          screen going off.</p>
+        <template x-for="tier in settings.tier_names" :key="tier">
+          <label class="row">
+            <span class="row-label" x-text="tier"></span>
+            <select x-model="settings.tiers[tier]">
+              <template x-for="b in settings.backends" :key="b.name">
+                <option :value="b.name" x-text="b.name"></option>
+              </template>
+            </select>
           </label>
         </template>
+
+        <h3>Backends</h3>
+        <template x-for="(b, i) in settings.backends" :key="i">
+          <div class="backend">
+            <div class="backend-head">
+              <input class="grow" x-model="b.name" placeholder="name" aria-label="Backend name">
+              <select x-model="b.kind" @change="onKindChange(b)">
+                <template x-for="k in settings.kinds" :key="k">
+                  <option :value="k" x-text="k"></option>
+                </template>
+              </select>
+              <button class="link danger" @click="removeBackend(i)"
+                      :disabled="settings.backends.length < 2">remove</button>
+            </div>
+
+            <p class="kind-note" x-show="kindNote(b.kind)" x-text="kindNote(b.kind)"></p>
+
+            <label class="row"><span class="row-label">model</span>
+              <!-- datalist, not select: the options are what the backend reports,
+                   but a model you are about to pull must still be typeable. -->
+              <input x-model="b.model" :list="`models-${i}`" placeholder="llama3.1:8b"
+                     autocomplete="off" spellcheck="false">
+              <datalist :id="`models-${i}`">
+                <template x-for="m in (models[b.name] || [])" :key="m">
+                  <option :value="m"></option>
+                </template>
+              </datalist>
+              <button class="link" @click.prevent="loadModels(b)" :disabled="loadingModels === b.name">
+                <span x-text="loadingModels === b.name ? '…' : 'load'"></span>
+              </button>
+            </label>
+            <p class="kind-note" x-show="modelHint(b.name)" x-text="modelHint(b.name)"></p>
+            <label class="row" x-show="b.kind !== 'echo'"><span class="row-label">url</span>
+              <input x-model="b.base_url" placeholder="http://100.x.y.z:11434" inputmode="url"></label>
+            <label class="row" x-show="b.kind === 'openai' || b.kind === 'horde'">
+              <span class="row-label">key</span>
+              <input type="password" x-model="b.api_key" autocomplete="off"
+                     spellcheck="false" :placeholder="b.kind === 'horde' ? '0000000000 for anonymous' : 'API key'">
+            </label>
+            <label class="row"><span class="row-label">template</span>
+              <select x-model="b.template">
+                <template x-for="t in settings.templates" :key="t">
+                  <option :value="t" x-text="t"></option>
+                </template>
+              </select>
+            </label>
+
+            <div class="backend-foot">
+              <button class="link" @click="testBackend(b)" :disabled="testing === b.name">
+                <span x-text="testing === b.name ? 'testing…' : 'test connection'"></span>
+              </button>
+              <span class="test-result" :class="{ ok: (tests[b.name]||{}).ok, bad: tests[b.name] && !tests[b.name].ok }"
+                    x-show="tests[b.name]" x-text="testLabel(b.name)"></span>
+            </div>
+          </div>
+        </template>
+
+        <button class="wide" @click="addBackend()">+ add backend</button>
+
+        <h3>Context</h3>
+        <p class="note">
+          How much of the conversation reaches the model, and what happens to the
+          rest. Messages are only dropped once the summary <em>and</em> the memory
+          pass have covered them, so nothing is lost by lowering these.
+        </p>
+        <template x-for="n in numberFields('context')" :key="n.key">
+          <div class="num-field">
+            <label class="row num-row">
+              <span class="row-label wide-label" x-text="n.label"></span>
+              <input type="number" :min="n.min" :max="n.max" :step="n.step || 1"
+                     :value="settings[n.key]"
+                     @input="setNumber(n, $event.target.value)">
+            </label>
+            <p class="kind-note" x-show="n.note" x-text="n.note"></p>
+          </div>
+        </template>
+
+        <h3>Engine</h3>
+        <p class="note">Retries and timeouts for the passes behind the reply.</p>
+        <template x-for="n in numberFields('engine')" :key="n.key">
+          <label class="row num-row">
+            <span class="row-label wide-label" x-text="n.label"></span>
+            <input type="number" :min="n.min" :max="n.max" :step="n.step || 1"
+                   :value="settings[n.key]"
+                   @input="setNumber(n, $event.target.value)">
+          </label>
+        </template>
+
+        <h3>Passes</h3>
+        <p class="note">
+          Sampling per pass. The reply pass is the one you can hear; the rest are
+          cheap on purpose, and turning them up costs tokens on every turn.
+        </p>
+        <template x-for="p in passes" :key="p.id">
+          <div class="pass-row">
+            <div class="pass-head">
+              <span class="pass-name" x-text="p.label || p.id"></span>
+              <span class="pass-tier" x-text="p.model_tier"></span>
+            </div>
+            <div class="pass-nums">
+              <label><span>temp</span>
+                <input type="number" min="0" max="2" step="0.05"
+                       :value="p.sampling.temp" @input="setSampling(p, 'temp', $event.target.value)"></label>
+              <label><span>top&nbsp;p</span>
+                <input type="number" min="0" max="1" step="0.05"
+                       :value="p.sampling.top_p" @input="setSampling(p, 'top_p', $event.target.value)"></label>
+              <label><span>max&nbsp;tok</span>
+                <input type="number" min="1" max="8192" step="1"
+                       :value="p.sampling.max_tokens" @input="setSampling(p, 'max_tokens', $event.target.value)"></label>
+            </div>
+          </div>
+        </template>
+        <span class="save-msg" x-text="passMsg"></span>
+
+        <div class="sheet-actions">
+          <button class="wide primary" @click="saveSettings()" :disabled="saving">
+            <span x-text="saving ? 'saving…' : 'save'"></span>
+          </button>
+          <span class="save-msg" :class="{ bad: saveError }" x-text="saveError || saveMsg"></span>
+        </div>
       </div>
     </template>
-    <button class="wide" @click="resetTheme()">reset appearance to defaults</button>
 
-    <div class="sheet-actions">
-      <button class="wide primary" @click="saveSettings()" :disabled="saving">
-        <span x-text="saving ? 'saving…' : 'save'"></span>
-      </button>
-      <span class="save-msg" :class="{ bad: saveError }" x-text="saveError || saveMsg"></span>
-    </div>
+    <!-- ----------------------------------------------------------- theme -->
+    <template x-if="panel === 'theme'">
+      <div>
+        <p class="note">Changes preview live. Nothing here needs a file edited by hand.</p>
+
+        <label class="row theme-row">
+          <span class="row-label wide-label">Backdrop</span>
+          <select :value="settings.background" @change="setBackground($event.target.value)">
+            <option value="none">none</option>
+            <template x-for="file in settings.backgrounds || []" :key="file">
+              <option :value="file" x-text="file.replace(/\.[^.]+$/, '')"></option>
+            </template>
+          </select>
+        </label>
+        <label class="row theme-row" x-show="settings.background !== 'none'">
+          <span class="row-label wide-label">Backdrop fade</span>
+          <input type="range" min="40" max="100" :value="settings.background_dim"
+                 @input="setBackgroundDim($event.target.value)">
+          <span class="theme-value" x-text="`${settings.background_dim}%`"></span>
+        </label>
+        <p class="note" x-show="settings.background !== 'none'">
+          Higher fade washes the image out further behind the text. Drop your own
+          files in <code>static/backgrounds/</code> and they appear in this list.
+        </p>
+        <template x-for="group in themeGroups()" :key="group">
+          <div class="theme-group">
+            <div class="theme-group-name" x-text="group"></div>
+            <template x-for="token in themeIn(group)" :key="token.var">
+              <label class="row theme-row">
+                <span class="row-label wide-label" x-text="token.label"></span>
+                <template x-if="token.type === 'color'">
+                  <input type="color" :value="themeValue(token)"
+                         @input="setTheme(token, $event.target.value)">
+                </template>
+                <template x-if="token.type !== 'color'">
+                  <input type="range" :min="token.type === 'pct' ? 40 : 0"
+                         :max="token.type === 'pct' ? 100 : 30"
+                         :value="parseInt(themeValue(token))"
+                         @input="setTheme(token, $event.target.value + (token.type === 'pct' ? '%' : 'px'))">
+                </template>
+                <span class="theme-value" x-text="themeValue(token)"></span>
+              </label>
+            </template>
+          </div>
+        </template>
+        <button class="wide" @click="resetTheme()">reset appearance to defaults</button>
+
+        <div class="sheet-actions">
+          <button class="wide primary" @click="saveSettings()" :disabled="saving">
+            <span x-text="saving ? 'saving…' : 'save'"></span>
+          </button>
+          <span class="save-msg" :class="{ bad: saveError }" x-text="saveError || saveMsg"></span>
+        </div>
+      </div>
+    </template>
+
+    <!-- ----------------------------------------------------------- chats -->
+    <template x-if="panel === 'chats'">
+      <div>
+        <p class="note">
+          One row per character. Deleting a character deletes its chats with it —
+          that is why it asks twice.
+        </p>
+
+        <template x-for="c in characters" :key="c.id">
+          <div class="char" :class="{ current: c.id === characterId }">
+            <div class="char-head">
+              <!-- A card can name a portrait file that was never copied in.
+                   In a list the row should close up around it rather than
+                   keep a hole where the picture would have been. -->
+              <img class="char-pfp" x-show="c.pfp" :src="`/static/characters/${c.pfp}`" alt=""
+                   @error="$el.style.display = 'none'">
+              <div class="char-id">
+                <span class="char-name" x-text="c.name"></span>
+                <span class="char-meta" x-text="`${c.chats} chat${c.chats === 1 ? '' : 's'}`"></span>
+              </div>
+              <button class="glyph-btn" @click="editCharacter(c.id)"
+                      title="Edit character" aria-label="Edit character">✎&#xFE0E;</button>
+              <button class="glyph-btn" @click="newChat(c.id)"
+                      title="New chat" aria-label="New chat">＋&#xFE0E;</button>
+              <button class="glyph-btn" :class="{ on: historyFor === c.id }"
+                      @click="toggleHistory(c.id)"
+                      title="Chat history" aria-label="Chat history">☰&#xFE0E;</button>
+              <button class="glyph-btn danger" :class="{ armed: confirmChar === c.id }"
+                      @click="deleteCharacter(c)"
+                      :title="confirmChar === c.id ? 'Tap again to delete — this deletes its chats too' : 'Delete character'"
+                      aria-label="Delete character"
+                      x-text="confirmChar === c.id ? '⚠&#xFE0E;' : '✕&#xFE0E;'"></button>
+            </div>
+
+            <ul class="chat-list" x-show="historyFor === c.id" x-cloak>
+              <template x-for="chat in chatsFor(c.id)" :key="chat.id">
+                <li :class="{ active: chat.id === chatId }">
+                  <button class="chat-open" @click="openChat(chat.id); closePanel()">
+                    <span class="chat-title" x-text="chat.title || 'untitled'"></span>
+                    <span class="chat-when" x-text="whenLabel(chat)"></span>
+                  </button>
+                  <button class="glyph-btn danger" :class="{ armed: confirmChat === chat.id }"
+                          @click="deleteChat(chat)"
+                          :title="confirmChat === chat.id ? 'Tap again to delete' : 'Delete chat'"
+                          aria-label="Delete chat"
+                          x-text="confirmChat === chat.id ? '⚠&#xFE0E;' : '✕&#xFE0E;'"></button>
+                </li>
+              </template>
+              <li class="chat-empty" x-show="!chatsFor(c.id).length">no chats yet</li>
+            </ul>
+          </div>
+        </template>
+
+        <button class="wide" @click="newCharacter()">+ new character</button>
+        <p class="note">
+          Importing a card still works — drop it in <code>data/characters/</code> and
+          restart. A character written here starts blank.
+        </p>
+      </div>
+    </template>
+
+    <!-- ------------------------------------------------------- character -->
+    <template x-if="panel === 'character'">
+      <div>
+        <p class="note" x-show="draftCharacter.id">
+          Portraits, backgrounds, lorebook and state schema come from the card and
+          are kept as they are — editing here only rewrites the text below.
+        </p>
+        <label class="row col-row"><span class="row-label wide-label">Name</span>
+          <input x-model="draftCharacter.name" placeholder="name"></label>
+        <label class="col-field"><span class="row-label wide-label">Persona</span>
+          <textarea x-model="draftCharacter.persona" rows="6"
+                    placeholder="Who they are, how they speak, what they want."></textarea></label>
+        <label class="col-field"><span class="row-label wide-label">Greeting</span>
+          <textarea x-model="draftCharacter.first_mes" rows="4"
+                    placeholder="The first message, sent when a chat opens."></textarea></label>
+        <label class="col-field"><span class="row-label wide-label">Scenario</span>
+          <textarea x-model="draftCharacter.scenario" rows="3"
+                    placeholder="Where this is happening."></textarea></label>
+        <label class="col-field"><span class="row-label wide-label">Example dialogue</span>
+          <textarea x-model="draftCharacter.example_dialogue" rows="4"
+                    placeholder="A short exchange showing their voice."></textarea></label>
+        <label class="col-field"><span class="row-label wide-label">System prompt</span>
+          <textarea x-model="draftCharacter.system_prompt" rows="3"
+                    placeholder="Extra instructions, prepended to every reply pass."></textarea></label>
+
+        <div class="sheet-actions">
+          <button class="wide primary" @click="saveCharacter()" :disabled="savingCharacter">
+            <span x-text="savingCharacter ? 'saving…' : 'save character'"></span>
+          </button>
+          <span class="save-msg" :class="{ bad: charError }" x-text="charError || charMsg"></span>
+        </div>
+      </div>
+    </template>
+
+    <!-- ----------------------------------------------------------- story -->
+    <template x-if="panel === 'story'">
+      <div>
+        <h3>State</h3>
+        <div class="bands">
+          <template x-for="b in bands" :key="b.variable">
+            <div class="band">
+              <span class="band-var" x-text="b.variable"></span>
+              <span class="band-label" x-text="b.band"></span>
+              <span class="band-guide" x-text="b.guidance"></span>
+            </div>
+          </template>
+          <div class="provisional" x-show="stateProvisional">provisional — auditor pending</div>
+        </div>
+
+        <h3>Toggles</h3>
+        <template x-for="t in toggles" :key="t.id">
+          <label class="toggle">
+            <input type="checkbox" :checked="toggleStates[t.id]" @change="setToggle(t.id, $event.target.checked)">
+            <span x-text="t.label"></span>
+          </label>
+        </template>
+
+        <h3>Summary</h3>
+        <p class="summary" x-text="summary.text || 'nothing summarised yet'"></p>
+
+        <h3>Debug</h3>
+        <label class="toggle">
+          <input type="checkbox" x-model="hud">
+          <span>Pass HUD &amp; cost</span>
+        </label>
+      </div>
+    </template>
+
   </div>
 </section>
 

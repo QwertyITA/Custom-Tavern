@@ -78,8 +78,7 @@ body {
 
 .worldbar {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
   padding: calc(6px + var(--safe-top)) 10px 6px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
@@ -87,6 +86,81 @@ body {
   top: 0;
   z-index: 5;
 }
+.bar-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.world-row { padding-top: 2px; }
+
+/* Who you are talking to. First thing in the header because on a phone the
+   portrait is small and easy to lose track of. */
+.who {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------ main menu */
+
+/* Opening the menu eases the row of destinations down and carries the world
+   line with it, rather than covering the conversation with a panel.
+ *
+ * The height animates through grid-template-rows: 0fr -> 1fr. Every other way
+ * of doing this is worse here. A fixed max-height has to be guessed, and the
+ * guess sets the real duration — too large and the row snaps open in the first
+ * tenth of the transition, then waits. Animating a measured pixel height needs
+ * JS to measure and re-measure on every font or label change. 0fr -> 1fr asks
+ * the browser for the row's own height and interpolates to it, so it stays
+ * correct when the contents change. */
+.menu-wrap {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 260ms cubic-bezier(.4, 0, .2, 1);
+}
+.menu-wrap.open { grid-template-rows: 1fr; }
+/* The grid child must be able to go to zero height, which means its own
+   overflow has to be hidden — otherwise the buttons stay visible at full size
+   while the track collapses around them. */
+.menu-clip { overflow: hidden; min-height: 0; }
+
+.menu-row {
+  display: flex;
+  gap: 6px;
+  padding: 8px 0 6px;
+}
+.menu-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 7px 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+  color: var(--muted);
+  /* Each button slides in behind the opening row, staggered left to right, so
+     the menu reads as one movement rather than four boxes appearing. */
+  transform: translateY(-6px);
+  opacity: 0;
+  transition: transform 240ms cubic-bezier(.4, 0, .2, 1),
+              opacity 200ms ease,
+              color 140ms ease,
+              border-color 140ms ease;
+}
+.menu-wrap.open .menu-btn { transform: none; opacity: 1; }
+.menu-wrap.open .menu-btn:nth-child(2) { transition-delay: 40ms; }
+.menu-wrap.open .menu-btn:nth-child(3) { transition-delay: 80ms; }
+.menu-wrap.open .menu-btn:nth-child(4) { transition-delay: 120ms; }
+.menu-btn.on { color: var(--accent); border-color: var(--accent); background: var(--panel); }
+.menu-glyph { width: 21px; height: 21px; display: block; }
+.menu-label { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
+
+.icon-btn.refresh { flex: none; }
+.icon-btn.refresh.spinning { animation: spin 1.1s linear infinite; color: var(--accent); }
+.icon-btn.on { color: var(--accent); }
 
 .world-fields {
   flex: 1;
@@ -324,6 +398,12 @@ body {
 .glyph-btn:disabled { opacity: .3; }
 .glyph-btn.ok { color: var(--ok); }
 .glyph-btn.danger { color: var(--error); }
+/* An armed delete has to look different from the one that only asked. */
+.glyph-btn.armed {
+  background: var(--error);
+  color: var(--on-accent);
+  animation: field-refresh 1.2s ease-in-out infinite;
+}
 .variant-count { font-size: 11px; opacity: .75; padding: 0 2px; }
 .link {
   background: none; border: none; padding: 0;
@@ -396,33 +476,55 @@ body {
 }
 .send:disabled { opacity: .35; }
 
-/* ------------------------------------------------------------- drawer */
+/* --------------------------------------------------- characters & chats */
 
-.drawer {
-  position: fixed;
-  inset: 0 auto 0 0;
-  width: min(84vw, 340px);
-  background: var(--panel);
-  border-right: 1px solid var(--line);
-  padding: calc(12px + var(--safe-top)) 14px calc(12px + var(--safe-bottom));
-  overflow-y: auto;
-  z-index: 20;
-  box-shadow: 0 0 40px rgba(0, 0, 0, .5);
-}
-.drawer h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 16px 0 6px; }
-.drawer h2:first-of-type { margin-top: 0; }
-.drawer select, .drawer .wide {
-  width: 100%;
-  background: var(--panel-2);
-  color: var(--text);
+.char {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 8px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+  background: var(--panel-2);
 }
-.chat-list { list-style: none; margin: 0; padding: 0; }
-.chat-list li { padding: 7px 8px; border-radius: 8px; font-size: 13px; }
-.chat-list li.active { background: var(--panel-2); color: var(--accent); }
+.char.current { border-color: var(--accent); }
+.char-head { display: flex; align-items: center; gap: 8px; }
+.char-pfp {
+  width: 38px; height: 38px; flex: none;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--line);
+}
+.char-id { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.char-name {
+  font-size: 14px; font-weight: 600; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.char-meta { font-size: 11px; color: var(--muted); }
+
+.chat-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.chat-list li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.chat-list li.active { background: var(--panel); color: var(--accent); }
+.chat-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  background: none;
+  border: 0;
+  color: inherit;
+  text-align: left;
+  padding: 8px;
+  font: inherit;
+}
+.chat-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-when { color: var(--muted); font-size: 11px; flex: none; }
+.chat-empty { color: var(--muted); font-size: 12px; padding: 8px; }
 
 .band { padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
 .band-var { color: var(--text); }
@@ -493,6 +595,56 @@ body {
   font: inherit;
   font-size: 13px;
 }
+
+/* A number is not a slider: these are budgets someone reads off a model card
+   and types in, not values worth dragging towards. */
+.num-row input[type="number"] { flex: none; width: 96px; text-align: right; }
+.num-field { margin-bottom: 4px; }
+.num-field .kind-note { margin: -2px 0 8px; }
+
+/* Per-pass sampling. Three numbers wide enough to tap on a phone, with the
+   pass they belong to named above rather than beside them. */
+.pass-row {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: var(--panel);
+}
+.pass-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.pass-name { font-size: 13px; color: var(--text); flex: 1; min-width: 0; }
+.pass-tier { font-size: 11px; color: var(--muted); }
+.pass-nums { display: flex; gap: 8px; }
+.pass-nums label { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.pass-nums span { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.pass-nums input {
+  width: 100%;
+  min-width: 0;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 8px;
+  font: inherit;
+  font-size: 13px;
+  text-align: right;
+}
+
+/* The character editor is mostly prose, so its labels sit above the field
+   rather than stealing a fixed column from it. */
+.col-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.col-field textarea {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px;
+  font: inherit;
+  font-size: 13px;
+  resize: vertical;
+  min-height: 0;
+}
+.col-row .wide-label { width: auto; }
 
 .backend {
   border: 1px solid var(--line);
@@ -605,4 +757,29 @@ body {
   width: 62px;
   text-align: right;
   flex: none;
+}
+
+/* ------------------------------------------------------- reduced motion */
+
+/* Every animation here is decoration over something that also reads as a
+   state change — the menu is open or closed, the bubble is a cue or a reply,
+   the field is refreshing or it is not. Someone who has asked their phone to
+   stop moving things loses nothing by having them arrive instantly. */
+@media (prefers-reduced-motion: reduce) {
+  .menu-wrap,
+  .menu-btn,
+  .bubble,
+  .body,
+  .msg-tools {
+    transition-duration: 1ms !important;
+    transition-delay: 0ms !important;
+  }
+  .icon-btn.refresh.spinning,
+  .field.refreshing .field-value,
+  .glyph-btn.armed,
+  .anim-cogs::before,
+  .anim-ambient::before,
+  .body.regen {
+    animation: none !important;
+  }
 }
