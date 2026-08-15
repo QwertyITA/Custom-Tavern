@@ -31,13 +31,23 @@ def pristine_settings(monkeypatch):
     change made in a browser ends up failing an unrelated assembly test on one
     machine and passing on every other.
     """
-    from app import config
+    from app import config, main
 
     original = config.SETTINGS
-    config.apply_settings(config.Settings())
+    # Both places settings live. `config.SETTINGS` is what the routes read and
+    # `scheduler.settings` is what every turn runs against, and resetting only
+    # the first leaves a scheduler still holding whatever the previous test
+    # saved — which is how a translation configured in one test showed up in
+    # another that had never asked for one.
+    def _use(settings) -> None:
+        config.apply_settings(settings)
+        if main.SCHEDULER is not None:
+            main.SCHEDULER.settings = settings
+
+    _use(config.Settings())
     monkeypatch.setattr(config, "settings_path", lambda: Path("/nonexistent/settings.json"))
     yield config.SETTINGS
-    config.apply_settings(original)
+    _use(original)
 
 
 @pytest.fixture

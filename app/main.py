@@ -22,7 +22,7 @@ from . import memory as memory_store
 from . import prompt_layout
 from . import providers, regex_rules, repo, state as state_mod
 from . import translation
-from .config import DATA_DIR, SETTINGS, STATIC_DIR, reload_settings
+from .config import DATA_DIR, STATIC_DIR, reload_settings
 from .db import get_db
 from .events import BUS
 from .markup import parse_to_dicts
@@ -57,7 +57,10 @@ def bootstrap() -> PassScheduler:
     for character in cards.load_directory(DATA_DIR / "characters"):
         if character.name not in existing:
             repo.save_character(db, character)
-    return PassScheduler(db, SETTINGS)
+    # config.SETTINGS, not the name imported at module load — saving rebinds
+    # the one in config, and a scheduler built from the stale import would run
+    # every turn against the settings this process started with.
+    return PassScheduler(db, config.SETTINGS)
 
 
 @asynccontextmanager

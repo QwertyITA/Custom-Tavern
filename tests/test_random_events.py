@@ -87,6 +87,23 @@ def test_its_prompt_forbids_deciding_for_anyone():
 # --------------------------------------------------------- in the prompt
 
 
+@pytest.fixture
+def no_new_events(db):
+    """Stop the pass inventing a *fresh* event mid-test.
+
+    The consumption tests are about one specific event being spent. With the
+    pass live at its shipped 12% it occasionally fires in the same turn and
+    writes a new, unused one over the top — correct behaviour, and pure noise
+    here. Without this the suite is flaky about one run in eight.
+    """
+    from app.passes import registry
+
+    definition = registry.get_pass(db, "random_event")
+    definition.trigger.probability = 0.0
+    sync(registry.save_pass(db, definition))
+    return definition
+
+
 def write_event(db, chat_id: str, text: str, used: bool = False) -> None:
     sync(state_mod.write_slice(
         db, chat_id, SLICE_EVENT, {"event": text, "used": used},
@@ -139,17 +156,17 @@ def test_it_can_be_switched_off_like_any_section(db, chat, character):
 # ---------------------------------------------------------- consumption
 
 
-def test_a_reply_spends_the_event(sched, chat, character):
+def test_a_reply_spends_the_event(sched, chat, character, no_new_events):
     """Otherwise the same knock at the door happens on every turn forever."""
     write_event(sched.db, chat["id"], "Someone knocks twice and waits.")
     sync(turn(sched, chat["id"], "Who could that be?"))
 
     stored = read_slice(sched.db, chat["id"], SLICE_EVENT)
-    assert stored["value"]["used"] is True
+    assert stored["value"].get("used") is True
     assert assembly.pending_event(sched.db, chat["id"]) == ""
 
 
-def test_the_event_was_actually_in_that_reply_s_prompt(sched, chat, character):
+def test_the_event_was_actually_in_that_reply_s_prompt(sched, chat, character, no_new_events):
     """Consumed *after* being used, not before — the ordering is the whole
     point, and getting it backwards would spend it unread.
 
@@ -172,7 +189,7 @@ def test_the_event_was_actually_in_that_reply_s_prompt(sched, chat, character):
     assert "shutter bangs" in event["text"]
 
 
-def test_a_second_turn_gets_no_event(sched, chat, character):
+def test_a_second_turn_gets_no_event(sched, chat, character, no_new_events):
     write_event(sched.db, chat["id"], "A cart goes past outside.")
     sync(turn(sched, chat["id"], "first"))
     sync(turn(sched, chat["id"], "second"))
@@ -181,13 +198,13 @@ def test_a_second_turn_gets_no_event(sched, chat, character):
     assert "cart" not in out.volatile
 
 
-def test_consuming_nothing_is_harmless(sched, chat, character):
+def test_consuming_nothing_is_harmless(sched, chat, character, no_new_events):
     """No event pending is the common case, and it must not write a row."""
     sync(turn(sched, chat["id"], "hello"))
     assert read_slice(sched.db, chat["id"], SLICE_EVENT) is None
 
 
-def test_an_empty_event_is_not_marked_used(db, chat, character, sched):
+def test_an_empty_event_is_not_marked_used(db, chat, character, sched, no_new_events):
     """Nothing was spent, so there is nothing to mark — and marking it would
     stop a real event written later on the same turn from being seen."""
     write_event(db, chat["id"], "")
