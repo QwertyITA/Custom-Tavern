@@ -80,13 +80,13 @@ THEME_TOKENS: list[dict[str, str]] = [
     {"var": "--line", "label": "Borders", "group": "Surfaces", "type": "color", "default": "#eedde4"},
 
     {"var": "--text", "label": "Text", "group": "Text", "type": "color", "default": "#332c30"},
-    {"var": "--muted", "label": "Muted text", "group": "Text", "type": "color", "default": "#8b7d84"},
+    {"var": "--muted", "label": "Muted text", "group": "Text", "type": "color", "default": "#7d6f76"},
     {"var": "--accent", "label": "Accent", "group": "Text", "type": "color", "default": "#c2617f"},
 
     {"var": "--c-default", "label": "Narration", "group": "Message markup", "type": "color", "default": "#3c3438"},
     {"var": "--c-dialogue", "label": "Dialogue", "group": "Message markup", "type": "color", "default": "#a34a6d"},
     {"var": "--c-action", "label": "Action", "group": "Message markup", "type": "color", "default": "#6f5aa8"},
-    {"var": "--c-strong", "label": "Emphasis", "group": "Message markup", "type": "color", "default": "#a9722c"},
+    {"var": "--c-strong", "label": "Emphasis", "group": "Message markup", "type": "color", "default": "#9a6828"},
 
     {"var": "--ai-bubble", "label": "Character bubble", "group": "Bubbles", "type": "color", "default": "#ffffff"},
     {"var": "--user-bubble", "label": "Your bubble", "group": "Bubbles", "type": "color", "default": "#fbeef3"},

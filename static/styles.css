@@ -16,14 +16,14 @@
   --panel-2: #f7eef2;
   --line: #eedde4;
   --text: #332c30;
-  --muted: #8b7d84;
+  --muted: #7d6f76;
   --accent: #c2617f;
 
   /* markup colours — these attach to the parser rules in markup.js (§8) */
   --c-default: #3c3438;
   --c-dialogue: #a34a6d;
   --c-action: #6f5aa8;
-  --c-strong: #a9722c;
+  --c-strong: #9a6828;
 
   --user-bubble: #fbeef3;
   --ai-bubble: #ffffff;
@@ -111,6 +111,13 @@ body {
   text-align: left;
   flex: 0 1 auto;
   min-width: 3.5em;
+  /* Real height rather than the invisible overlay the switches use: the header
+     clips a pseudo-element that reaches past its row, so the extra area
+     hit-tested to the bar instead of to the button. There is room for it
+     anyway now that the icon buttons beside it are 44 tall. */
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
   font-size: 14px;
   font-weight: 600;
   color: var(--text);
@@ -209,6 +216,9 @@ body {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
+  /* It opens the full line, so it behaves like the button it now is. */
+  cursor: pointer;
+  min-height: 44px;
   font-size: 12px;
 }
 
@@ -241,6 +251,10 @@ body {
   color: var(--muted);
   font-size: 17px;
   padding: 5px;
+  /* The phone minimum. The glyph inside is unchanged — what grew is the box
+     the finger has to land in, which was 32×32. */
+  min-width: 44px;
+  min-height: 44px;
   border-radius: 8px;
   transition: color 140ms var(--ease-out), background 140ms var(--ease-out);
 }
@@ -413,7 +427,7 @@ body {
 .mk-dialogue.mk-strong { color: var(--c-dialogue); font-weight: 700; }
 
 .msg-tools { margin-top: 6px; }
-.tools-row { display: flex; gap: 4px; align-items: center; font-size: 12px; color: var(--muted); }
+.tools-row { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); }
 
 /* Message controls are symbols, never words or emoji. The U+FE0E variation
    selector in the markup forces text presentation, so these stay monochrome
@@ -430,8 +444,12 @@ body {
   font-size: 15px;
   line-height: 1;
   padding: 5px 8px;
-  min-width: 32px;      /* a comfortable tap target on a phone */
-  min-height: 30px;
+  /* 44px is the phone minimum (Apple 44pt, Material 48dp) and these were
+     34×30. The height is what grew: `.tools-row` only has a 6px gap, so
+     widening much further would put two targets on top of each other and a
+     tap meant for edit would land on delete. */
+  min-width: 40px;
+  min-height: 44px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -462,8 +480,15 @@ body {
 }
 .variant-count { font-size: 11px; opacity: .75; padding: 0 2px; }
 .link {
-  background: none; border: none; padding: 0;
+  background: none; border: none;
   color: var(--muted); font-size: 12px; text-decoration: underline;
+  /* These read as text and were tapped like buttons: `Load` was 27×14. The
+     underline still marks where the words are; the padding is what the finger
+     gets. Inline-flex so the row does not grow past the target itself. */
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 6px;
 }
 .link:disabled { opacity: .4; text-decoration: none; }
 .variants { display: inline-flex; gap: 6px; align-items: center; }
@@ -683,7 +708,28 @@ body {
 .band-guide { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
 .provisional { color: var(--pending); font-size: 11px; padding-top: 6px; font-style: italic; }
 
-.toggle { display: flex; gap: 8px; align-items: center; padding: 5px 0; font-size: 13px; }
+/* The whole row is the label, so the whole row is the target — which is what
+   makes 44px cheap here: the box itself only has to be big enough to see and
+   to hit on its own, and the words beside it carry the rest. The native
+   checkboxes were 13×13, which is a target for a mouse and not for a thumb. */
+.toggle {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-height: 44px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.toggle input[type="checkbox"] {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  accent-color: var(--accent);
+  /* Nothing snaps. A checkbox that changes state instantly is the one control
+     where the eye has nothing to follow from the finger to the result. */
+  transition: transform 160ms var(--ease-back);
+}
+.toggle:active input[type="checkbox"] { transform: scale(.88); }
 .summary { color: var(--muted); font-size: 12px; }
 
 /* ------------------------------------------------------- settings sheet */
@@ -756,7 +802,10 @@ body {
   color: var(--text);
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 8px 9px;
+  /* 44px tall, like everything else you have to hit with a thumb. A field you
+     have to aim at to focus is a field you focus by scrolling the panel. */
+  padding: 11px 9px;
+  min-height: 44px;
   font: inherit;
   font-size: 13px;
 }
@@ -847,6 +896,7 @@ body {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px;
+  min-height: 44px;
   /* Centred as a pair when there is an icon, so the glyph sits against the
      label rather than pinned to the far edge of the button. */
   display: flex;
@@ -1146,7 +1196,16 @@ body {
   font-size: 13px;
 }
 .num-unit { font-size: 11px; color: var(--muted); min-width: 1.4em; }
-.num-slider { width: 100%; accent-color: var(--accent); }
+/* The track stays thin; the *input* is 44px tall so the finger has somewhere
+   to land either side of it. A 16px-high slider is a drag target you have to
+   aim at, which on a phone means the panel scrolls under you instead. */
+.num-box { min-height: 44px; }
+.num-slider {
+  width: 100%;
+  accent-color: var(--accent);
+  height: 44px;
+  background: none;
+}
 .num-field .kind-note { margin: 3px 0 0; }
 .num-field .kind-note:empty { display: none; }
 
@@ -1469,7 +1528,10 @@ input.mono {
   color: var(--text);
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 8px 9px;
+  /* 44px tall, like everything else you have to hit with a thumb. A field you
+     have to aim at to focus is a field you focus by scrolling the panel. */
+  padding: 11px 9px;
+  min-height: 44px;
   width: 100%;
 }
 .preview {
@@ -1529,15 +1591,21 @@ input.mono {
 .p-row.off { opacity: .5; }
 .p-row.fixed .p-switch { cursor: default; }
 
-.p-move { display: flex; flex-direction: column; gap: 1px; }
-.p-move .glyph-btn { padding: 1px 3px; min-height: 0; }
-.p-move .icon { width: 15px; height: 15px; }
+/* Side by side rather than stacked. Stacked, each arrow got 19px of height —
+   the worst target in the app, on the one control whose entire job is repeated
+   tapping, with its twin directly underneath. Turned on its side both arrows
+   clear the minimum *and* the section row is shorter than it was, because the
+   column no longer sets the row's height. */
+.p-move { display: flex; gap: 2px; }
+.p-move .glyph-btn { padding: 0; min-width: 38px; min-height: 44px; }
+.p-move .icon { width: 16px; height: 16px; }
 
 .p-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .p-name {
   background: none;
   border: 0;
   padding: 0;
+  min-height: 44px;
   text-align: left;
   color: var(--text);
   font: inherit;
@@ -1556,6 +1624,26 @@ input.mono {
   background: var(--panel);
   position: relative;
   transition: background 240ms var(--ease-out), border-color 240ms var(--ease-out);
+}
+/* The pill stays 40×23 — it is a drawing and 44 would make it a slab. What it
+   gets instead is an invisible 44×44 target centred on it. Safe here, and on
+   the two below, because each of these sits alone in its row: nothing is close
+   enough for the overlays to reach each other, which is the failure this
+   technique has everywhere else. */
+.p-switch, .swatch { position: relative; }
+.p-switch::after, .swatch::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: max(100%, 44px);
+  height: max(100%, 44px);
+  /* Without this the overlay paints under whatever positioned box comes after
+     it and the extra area hit-tests to that instead — which looks identical
+     and works not at all. Safe to raise: nothing else is within 22px of any of
+     these three, which is the whole reason they were chosen for it. */
+  z-index: 1;
 }
 .p-switch.on { background: var(--accent); border-color: var(--accent); }
 .p-knob {
@@ -1748,7 +1836,8 @@ input.mono {
 .search-field { margin-bottom: 10px; }
 .search-field input {
   width: 100%;
-  padding: 9px 11px;
+  padding: 11px 14px;
+  min-height: 44px;
   background: var(--panel-2);
   color: var(--text);
   border: 1px solid var(--line);
@@ -1921,3 +2010,50 @@ input.mono {
   padding: 0 6px 8px;
   width: 100%;
 }
+
+
+/* --------------------------------------------------- the setting in full */
+
+/* What the header line says when it has room to say it. Reached by tapping
+   the truncated version, which is the only way to read it on a phone —
+   `title` needs a pointer that can hover, and a phone has none. */
+.world-full { border-bottom: 1px solid var(--line); }
+.world-long { margin: 0; padding: 8px 2px 10px; font-size: 12px; }
+.world-long-row {
+  display: grid;
+  grid-template-columns: 62px 1fr;
+  gap: 8px;
+  padding: 3px 0;
+}
+.world-long dt { color: var(--muted); }
+.world-long dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+
+/* Each line arrives after the one above it, the same way the empty state and
+   the menu row do. The fold is already easing open underneath them. */
+.world-full.open .world-long-row { animation: nobody-in 260ms var(--ease-out) backwards; }
+.world-full.open .world-long-row:nth-child(2) { animation-delay: 50ms; }
+.world-full.open .world-long-row:nth-child(3) { animation-delay: 100ms; }
+
+/* ------------------------------------------------------ contrast warning */
+
+/* Quiet. It is advice about a personal palette on a personal phone, not an
+   error — the red banner treatment would make choosing a colour feel like
+   getting something wrong. */
+.contrast-warn {
+  margin: 4px 0 10px;
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.contrast-warn p { margin: 0; }
+.contrast-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 3px 0;
+  color: var(--text);
+}
+.contrast-ratio { color: var(--muted); font-variant-numeric: tabular-nums; }
+.contrast-warn .kind-note { margin-top: 6px; }

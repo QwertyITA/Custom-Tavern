@@ -157,7 +157,17 @@
 
     <!-- Hidden entirely until a scene exists. Three em-dashes said nothing
          except that the app had not got round to it yet. -->
-    <div class="world-fields" x-show="hasScene" x-cloak>
+    <!-- Tapping it opens the line in full underneath. On a 412px screen all
+         three fields truncate — "the tavern common room" arrives as "the
+         tavern com…" — and `title` is a hover affordance, which a phone does
+         not have. So the scene pass costs a model call, writes a result, and
+         the result cannot be read. This is how it gets read. -->
+    <div class="world-fields" x-show="hasScene" x-cloak
+         role="button" tabindex="0" :aria-expanded="worldOpen"
+         aria-label="Show the setting in full"
+         @click="worldOpen = !worldOpen"
+         @keydown.enter.prevent="worldOpen = !worldOpen"
+         @keydown.space.prevent="worldOpen = !worldOpen">
       <span class="field" :class="{ refreshing: refreshing.scene }"
             :title="`Place: ${scene.place || 'unknown'}`" x-show="scene.place">
         <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-place"/></svg>
@@ -185,6 +195,21 @@
             :title="hasScene ? 'Refresh world info' : 'Generate world info'">
       <svg class="icon" viewBox="0 0 24 24"><use href="#i-refresh"/></svg>
     </button>
+  </div>
+
+  <!-- The setting, in full, when the truncated line above is tapped. Same fold
+       mechanism as the menu row, so it eases open rather than appearing. -->
+  <div class="fold world-full" :class="{ open: worldOpen && hasScene }">
+    <div class="fold-clip">
+      <dl class="world-long">
+        <template x-for="f in worldLines" :key="f.label">
+          <div class="world-long-row">
+            <dt x-text="f.label"></dt>
+            <dd x-text="f.value"></dd>
+          </div>
+        </template>
+      </dl>
+    </div>
   </div>
 
   <!-- The row of destinations. Collapsed to nothing until the menu opens; see
@@ -1139,6 +1164,26 @@
               <span x-text="preset.label"></span>
             </button>
           </template>
+        </div>
+
+        <!-- Sixteen colour inputs can make the app unreadable, and the point at
+             which that happens is not obvious while you are choosing. It only
+             names the pairs that actually sit on top of each other, and it only
+             warns — a palette that fails a standard but reads fine to the
+             person who made it is their call. -->
+        <div class="fold" :class="{ open: contrastWarnings.length }">
+          <div class="fold-clip">
+            <div class="contrast-warn">
+              <p>Hard to read at this size:</p>
+              <template x-for="w in contrastWarnings" :key="w.label">
+                <p class="contrast-row">
+                  <span x-text="w.label"></span>
+                  <span class="contrast-ratio" x-text="`${w.ratio}:1`"></span>
+                </p>
+              </template>
+              <p class="kind-note">4.5:1 is the usual floor for body text.</p>
+            </div>
+          </div>
         </div>
 
         <label class="row theme-row">

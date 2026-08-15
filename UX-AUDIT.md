@@ -9,14 +9,16 @@ measured. Nothing here is a guess about what might be wrong.
 
 Ordered by how much damage it does, not by how hard it is to fix.
 
-**Status:** 1, 2, 3, 4, 7 and 8 are fixed — see the note at the end of each.
-5, 6 and 9 are still open.
+**Status: all nine are fixed.** Each carries a note at the end saying how, and
+each fix was re-measured in the browser afterwards rather than assumed.
 
-**Two claims in the first draft of this file were wrong** and are corrected
-below, in 1. The ⟳ button and the character-name button *are* correctly
-disabled on a fresh install; the 404 I attributed to them was a stale error
-value left over from the previous step of the same probe. The finding still
-stands on its other three legs, but it was smaller than first written.
+**Three claims in the first draft of this file were wrong** and are corrected
+in place below. In 1, the ⟳ button and the character-name button *are*
+correctly disabled on a fresh install — the 404 I attributed to them was a
+stale error value left over from the previous step of the same probe. In 6,
+the world fields *do* carry `title`; I checked the leaf span and the attribute
+is on its parent. Both findings still stand on their other legs, but each was
+smaller than first written.
 
 ---
 
@@ -164,10 +166,37 @@ star, edit, export, new chat, history, delete — with delete at the end.
 
 `Send` at 40×40 is the near miss; everything above it is a real one.
 
-**Fix:** these are almost all padding. `.glyph-btn`, `.icon-btn` and `.p-move
-button` to a 44px minimum box with the glyph unchanged, `.link`-style buttons
-to a tapped row rather than a text run, and native checkboxes replaced with the
-switch used elsewhere.
+**Fixed**, and re-measured: the main screen now has nothing under 40px in
+either axis, and neither do the chats or theme panels. Three techniques, chosen
+per case rather than applied uniformly:
+
+- **Real height** where there was room: `.icon-btn` and `.glyph-btn` to 44,
+  `.link` buttons to a 44px flex row (the underline still marks where the words
+  are; the padding is what the finger gets), form fields, `.wide` buttons and
+  the search box likewise. The message tool row's gap went 4→6px, because
+  widening the buttons any further would have put two targets on top of each
+  other and a tap meant for edit would have landed on delete.
+- **Turned on its side** for the reorder arrows. Stacked, each got 19px — the
+  worst target in the app, on the control whose entire job is repeated tapping,
+  with its twin directly beneath. Side by side both clear 44 *and* the section
+  row is shorter than it was, because the column no longer sets its height.
+- **An invisible 44×44 overlay** for `.p-switch` and the colour swatches, which
+  are drawings that would become slabs at 44. Only safe because nothing else is
+  within 22px of them — verified by scanning every other control against each
+  overlay's box. It needed `z-index: 1`: without it the overlay paints under
+  the next positioned box and the extra area hit-tests to *that*, which looks
+  identical and works not at all. Confirmed by `elementFromPoint` at ±14px and
+  ±21px off centre, and by checking the switch still toggles from there.
+
+`.who` was going to use the overlay too, but the header clips a pseudo-element
+that reaches past its row — the extra area hit-tested to the bar. It got real
+height instead, which there is room for now that the icons beside it are 44.
+
+The native checkboxes are still 20×20, deliberately: the whole `.toggle` row is
+the label and the whole row is 44px, so the box only has to be big enough to
+see. It also scales down 12% on press, because a checkbox that changes state
+instantly is the one control where the eye has nothing to follow from the
+finger to the result.
 
 ## 6. The world line truncates to nothing
 
@@ -181,8 +210,18 @@ Three ellipses in a row, and **none of the three carries a `title`**, so the
 full text is not reachable by hover, by tap, or by long press. The `scene` pass
 runs, costs a model call, writes a result, and the result cannot be read.
 
-**Fix:** either a `title` and a tap-to-expand, or show one field at a time and
-cycle, or drop to the two that fit. Anything except three truncations.
+~~None of the three carries a `title`.~~ **Wrong** — they all do; I read
+`title` off the leaf `.field-value` span and the attribute is on its parent
+`.field`. It does not change the finding: `title` is a hover affordance and a
+phone has no hover, so on the device this is built for the text was still
+unreachable.
+
+**Fixed.** The line is a button now. Tapping it eases the setting open
+underneath the header in full, one labelled row per field, through the same
+fold mechanism as the menu row — measured opening over 19 distinct heights on a
+decelerating curve. It closes on every chat change, so it never carries the
+previous room's weather into a new one, and it only lists fields that have a
+value, because an empty row would say less than no row.
 
 ## 7. Missing portraits fire a 404 on every render
 
@@ -231,6 +270,22 @@ value. `luminance()` already exists in `app.js`, so the arithmetic is there.
 This is recoverable — *Reset appearance to defaults* is right there — so it is
 last on the list. But a small live warning against the pair being edited would
 cost almost nothing.
+
+**Fixed.** A quiet dashed panel in the Colour section names the pairs that
+actually sit on top of each other — text on background, text on bars, muted
+text, and the three markup colours in a bubble — with their ratio, whenever one
+falls under 4.5:1. Live against the form rather than what is saved, so it warns
+while the colour is being chosen. It only warns: a palette that fails a
+standard but reads fine to the person who made it is their call, and this is a
+personal theme on a personal phone. What it will not do is let the app go
+unreadable in silence.
+
+Writing it turned up that **the shipped default palette failed its own check**
+in two places — muted text at 3.7:1 and the emphasis colour at 4.1:1, both on
+11–12px text. Rather than soften the threshold, the two colours were darkened
+along their own hue until they cleared it: `--muted` `#8b7d84` → `#7d6f76`
+(4.5 on the background, 4.8 on the bars) and `--c-strong` `#a9722c` →
+`#9a6828` (4.5 and 4.8). The default palette now warns about nothing.
 
 ---
 

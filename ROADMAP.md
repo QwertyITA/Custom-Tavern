@@ -105,12 +105,14 @@ Everything else leans on these.
       actions disarm after 3s.
 - [x] **4. A failed turn cannot be retried,** and Regenerate silently re-rolls
       the wrong reply.
-- [ ] **5. Touch targets under 44px nearly everywhere.** Worst: the prompt
-      layout's reorder arrows at 32×19.
-- [ ] **6. The world line truncates to nothing** and carries no title.
+- [x] **5. Touch targets under 44px nearly everywhere.** Worst: the prompt
+      layout's reorder arrows at 32×19, now side by side at 38×44.
+- [x] **6. The world line truncates to nothing.** Tapping it opens the setting
+      in full underneath the header.
 - [x] **7. Missing portraits fetch the directory** and 404 on every render.
 - [x] **8. Raw HTTP status codes reach the user.**
-- [ ] **9. Sixteen colour pickers, no contrast check.**
+- [x] **9. Sixteen colour pickers, no contrast check.** Added one — which
+      found the shipped default palette failing it in two places.
 
 ## Not wanted
 
