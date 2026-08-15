@@ -172,7 +172,7 @@ class Database:
             self._writer_thread.join(timeout=5)
 
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 def _run_migration_step(conn: sqlite3.Connection, step: str) -> None:
     """Apply one migration statement, tolerating one that has already landed.
@@ -270,6 +270,10 @@ MIGRATIONS: dict[int, list[str]] = {
     # and the step then never ran again. Redoing 8 is free where it worked and
     # is the fix where it did not, because every statement in it is idempotent.
     9: MIGRATION_8_REPEAT,
+    # Translation (roadmap 23). One column, both directions: for a reply it
+    # holds what you read, and for your own message what the character was
+    # given. `text` stays what was actually written either way.
+    10: ["ALTER TABLE message_variants ADD COLUMN translation TEXT NOT NULL DEFAULT ''"],
 }
 
 

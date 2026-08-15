@@ -781,6 +781,27 @@
           </div>
         </div>
 
+        <h3>Languages</h3>
+        <p class="note">
+          Leave both blank unless you want translation. When they differ, every
+          turn crosses twice: your message into theirs before the model sees
+          it, their reply into yours before you do. What was actually written
+          is kept either way, so the prompt stays in one language and you can
+          still check what they really said.
+        </p>
+        <label class="row"><span class="row-label">They write in</span>
+          <input x-model="settings.character_language" spellcheck="false"
+                 placeholder="e.g. Japanese — blank for off">
+        </label>
+        <label class="row"><span class="row-label">You read in</span>
+          <input x-model="settings.reading_language" spellcheck="false"
+                 placeholder="e.g. English — blank for off">
+        </label>
+        <p class="kind-note">
+          Two extra calls a turn on the foreground tier, so it is slower and
+          costs more. A translation that fails leaves the original readable.
+        </p>
+
         <h3>Find and replace</h3>
         <p class="note">
           Rules run in order, on every message. Scope decides what they touch —

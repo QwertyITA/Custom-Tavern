@@ -25,10 +25,22 @@ _WEATHER = ["clear", "overcast", "light rain", "windy", "still and cold"]
 _TIME = ["early morning", "late morning", "early afternoon", "dusk", "late night"]
 _PLACES = ["the tavern common room", "a quiet back room", "the road outside"]
 _EMOTIONS = ["neutral", "happy", "sad", "angry", "surprised", "thoughtful"]
+_EVENTS = [
+    "Someone knocks twice at the door and does not wait to be asked in.",
+    "The rain starts, hard enough to be heard on the roof.",
+    "A glass goes over at the far end of the room.",
+]
 
 
 def _seed(text: str) -> int:
     return int(hashlib.sha256(text.encode("utf-8")).hexdigest()[:8], 16)
+
+
+def _target(request: GenRequest) -> str:
+    """The language a translation request asked for, read back out of its own
+    system prompt — so the stand-in shows which way the text crossed."""
+    match = re.search(r"into ([A-Za-z ]+?)\.", request.system)
+    return match.group(1).strip() if match else "other"
 
 
 def _allowed(request: GenRequest, label: str) -> str:
@@ -105,6 +117,15 @@ class EchoProvider(Provider):
                  "keys": ["woman", "scar", "searching"]},
             ]
             return json.dumps({"memories": [facts[seed % len(facts)]]})
+        if request.pass_id == "random_event":
+            return json.dumps({"event": _EVENTS[seed % len(_EVENTS)]})
+        if request.pass_id == "translate":
+            # Not a translation — nothing here can translate. It marks the text
+            # as having crossed, which is what the round trip is actually
+            # testing: that both crossings happened and neither overwrote its
+            # original.
+            source = self._last_user(request)
+            return json.dumps({"text": f"[{_target(request)}] {source}"})
         if request.pass_id == "state_auditor":
             payload = self._signals(request)
             payload["reason"] = "echo audit: deltas within personality bounds"

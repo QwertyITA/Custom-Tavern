@@ -32,6 +32,7 @@ from .. import assembly
 from .. import attachments
 from .. import groups
 from .. import macros, memory as memory_store, regex_rules, repo, state as state_mod
+from .. import translation
 from ..config import Settings
 from ..db import Database
 from ..events import BUS
@@ -101,6 +102,30 @@ class PassScheduler:
         budget = self.settings.blocking_await_ms / 1000 if timeout is None else timeout
         done, _ = await asyncio.wait(tasks, timeout=budget)
         return len(done)
+
+    async def _translate(self, text: str, target: str, prompt: str) -> str:
+        """One translation call. Returns "" on any failure.
+
+        Empty on failure rather than raising: a translation that did not happen
+        should leave the original readable, not lose the turn. The caller falls
+        back to `text` everywhere.
+        """
+        if not text.strip() or not target.strip():
+            return ""
+        provider = provider_for_tier("foreground", self.settings)
+        request = GenRequest(
+            system=prompt.format(target=target),
+            messages=[{"role": "user", "content": text}],
+            sampling=Sampling(temp=0.2, top_p=0.9, max_tokens=800),
+            expects_json=True,
+            pass_id="translate",
+        )
+        try:
+            result = await provider.generate(request)
+        except (ProviderError, asyncio.TimeoutError, OSError):
+            return ""
+        payload = parse_json_loose(result.text) or {}
+        return str(payload.get("text") or "").strip()
 
     def _rewrite_reply(self, reply: str) -> str:
         return regex_rules.apply(self.settings.regex_rules, reply, "output", "assistant")
@@ -280,6 +305,19 @@ class PassScheduler:
             user_message["attachments"] = attachments.claim(
                 self.db, attachment_ids, user_message["id"]
             )
+
+        # Into the character's language, before the prompt is built (roadmap
+        # 23). Blocking by necessity: the model has to be handed one consistent
+        # language, and there is no way to do that after the fact. Stored
+        # beside the original rather than over it — you keep seeing your own
+        # words, the model sees theirs.
+        if translation.enabled(self.settings):
+            crossed = await self._translate(
+                user_text, self.settings.character_language, translation.IN_PROMPT
+            )
+            if crossed:
+                translation.set_translation(self.db, user_message["variant_id"], crossed)
+                user_message["translation"] = crossed
 
         ctx = TurnContext(
             chat=chat,
@@ -497,6 +535,18 @@ class PassScheduler:
             variant_id=ctx.variant_id,
             provisional=True,
         )
+
+        # And back into your language (roadmap 23). After the stream rather
+        # than during it: a translation cannot be produced a token at a time,
+        # so the original arrives live and settles into the translation a
+        # moment later — the same way a display rule does.
+        if translation.enabled(self.settings):
+            back = await self._translate(
+                reply, self.settings.reading_language, translation.OUT_PROMPT
+            )
+            if back:
+                translation.set_translation(self.db, message["variant_id"], back)
+                message["translation"] = back
 
         # The event has now been written into a reply, so it stops being
         # pending. Marked rather than deleted: a swipe on this same turn should

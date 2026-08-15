@@ -403,7 +403,7 @@ def set_message_hidden(db: Database, message_id: str, hidden: bool) -> None:
 
 def get_message(db: Database, message_id: str) -> dict | None:
     row = db.query_one(
-        "SELECT m.*, v.text AS text, v.idx AS variant_index "
+        "SELECT m.*, v.text AS text, v.translation AS translation, v.idx AS variant_index "
         "FROM messages m LEFT JOIN message_variants v ON v.id = m.active_variant "
         "WHERE m.id=?",
         (message_id,),
@@ -436,7 +436,7 @@ def list_messages(db: Database, chat_id: str, include_dropped: bool = True) -> l
     sql = (
         "SELECT m.id, m.turn, m.role, m.edited, m.stage, m.hidden, m.speaker_id, "
         "m.created_at, m.active_variant, "
-        "v.text AS text, v.idx AS variant_index, "
+        "v.text AS text, v.translation AS translation, v.idx AS variant_index, "
         "(SELECT COUNT(*) FROM message_variants mv WHERE mv.message_id = m.id) AS variant_count "
         "FROM messages m LEFT JOIN message_variants v ON v.id = m.active_variant "
         "WHERE m.chat_id=?"

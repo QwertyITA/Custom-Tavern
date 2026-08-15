@@ -151,6 +151,25 @@ the story survive the cut. Impersonate deliberately does not use the
 character's — that is your line, and a sequence that ends their replies has no
 business cutting off yours.
 
+### Languages
+
+Two fields under ☰ → brain: **they write in**, **you read in**. Leave both
+blank for off. When they differ, every turn crosses the gap twice — your
+message into their language before the model sees it, their reply into yours
+before you do. There is no separate on/off switch, because a switch that could
+disagree with the languages is a switch that will.
+
+The original is never overwritten. What was actually written stays as the
+message; the translation sits beside it. That matters in both directions: the
+prompt keeps seeing one consistent language turn after turn, and you can still
+check what a character really said rather than only what a second model call
+made of it. Your own message is always shown to you as you typed it.
+
+It costs two extra calls a turn on the foreground tier, so it is slower and
+dearer. Nothing here detects a language — if you say they write Japanese, the
+translator is told Japanese. A translation that fails leaves the original
+readable rather than losing the turn.
+
 ### Unplanned things
 
 Under ☰ → story. Occasionally the world does something on its own — a knock at

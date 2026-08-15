@@ -87,7 +87,7 @@ Everything else leans on these.
 - [x] **NEW. Random events pass.** Occasionally introduces something into the
       scene — a knock at the door, weather turning, a stranger. Gated on a
       cheap signal so it costs nothing most turns, with frequency in settings.
-- [ ] **23. Translation.** Translate the reply into the reading language and
+- [x] **23. Translation.** Translate the reply into the reading language and
       the user's message into the character's, as a pass. Toggleable.
 - [ ] **24. Web search.** Inject search results into context. Toggleable, off
       by default.

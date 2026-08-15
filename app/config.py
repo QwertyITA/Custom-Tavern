@@ -275,6 +275,11 @@ class Settings:
     # User find/replace rules (§16). Empty is the normal state.
     regex_rules: list[dict[str, Any]] = field(default_factory=list)
 
+    # Translation (roadmap 23). Both empty, or equal, means off — there is no
+    # separate switch that could disagree with the languages.
+    character_language: str = ""
+    reading_language: str = ""
+
     # Appearance overrides: CSS variable -> value. Only keys in THEME_TOKENS,
     # only values matching that token's shape (§12, §18.4).
     theme: dict[str, str] = field(default_factory=dict)
@@ -513,6 +518,9 @@ def build_settings(payload: dict[str, Any], current: Settings) -> Settings:
     settings.regex_rules = _regex_rules(
         payload["regex_rules"] if "regex_rules" in payload else current.regex_rules
     )
+    for field_name in ("character_language", "reading_language"):
+        raw = payload.get(field_name, getattr(current, field_name))
+        setattr(settings, field_name, str(raw or "").strip()[:40])
     return settings
 
 

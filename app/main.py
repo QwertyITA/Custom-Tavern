@@ -21,6 +21,7 @@ from . import assembly, attachments, cards, chat_files, config, groups, macros
 from . import memory as memory_store
 from . import prompt_layout
 from . import providers, regex_rules, repo, state as state_mod
+from . import translation
 from .config import DATA_DIR, SETTINGS, STATIC_DIR, reload_settings
 from .db import get_db
 from .events import BUS
@@ -95,7 +96,7 @@ async def _stream(generator) -> StreamingResponse:
 
 
 def _lens(event: dict) -> dict:
-    """Attach display-scope rewrites (§16) to any message an event carries.
+    """Attach the drawn form to any message an event carries.
 
     Here rather than at each `yield` in the scheduler, so a display rule is not
     something a future event type can forget to apply — the alternative is a
@@ -106,7 +107,7 @@ def _lens(event: dict) -> dict:
     cannot be applied to half a match, and the finished message that follows a
     moment later is rewritten correctly.
     """
-    if not config.SETTINGS.regex_rules:
+    if not config.SETTINGS.regex_rules and not translation.enabled(config.SETTINGS):
         return event
     for key in ("message", "variant"):
         body = event.get(key)
@@ -704,17 +705,22 @@ async def list_messages(chat_id: str, include_dropped: bool = False) -> list[dic
 
 
 def _with_display(message: dict, role: str = "") -> dict:
+    """What to draw for this message: `display` when it differs from `text`.
+
+    Two things can produce one — a translation back into your reading language
+    (roadmap 23) and a display-scope find/replace rule (§16) — and they layer
+    in that order, because a rule about how things look should apply to what
+    you are actually looking at.
+    """
     """Attach the display-scope rewrite (§16), leaving `text` as it was stored.
 
     Two fields rather than one, because they answer different questions: the
     screen wants `display`, and editing, copying and the prompt all want the
     message that was actually said.
     """
-    rules = config.SETTINGS.regex_rules
-    if not rules:
-        return message
+    base = translation.for_screen({**message, "role": message.get("role") or role})
     shown = regex_rules.apply(
-        rules, message.get("text") or "", "display", message.get("role") or role
+        config.SETTINGS.regex_rules, base, "display", message.get("role") or role
     )
     return {**message, "display": shown} if shown != message.get("text") else message
 

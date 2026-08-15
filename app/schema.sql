@@ -45,6 +45,10 @@ CREATE TABLE IF NOT EXISTS message_variants (
     text       TEXT NOT NULL,
     provider   TEXT NOT NULL DEFAULT '',
     model      TEXT NOT NULL DEFAULT '',
+    -- The other language (roadmap 23). `text` is always what was actually
+    -- written; this is the same thing said in the language the other side of
+    -- the conversation uses. Empty when translation is off.
+    translation TEXT NOT NULL DEFAULT '',
     created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_variants_message ON message_variants(message_id, idx);

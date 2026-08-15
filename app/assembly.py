@@ -29,6 +29,7 @@ from . import attachments
 from . import groups
 from . import macros
 from . import prompt_layout
+from . import translation
 from .models import AuthorsNote, Character, VariableSchema
 from .providers.base import estimate_tokens
 from .state import SLICE_EVENT, SLICE_SCENE, SLICE_VARS
@@ -327,7 +328,10 @@ def build_reply_context(
     turn_messages: list[Message] = []
     for message in window:
         role = message["role"] if message["role"] in ("user", "assistant") else "system"
-        content = message["text"]
+        # The character's language, where there is one (roadmap 23). Falls
+        # back to the original, so a translation that failed leaves the turn
+        # readable in the wrong language rather than missing entirely.
+        content = translation.for_prompt(message)
         items = attached.get(message["id"]) or []
         if items:
             extra = attachments.prompt_suffix(items, sees_images)
