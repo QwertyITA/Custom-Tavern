@@ -715,6 +715,128 @@ class PassScheduler:
 
     # -------------------------------------------------------------- swipes
 
+    async def run_continue(self, message_id: str) -> AsyncIterator[dict]:
+        """Extend a reply that stopped early, in place.
+
+        Not a swipe: a swipe asks for a different reply and branches, while
+        this asks for *more of the same one*. So the text is appended to the
+        variant that is already showing rather than becoming a new one — there
+        is nothing to choose between, and a 1/2 counter on a message that was
+        merely finished would be a lie about what happened.
+
+        The model is given the reply so far as the start of its own turn and
+        asked to carry straight on, which is what stops it restarting the
+        sentence or greeting the user again.
+        """
+        message = repo.get_message(self.db, message_id)
+        if message is None or message["role"] != "assistant":
+            yield {"type": "error", "error": "can only continue a reply"}
+            return
+
+        chat = repo.get_chat(self.db, message["chat_id"])
+        character = repo.get_character(self.db, chat["character_id"]) if chat else None
+        if chat is None or character is None:
+            yield {"type": "error", "error": "unknown chat"}
+            return
+
+        existing = message["text"] or ""
+        ctx = TurnContext(
+            chat=chat,
+            character=character,
+            settings=self.settings,
+            turn=message["turn"],
+            message_id=message_id,
+            variant_id=message["variant_id"],
+            schema=state_mod.load_schema(
+                {k: v.model_dump() for k, v in character.state_schema.items()}
+                if character.state_schema
+                else None
+            ),
+        )
+        ctx.toggle_states = registry.toggle_states(self.db, character.id, chat["id"])
+        ctx.pre_values = assembly.current_values(self.db, chat["id"], ctx.schema)
+
+        definition = registry.get_pass(self.db, "basic") or registry.CANONICAL_PASSES[0]
+        injections = registry.active_injections(self.db, ctx.toggle_states, "basic")
+        assembled = assembly.build_reply_context(
+            self.db, chat, character, self.settings,
+            toggle_injections=injections,
+            exclude_message_id=message_id,
+        )
+        messages = list(assembled.messages)
+        messages.append({"role": "assistant", "content": existing})
+        request = GenRequest(
+            system=(
+                f"{assembled.system}\n\n## This turn\n"
+                f"{character.name}'s reply below was cut off. Continue it from "
+                "exactly where it stops — same sentence if it stops mid-sentence, "
+                "same scene, same voice. Do not repeat any of it and do not start "
+                "again."
+            ),
+            messages=messages,
+            sampling=definition.sampling,
+            pass_id="continue",
+        )
+
+        provider = provider_for_tier(definition.model_tier, self.settings)
+        run_id = self._record_run(
+            ctx, definition, "running", model=provider.model, started_at=time.time()
+        )
+
+        sink = GenResult()
+        suffix = SuffixStreamFilter()
+        collected: list[str] = []
+        try:
+            async for delta in provider.stream(request, sink):
+                visible = suffix.feed(delta)
+                if visible:
+                    collected.append(visible)
+                    yield {"type": "delta", "text": visible}
+        except asyncio.CancelledError:
+            self._append_continuation(ctx, message, existing, collected)
+            self._record_run(ctx, definition, "stopped", run_id=run_id, finished_at=time.time())
+            raise
+        except (ProviderError, asyncio.TimeoutError, OSError) as exc:
+            self._record_run(
+                ctx, definition, "failed", run_id=run_id, error=str(exc), finished_at=time.time()
+            )
+            yield {"type": "error", "error": f"continue failed: {exc}"}
+            return
+
+        tail, _payload = suffix.finish()
+        if tail:
+            collected.append(tail)
+            yield {"type": "delta", "text": tail}
+
+        full = self._append_continuation(ctx, message, existing, collected)
+        self._record_run(
+            ctx, definition, "done", run_id=run_id,
+            model=sink.model or provider.model,
+            tokens_in=sink.tokens_in or assembled.total_tokens,
+            tokens_out=sink.tokens_out, finished_at=time.time(), attempts=1,
+        )
+        yield {"type": "continued", "message_id": message_id, "text": full}
+
+    def _append_continuation(
+        self, ctx: TurnContext, message: dict, existing: str, collected: list[str]
+    ) -> str:
+        """Join the new text onto the old and store it on the same variant."""
+        addition = clean_reply(
+            split_thinking("".join(collected))[0],
+            strip_leakage=self.settings.strip_user_turn_leakage,
+            user_names=("You", "{{user}}"),
+        ).strip()
+        if not addition:
+            return existing
+        # A space only where the seam needs one: a reply cut mid-word must not
+        # gain a gap, and one cut after a full stop must not lose it.
+        joiner = "" if (not existing or existing[-1].isspace()) else " "
+        full = f"{existing}{joiner}{addition}"
+        # edited=False: the character carried on, which is not the same as
+        # someone rewriting them, and the pencil marker means the latter.
+        repo.update_variant_text(self.db, message["variant_id"], full, edited=False)
+        return full
+
     async def run_swipe(self, message_id: str) -> AsyncIterator[dict]:
         """Generate an alternative reply as a branch (§9).
 

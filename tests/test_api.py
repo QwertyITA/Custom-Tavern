@@ -1073,3 +1073,75 @@ def test_a_stopped_reply_writes_no_state(db, character):
     chat = repo.create_chat(db, character.id, "stoppable-state")
     sync(_stop_after_a_few_tokens(db, chat["id"], "Say a lot."))
     assert state_mod.read_slice(db, chat["id"], state_mod.SLICE_VARS) is None
+
+
+# ------------------------------------------------------------- continuing
+
+
+def test_continue_extends_the_reply_in_place(client):
+    """More of the same reply, not a different one — so no new variant."""
+    chat_id = new_chat(client)
+    send(client, chat_id, "Tell me about the crossing.")
+    reply = client.get(f"/api/chats/{chat_id}/messages").json()[-1]
+    before = reply["text"]
+    assert reply["variant_count"] == 1
+
+    with client.stream("POST", f"/api/messages/{reply['id']}/continue") as response:
+        assert response.status_code == 200
+        events = sse_events(response)
+
+    assert any(e["type"] == "delta" for e in events)
+    final = [e for e in events if e["type"] == "continued"]
+    assert final, [e["type"] for e in events]
+
+    after = client.get(f"/api/chats/{chat_id}/messages").json()[-1]
+    assert after["id"] == reply["id"], "it must not become a new message"
+    assert after["variant_count"] == 1, "it must not become a new variant"
+    assert after["text"].startswith(before)
+    assert len(after["text"]) > len(before)
+
+
+def test_continuing_does_not_mark_the_message_edited(client):
+    """The character carried on; nobody rewrote them."""
+    chat_id = new_chat(client)
+    send(client, chat_id, "Go on.")
+    reply = client.get(f"/api/chats/{chat_id}/messages").json()[-1]
+    with client.stream("POST", f"/api/messages/{reply['id']}/continue") as response:
+        sse_events(response)
+    assert client.get(f"/api/chats/{chat_id}/messages").json()[-1]["edited"] is False
+
+
+def test_the_seam_gets_one_space_and_only_one(client):
+    """A reply cut mid-word must not gain a gap, nor one after a stop lose it."""
+    from app.config import SETTINGS
+    from app.db import get_db
+    from app.passes.scheduler import PassScheduler
+    from app import repo
+
+    db = get_db()
+    scheduler = PassScheduler(db, SETTINGS)
+    character = repo.list_characters(db)[0]
+    chat = repo.create_chat(db, character["id"], "seam")
+    message = repo.add_message(db, chat["id"], "assistant", "She turned away.")
+
+    ctx_message = repo.get_message(db, message["id"])
+    joined = scheduler._append_continuation(
+        type("Ctx", (), {"chat_id": chat["id"]})(), ctx_message, "She turned away.", [" The door shut."]
+    )
+    assert joined == "She turned away. The door shut."
+
+    trailing = scheduler._append_continuation(
+        type("Ctx", (), {"chat_id": chat["id"]})(), ctx_message, "Mid-sentence ", ["and on it went."]
+    )
+    assert trailing == "Mid-sentence and on it went."
+
+
+def test_only_a_reply_can_be_continued(client):
+    chat_id = new_chat(client)
+    send(client, chat_id, "Anything.")
+    user_message = next(
+        m for m in client.get(f"/api/chats/{chat_id}/messages").json() if m["role"] == "user"
+    )
+    with client.stream("POST", f"/api/messages/{user_message['id']}/continue") as response:
+        events = sse_events(response)
+    assert any(e["type"] == "error" for e in events)

@@ -133,6 +133,15 @@ Editing only rewrites the text fields; portraits, backgrounds, lorebook and
 state schema come from the card and are left alone. Deleting a character
 deletes its chats with it, which is why both deletes take two taps.
 
+### Continuing a reply
+
+A reply that stopped early — because you stopped it, or because the model hit
+its token limit — can be carried on. **Continue** is in the composer **+** menu
+and in a reply's hold-wheel. It extends the message *in place*: no new variant,
+no counter going to 1/2, and no "edited" pencil, because the character carried
+on rather than someone rewriting them. The model is handed the reply so far as
+the start of its own turn, which is what stops it starting the sentence again.
+
 ### Stopping a reply
 
 While a reply is coming, the send button becomes a stop button — the same

@@ -541,6 +541,12 @@ function tavern() {
           run: () => this.goToVariant(lastReply, 1),
         },
         {
+          id: "continue", label: "Continue", icon: "#i-continue",
+          note: "Carry on from where the reply stopped",
+          disabled: this.streaming || !lastReply,
+          run: () => this.continueReply(lastReply),
+        },
+        {
           id: "impersonate", label: "Impersonate", icon: "#i-impersonate",
           note: "Write my next message for me",
           disabled: this.streaming || !this.chatId,
@@ -1398,6 +1404,49 @@ function tavern() {
       this.messages = this.messages.filter((m) => m.id !== message.id);
     },
 
+    // Extends the reply in place. Unlike a swipe there is nothing to choose
+    // between afterwards, so it streams into the bubble that is already on
+    // screen rather than creating a variant.
+    async continueReply(message) {
+      if (this.streaming || !message) return;
+      this.streaming = true;
+      this.streamAbort = new AbortController();
+      const start = message.text || "";
+      let buffer = "";
+      try {
+        const response = await fetch(`/api/messages/${message.id}/continue`, {
+          method: "POST", signal: this.streamAbort.signal,
+        });
+        if (!response.ok) throw await apiError(response);
+        for await (const event of sseStream(response)) {
+          if (event.type === "delta") {
+            buffer += event.text;
+            message.text = `${start}${start && !/\s$/.test(start) ? " " : ""}${buffer}`;
+          } else if (event.type === "continued") {
+            message.text = event.text;
+          } else if (event.type === "error") {
+            this.error = event.error;
+          }
+        }
+      } catch (e) {
+        if (e.name === "AbortError") {
+          this.flashHint("Stopped");
+          await this.reloadMessages();
+        } else {
+          this.error = String(e.message || e);
+          message.text = start;
+        }
+      } finally {
+        this.streaming = false;
+        this.streamAbort = null;
+      }
+    },
+
+    lastReply() {
+      return [...this.messages].reverse()
+        .find((m) => m.role === "assistant" && m.id !== "streaming");
+    },
+
     // direction: +1 forward (generate a new variant past the end), -1 back.
     async goToVariant(message, direction) {
       if (this.streaming) return;
@@ -1510,9 +1559,11 @@ function tavern() {
 
     // Everything a message can have done to it, in one place. Regenerate is
     // deliberately absent: the arrows and the swipe already cover it.
-    wheelOptions() {
+    wheelOptions(message) {
+      const isReply = message && message.role === "assistant";
       return [
         { id: "edit", label: "Edit", icon: "#i-edit" },
+        ...(isReply ? [{ id: "continue", label: "Continue", icon: "#i-continue" }] : []),
         { id: "copy", label: "Copy", icon: "#i-copy" },
         { id: "delete", label: "Delete", icon: "#i-delete", danger: true },
         { id: "suggest", label: "Suggest edit", icon: "#i-suggest", soon: true },
@@ -1538,7 +1589,7 @@ function tavern() {
 
       // Keep the whole circle on screen: opened against an edge it would put
       // half its options where no finger can reach them.
-      const options = this.wheelOptions();
+      const options = this.wheelOptions(message);
       const margin = WHEEL_RADIUS + 42;
       const step = 360 / options.length;
       this.wheel = {
@@ -1612,6 +1663,7 @@ function tavern() {
       if (option.soon) return this.flashHint(`${option.label} is not built yet`);
       if (option.id === "edit") return this.startEdit(message, this.bubbleFor(message.id));
       if (option.id === "copy") return this.copyMessage(message);
+      if (option.id === "continue") return this.continueReply(message);
       if (option.id === "delete") {
         // Arm the bubble's own delete rather than deleting outright. A drag
         // that lands one option over should not be able to destroy a message.

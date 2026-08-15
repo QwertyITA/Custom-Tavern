@@ -484,6 +484,12 @@ async def impersonate(chat_id: str):
     return await _stream(scheduler().run_impersonate(chat_id))
 
 
+@app.post("/api/messages/{message_id}/continue")
+async def continue_reply(message_id: str):
+    """Extend a reply in place rather than branching from it."""
+    return await _stream(scheduler().run_continue(message_id))
+
+
 @app.post("/api/messages/{message_id}/swipe")
 async def swipe(message_id: str):
     return await _stream(scheduler().run_swipe(message_id))

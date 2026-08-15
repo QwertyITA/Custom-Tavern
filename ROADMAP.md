@@ -43,7 +43,7 @@ Everything else leans on these.
 ## Phase 2 — control over the turn
 
 - [x] **5. Stop generation.** Abort mid-stream, keep what arrived.
-- [ ] **6. Continue.** Extend the last reply instead of re-rolling it.
+- [x] **6. Continue.** Extend the last reply instead of re-rolling it.
 - [ ] **7. Hide from prompt.** A message stays on screen but leaves the
       context. Visibly marked.
 - [ ] **4. Author's Note.** Free text injected at a chosen depth from the end.
