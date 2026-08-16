@@ -302,6 +302,14 @@ class Settings:
     # still wins over any value here.
     motion: int = 100
 
+    # Frosted glass over the backdrop. A layer rather than a palette: it works
+    # with any of the presets, because it only changes how solid a surface is
+    # and never what colour it is. `glass_amount` drives transparency and blur
+    # together — a translucent surface with no blur reads as a bug rather than
+    # as glass.
+    glass: bool = False
+    glass_amount: int = 60
+
     @property
     def data_dir(self) -> Path:
         return DATA_DIR
@@ -534,6 +542,14 @@ def build_settings(payload: dict[str, Any], current: Settings) -> Settings:
     if not 0 <= motion <= 100:
         raise SettingsError("motion must be between 0 and 100")
     settings.motion = motion
+    settings.glass = bool(payload.get("glass", current.glass))
+    try:
+        amount = int(payload.get("glass_amount", current.glass_amount))
+    except (TypeError, ValueError):
+        raise SettingsError("glass_amount must be a number") from None
+    if not 0 <= amount <= 100:
+        raise SettingsError("glass_amount must be between 0 and 100")
+    settings.glass_amount = amount
     settings.prompt_sections = _prompt_sections(
         payload["prompt_sections"] if "prompt_sections" in payload else current.prompt_sections
     )

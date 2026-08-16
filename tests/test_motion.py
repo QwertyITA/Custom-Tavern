@@ -68,3 +68,55 @@ def test_zero_is_a_real_setting_not_a_missing_one(client, isolated_settings):
     client.put("/api/settings", json={**base(), "motion": 0})
     assert config.SETTINGS.motion == 0
     assert client.get("/api/settings").json()["motion"] == 0
+
+
+# ------------------------------------------------------------------- glass
+
+
+def test_glass_is_off_until_asked_for():
+    """A frosted interface is a preference, not a default. An install that
+    never opens the panel should look exactly as it did before."""
+    assert Settings().glass is False
+    assert Settings().glass_amount == 60
+
+
+def test_glass_saves_and_comes_back(client, isolated_settings):
+    from app import config
+
+    body = {**base(), "glass": True, "glass_amount": 80}
+    assert client.put("/api/settings", json=body).json()["ok"] is True
+    assert config.SETTINGS.glass is True
+    assert config.SETTINGS.glass_amount == 80
+
+    back = client.get("/api/settings").json()
+    assert back["glass"] is True
+    assert back["glass_amount"] == 80
+
+
+def test_glass_off_survives_the_round_trip(client, isolated_settings):
+    """False is falsy in both languages this crosses; "off" has to mean off
+    rather than "unset, use the default"."""
+    from app import config
+
+    client.put("/api/settings", json={**base(), "glass": True})
+    client.put("/api/settings", json={**base(), "glass": False})
+    assert config.SETTINGS.glass is False
+
+
+@pytest.mark.parametrize("value", [-1, 101])
+def test_a_glass_amount_out_of_range_is_refused(value):
+    with pytest.raises(SettingsError):
+        build_settings({**base(), "glass_amount": value}, Settings())
+
+
+def test_a_nonsense_glass_amount_is_refused():
+    with pytest.raises(SettingsError):
+        build_settings({**base(), "glass_amount": "very"}, Settings())
+
+
+def test_glass_is_independent_of_the_palette():
+    """The whole point of it being a layer: it must not carry colours of its
+    own, or it would fight whichever preset is in force."""
+    settings = build_settings({**base(), "glass": True, "theme": {"--bg": "#101014"}}, Settings())
+    assert settings.glass is True
+    assert settings.theme["--bg"] == "#101014"

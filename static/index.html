@@ -1172,6 +1172,37 @@
           <p class="kind-note">Higher washes the image out further behind the text.</p>
         </div>
 
+        <h3>Glass</h3>
+        <p class="note">
+          Frosts every surface so the room stays visible through the interface.
+          It layers over whichever palette you are using — it only changes how
+          solid a surface is, never what colour it is.
+        </p>
+        <label class="toggle">
+          <input type="checkbox" :checked="settings.glass"
+                 @change="setGlass($event.target.checked)">
+          <span>Frosted glass</span>
+        </label>
+        <div class="fold" :class="{ open: settings.glass }">
+          <div class="fold-clip">
+            <div class="num-field">
+              <div class="num-head">
+                <span class="num-label">How much</span>
+                <span class="num-unit" x-text="glassLabel"></span>
+              </div>
+              <input class="num-slider" type="range" min="0" max="100" step="5"
+                     :value="settings.glass_amount"
+                     @input="setGlassAmount($event.target.value)"
+                     aria-label="How much glass">
+              <p class="kind-note">
+                Transparency and blur move together. Text stays fully opaque —
+                blurring the thing you are reading is the one place this would
+                hurt rather than help.
+              </p>
+            </div>
+          </div>
+        </div>
+
         <h3>Motion</h3>
         <div class="num-field">
           <div class="num-head">

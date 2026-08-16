@@ -150,6 +150,21 @@ each one measured. The first was a bug rather than a suggestion.
 - [ ] **K. Scroll-to-bottom button.** The one item from §2.5 not built: on a
       long chat scrolled up there is no way back down.
 
+## Polish pass
+
+- [x] **Glass theme.** Frosted surfaces so the room stays visible through the
+      interface, as an independent switch plus an intensity slider that layers
+      over any palette. Turning it on also lets the backdrop wash back off —
+      the wash exists to keep text readable, and glass does that job instead.
+- [x] **Every interaction animated.** Press feedback existed on 7 selectors out
+      of ~40 tappable things; the menu, every link-button, every switch, row,
+      chip and tile answered a tap with nothing. Now: press / lift / ring, plus
+      a real slider thumb instead of the browser's, a check animation, and a
+      focus response on every field.
+- [ ] **Density and rhythm.** The panels read as documentation — three lines of
+      prose per control, and large vertical voids between a slider and its
+      note. Not started.
+
 ## Not wanted
 
 Recorded so they are not proposed again: checkpoints/branches (9), vector

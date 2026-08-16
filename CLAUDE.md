@@ -114,6 +114,17 @@ The load-bearing ideas, each of which has a test protecting it:
     (prefers-reduced-motion: reduce)` stops everything with `*` and then names
     the few exceptions. Do not add per-selector entries — the allowlist version
     fell behind by two dozen animations before it was noticed.
+- **Every interaction answers.** Nothing tappable stays still when touched.
+  Three responses, by what the control is: `press` (a scale-down, for buttons),
+  `lift` (a background wash, for rows and tiles too big to scale), `ring`
+  (`:focus-visible`, for anyone not using a finger). Adding a control means
+  adding its response.
+- **Glass is a layer, not a palette.** `--surface*` tokens are what every
+  frostable surface reads; `:root.glass` redefines them with `color-mix` against
+  transparent, so it only ever changes how *solid* a surface is and never what
+  colour. Never give glass colours of its own — it has to work over all nine
+  presets and any hand-picked set. Text, borders and icons stay fully opaque:
+  blurring what someone is reading is the one place this hurts.
 - **Icons:** one SVG sprite at the top of `index.html`, referenced with
   `<use href="#i-name">`. Never an emoji: it is drawn by whichever font the
   phone happens to ship, so a row of them arrives in several weights and will

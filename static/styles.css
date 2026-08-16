@@ -11,6 +11,12 @@
    The 1ms floor is deliberate: at motion 0 a plain 0ms transition never fires
    `transitionend`, and several sequences here wait on it. */
 @property --motion { syntax: "<number>"; inherits: true; initial-value: 1; }
+/* Glass. Registered for the same reason as the durations — these are read back
+   by JavaScript and interpolated when the switch is thrown, and an
+   unregistered custom property is a string that swaps rather than a value that
+   animates. */
+@property --glass-blur { syntax: "<length>"; inherits: true; initial-value: 0px; }
+@property --glass-solid { syntax: "<percentage>"; inherits: true; initial-value: 100%; }
 @property --dur-fast { syntax: "<time>"; inherits: true; initial-value: 140ms; }
 @property --dur-base { syntax: "<time>"; inherits: true; initial-value: 240ms; }
 @property --dur-slow { syntax: "<time>"; inherits: true; initial-value: 340ms; }
@@ -113,6 +119,22 @@
   --dur-message-send: max(1ms, calc(420ms * var(--motion)));
   --dur-message-leave: max(1ms, calc(220ms * var(--motion)));
 
+  /* Frosted glass, off by default. `--glass-solid` is how much of the surface
+     colour survives; the rest is whatever is behind it, which on this app is
+     the tavern. Both are driven from one slider — more glass means both more
+     transparent and more blurred, because a translucent surface with no blur
+     just looks like a bug. */
+  --glass-blur: 0px;
+  --glass-solid: 100%;
+  /* Every surface that can be glass reads these rather than the palette
+     directly, so turning it on is one rule rather than a hunt through the
+     stylesheet. Off, they are exactly the palette. */
+  --surface: var(--panel);
+  --surface-2: var(--panel-2);
+  --surface-bg: var(--bg);
+  --surface-ai: var(--ai-bubble);
+  --surface-user: var(--user-bubble);
+
   --radius: 10px;
   --font-size: 15px;
   --bubble-max: 86%;
@@ -158,7 +180,7 @@ body {
   display: flex;
   flex-direction: column;
   padding: calc(6px + var(--safe-top)) 8px 6px;
-  background: var(--panel);
+  background: var(--surface);
   border-bottom: 1px solid var(--line);
   position: sticky;
   top: 0;
@@ -454,7 +476,7 @@ body {
 
 /* messages as rectangles (§12) */
 .bubble {
-  background: var(--ai-bubble);
+  background: var(--surface-ai);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 9px 11px;
@@ -462,7 +484,7 @@ body {
   word-wrap: break-word;
   overflow-wrap: anywhere;
 }
-.msg.user .bubble { background: var(--user-bubble); }
+.msg.user .bubble { background: var(--surface-user); }
 
 .body {
   white-space: pre-wrap;
@@ -632,14 +654,14 @@ body {
   display: flex;
   gap: 8px;
   padding: 8px 10px calc(8px + var(--safe-bottom));
-  background: var(--panel);
+  background: var(--surface);
   border-top: 1px solid var(--line);
 }
 .composer textarea {
   flex: 1;
   resize: none;
   max-height: 30vh;
-  background: var(--panel-2);
+  background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--line);
   border-radius: 18px;
@@ -851,7 +873,7 @@ body {
   position: fixed;
   inset: 0;
   z-index: 30;
-  background: var(--bg);
+  background: var(--surface-bg);
   display: flex;
   flex-direction: column;
   /* The slide is a transform on a full-screen element; promoting it keeps the
@@ -871,7 +893,7 @@ body {
   justify-content: space-between;
   padding: calc(10px + var(--safe-top)) 12px 10px;
   border-bottom: 1px solid var(--line);
-  background: var(--panel);
+  background: var(--surface);
 }
 .sheet-head h2 { margin: 0; font-size: 15px; }
 .sheet-body {
@@ -2262,12 +2284,12 @@ input.mono {
   min-width: 42%;
   padding: 12px 14px;
   border-radius: var(--radius);
-  background: var(--panel);
+  background: var(--surface);
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-.sk-msg.user .sk-bubble { background: var(--panel-2); }
+.sk-msg.user .sk-bubble { background: var(--surface-2); }
 .sk-line {
   height: 10px;
   border-radius: 5px;
@@ -2382,4 +2404,259 @@ input.mono {
 .num-field:has(.num-box:focus) .num-unit {
   transform: scale(1.14);
   color: var(--accent);
+}
+
+/* ============================================================== glass ==== */
+
+/* Frosted surfaces, so the room stays visible through the interface.
+   Independent of the palette: it layers over whichever of the nine presets —
+   or whichever hand-picked colours — are in force, because it only ever
+   changes how solid a surface is, never what colour it is.
+
+   `color-mix` with transparent rather than an rgba() literal is what makes
+   that true. The palette token stays the single source of the colour and this
+   only decides how much of it survives.
+
+   Not applied to text, borders or icons. Blurring the thing you are reading is
+   the one place this would actively hurt, and it is the reason the surfaces go
+   translucent while everything drawn on them stays fully opaque. */
+:root.glass {
+  --surface: color-mix(in srgb, var(--panel) var(--glass-solid), transparent);
+  /* The sheet covers the whole screen, so it is the one surface where the
+     glass is doing the most work — the conversation stays visible behind the
+     settings rather than being replaced by them. Held a little more solid than
+     the rest, because it carries the most text. */
+  --surface-bg: color-mix(in srgb, var(--bg)
+                calc(var(--glass-solid) + (100% - var(--glass-solid)) * 0.35), transparent);
+  --surface-2: color-mix(in srgb, var(--panel-2) var(--glass-solid), transparent);
+  --surface-ai: color-mix(in srgb, var(--ai-bubble) var(--glass-solid), transparent);
+  --surface-user: color-mix(in srgb, var(--user-bubble) var(--glass-solid), transparent);
+}
+
+/* The blur itself. Saturation is lifted a little with it: a plain blur washes
+   colour out of what shows through, and the backdrop going grey behind the
+   glass is what makes cheap frosted effects look like fog rather than glass. */
+:root.glass .worldbar,
+:root.glass .composer,
+:root.glass .sheet,
+:root.glass .sheet-head,
+:root.glass .bubble,
+:root.glass .wheel-disc,
+:root.glass .reveal-btn,
+:root.glass .banner,
+:root.glass .sk-bubble {
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
+}
+
+/* Turning it on eases rather than snaps — the whole interface dissolves into
+   glass over one --dur-slow, which is the single most satisfying thing about
+   having the switch at all. Both properties are registered, so both
+   interpolate. */
+:root {
+  transition: --glass-blur var(--dur-slow) var(--ease-in-out),
+              --glass-solid var(--dur-slow) var(--ease-in-out);
+}
+
+/* A hairline of light along the top edge, which is what actually reads as
+   glass rather than as a translucent rectangle. Only where there is an edge
+   the eye expects to catch the light. */
+:root.glass .worldbar,
+:root.glass .sheet-head { box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 45%, transparent); }
+:root.glass .composer { box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 35%, transparent); }
+:root.glass .bubble { box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 40%, transparent); }
+
+/* ==================================================== every interaction ==== */
+
+/* The rule this section exists to hold: nothing you can touch stays still when
+   you touch it. Before this, press feedback existed on seven selectors out of
+   about forty tappable things — the menu, the refresh button, every link-style
+   button, every switch, every row, every chip and every tile answered a tap
+   with nothing at all, which is most of why the app felt unfinished even
+   though it was full of animation elsewhere.
+   
+   Three responses, chosen by what the control *is*:
+     press   a small scale-down, for anything that reads as a button
+     lift    a background wash, for rows and tiles that are too big to scale
+     ring    a focus outline, for anyone not using a finger
+   None of them are new curves; they are the tokens already here. */
+
+/* ---- press: it goes down under the thumb and springs back ---- */
+.icon-btn,
+.menu-btn,
+.link,
+.p-add,
+.disclose,
+.file-btn,
+.chip-x,
+.p-name,
+.rule-name,
+.num-box,
+.reveal-btn,
+.sk-line { transition: transform var(--dur-fast) var(--ease-spring),
+                       color var(--dur-fast) var(--ease-out),
+                       background var(--dur-fast) var(--ease-out),
+                       border-color var(--dur-fast) var(--ease-out); }
+
+.icon-btn:not(:disabled):active,
+.menu-btn:active,
+.p-add:active,
+.disclose:active,
+.file-btn:active,
+.chip-x:active { transform: scale(.88); }
+
+/* Text-shaped buttons scale less: a word that shrinks by a tenth looks like a
+   rendering glitch rather than a press. */
+.link:not(:disabled):active,
+.p-name:active,
+.rule-name:active { transform: scale(.96); }
+
+/* ---- lift: too big to scale, so the surface answers instead ---- */
+.char,
+.chat-list li,
+.bg-tile,
+.preset,
+.band,
+.toggle,
+.sent-row,
+.pass-row,
+.member {
+  transition: background var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out),
+              transform var(--dur-base) var(--ease-spring);
+}
+.char:active,
+.chat-list li:active,
+.member:active,
+.sent-row:active { transform: scale(.99); }
+.bg-tile:active,
+.preset:active { transform: scale(.95); }
+
+/* ---- the switch pill ---- */
+.p-switch { transition: background var(--dur-base) var(--ease-out),
+                        border-color var(--dur-base) var(--ease-out),
+                        transform var(--dur-fast) var(--ease-spring); }
+.p-switch:active { transform: scale(.92); }
+
+/* ---- checkboxes: the one control with no state animation at all ---- */
+/* `accent-color` styles the box but cannot animate the tick, so the whole
+   control takes a beat as it flips. Paired with the row it sits in, which
+   warms at the same moment, so the change registers even if your thumb is
+   covering the box. */
+.toggle input[type="checkbox"] {
+  transition: transform var(--dur-base) var(--ease-spring),
+              opacity var(--dur-fast) var(--ease-out);
+}
+.toggle input[type="checkbox"]:checked { animation: check-in var(--dur-base) var(--ease-spring); }
+@keyframes check-in {
+  0%   { transform: scale(.7) rotate(-8deg); }
+  55%  { transform: scale(1.14) rotate(3deg); }
+  to   { transform: none; }
+}
+.toggle:active { background: color-mix(in srgb, var(--accent) 8%, transparent); border-radius: 8px; }
+
+/* ---- focus, for anyone not using a finger ---- */
+/* :focus-visible rather than :focus, so a tap never leaves a ring behind. */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Text fields answer a focus rather than only accepting it. */
+.row input, .row select, .row textarea,
+.backend-head input, .backend-head select,
+.col-field input, .col-field textarea, .edit-box {
+  transition: border-color var(--dur-fast) var(--ease-out),
+              background var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-base) var(--ease-out);
+}
+.row input:focus, .row select:focus, .row textarea:focus,
+.backend-head input:focus, .col-field input:focus,
+.col-field textarea:focus, .edit-box:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+  outline: none;
+}
+
+/* ---- disabled things say so by going still, not just pale ---- */
+/* Deliberately not a `transition:` shorthand here — that would replace what
+   the control already had and leave a disabled button with *less* animation
+   than the base rule gave it, which is how `.send` ended up silent. */
+button:disabled:active,
+.link:disabled:active { transform: none; }
+
+
+/* ---- the last few, each for its own reason ---- */
+
+/* The character name in the header. It is a button dressed as a title, so it
+   presses like one and stops there — a title that scales far would read as a
+   layout bug. */
+.who { transition: color var(--dur-fast) var(--ease-out),
+                   transform var(--dur-fast) var(--ease-spring); }
+.who:not(:disabled):active { transform: scale(.97); }
+
+/* The composer. Focusing it is the single most-repeated interaction in the
+   app, and it did nothing at all. */
+.composer textarea {
+  transition: background var(--dur-base) var(--ease-out),
+              border-color var(--dur-base) var(--ease-out),
+              box-shadow var(--dur-base) var(--ease-out);
+}
+.composer textarea:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+/* Sliders. The track is the app's, not the browser's, and the thumb grows
+   under the thumb — the one control you hold rather than tap, so it is the one
+   that should acknowledge being held rather than being pressed. */
+.num-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  background: none;
+}
+.num-slider::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line) 80%, var(--panel-2));
+  transition: background var(--dur-base) var(--ease-out);
+}
+.num-slider::-moz-range-track {
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line) 80%, var(--panel-2));
+}
+.num-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  margin-top: -6.5px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--panel);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--text) 22%, transparent);
+  transition: transform var(--dur-base) var(--ease-spring),
+              box-shadow var(--dur-base) var(--ease-out);
+}
+.num-slider::-moz-range-thumb {
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--panel);
+  transition: transform var(--dur-base) var(--ease-spring);
+}
+.num-slider:active::-webkit-slider-thumb {
+  transform: scale(1.35);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.num-slider:active::-moz-range-thumb { transform: scale(1.35); }
+.num-slider:active::-webkit-slider-runnable-track {
+  background: color-mix(in srgb, var(--accent) 24%, var(--line));
 }

@@ -1836,6 +1836,46 @@ function tavern() {
       this.updateColorScheme();
       this.applyBackground();
       this.applyMotion();
+      this.applyGlass();
+    },
+
+    // Frosted glass, as a layer over whatever palette is in force. One slider
+    // drives both halves: at nothing it is a barely-there film, at everything
+    // the room is clearly visible through the interface. They move together
+    // because transparency without blur reads as a rendering fault rather than
+    // as glass.
+    applyGlass() {
+      const root = document.documentElement;
+      // Deferred to the end of this function via applyBackground: the wash
+      // depends on the glass settings, so the two cannot be applied
+      // independently.
+      const on = !!this.settings.glass;
+      const a = Math.max(0, Math.min(100, Number.isFinite(this.settings.glass_amount)
+        ? this.settings.glass_amount : 60)) / 100;
+      root.classList.toggle("glass", on);
+      // 88% solid down to 52%, and 4px of blur up to 22px.
+      root.style.setProperty("--glass-solid", `${(88 - a * 36).toFixed(1)}%`);
+      root.style.setProperty("--glass-blur", `${(4 + a * 18).toFixed(1)}px`);
+      this.applyBackground();
+    },
+
+    setGlass(on) {
+      this.settings.glass = !!on;
+      this.applyGlass();
+    },
+
+    setGlassAmount(value) {
+      this.settings.glass_amount = parseInt(value, 10);
+      this.applyGlass();
+    },
+
+    get glassLabel() {
+      const v = Number.isFinite(this.settings.glass_amount) ? this.settings.glass_amount : 60;
+      if (v <= 20) return "barely there";
+      if (v <= 45) return "misted";
+      if (v <= 70) return "frosted";
+      if (v <= 90) return "deep";
+      return "the room shows through";
     },
 
     // The motion dial, as a multiplier every duration is written against.
@@ -2045,8 +2085,19 @@ function tavern() {
         this.sceneBackgroundFile = found ? found.img : "";
       }
       const file = this.sceneBackgroundFile || this.backgroundFile();
-      const dim = Number.isFinite(this.settings.background_dim)
+      let dim = Number.isFinite(this.settings.background_dim)
         ? this.settings.background_dim : 70;
+
+      // Glass lets the room back in. The wash exists to keep text readable
+      // over the image; with glass on, that job is done by the translucent
+      // blurred surface the text actually sits on, and leaving the wash at
+      // full strength starves the glass of anything to show through — a
+      // frosted pane over a blank wall is just a pale rectangle.
+      if (this.settings.glass) {
+        const a = Math.max(0, Math.min(100, Number.isFinite(this.settings.glass_amount)
+          ? this.settings.glass_amount : 60)) / 100;
+        dim = Math.round(dim - (dim - 22) * a);
+      }
 
       // The wash derives from --bg rather than being a fixed dark overlay, so
       // it works on a light palette as well as a dark one — and it is what
