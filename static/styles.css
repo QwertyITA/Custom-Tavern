@@ -2417,25 +2417,40 @@ input.mono {
    that true. The palette token stays the single source of the colour and this
    only decides how much of it survives.
 
+   What actually reads as glass is *not* the transparency. The first version of
+   this was translucent and blurred and still looked like a pale rectangle,
+   because the backdrop is a flat vector illustration — blurring 22px of an
+   even colour field returns the same even colour field, so the blur had
+   nothing to work on. Glass reads from its **edges and its sheen**: a lit rim
+   along the top, a shadow underneath proving it floats, and a diagonal
+   highlight raking across the face. Those are what the eye uses, and they work
+   over a flat backdrop as well as a photographic one.
+
    Not applied to text, borders or icons. Blurring the thing you are reading is
-   the one place this would actively hurt, and it is the reason the surfaces go
-   translucent while everything drawn on them stays fully opaque. */
+   the one place this would actively hurt. */
 :root.glass {
   --surface: color-mix(in srgb, var(--panel) var(--glass-solid), transparent);
+  --surface-2: color-mix(in srgb, var(--panel-2) var(--glass-solid), transparent);
+  --surface-ai: color-mix(in srgb, var(--ai-bubble) var(--glass-solid), transparent);
+  --surface-user: color-mix(in srgb, var(--user-bubble) var(--glass-solid), transparent);
   /* The sheet covers the whole screen, so it is the one surface where the
      glass is doing the most work — the conversation stays visible behind the
      settings rather than being replaced by them. Held a little more solid than
      the rest, because it carries the most text. */
   --surface-bg: color-mix(in srgb, var(--bg)
-                calc(var(--glass-solid) + (100% - var(--glass-solid)) * 0.35), transparent);
-  --surface-2: color-mix(in srgb, var(--panel-2) var(--glass-solid), transparent);
-  --surface-ai: color-mix(in srgb, var(--ai-bubble) var(--glass-solid), transparent);
-  --surface-user: color-mix(in srgb, var(--user-bubble) var(--glass-solid), transparent);
+                calc(var(--glass-solid) + (100% - var(--glass-solid)) * 0.4), transparent);
+
+  /* The rim, the sheen and the float, all derived so they scale with how much
+     glass was asked for. A pane at "barely there" should not carry the same
+     hard edge as one you can see the room through. */
+  --glass-rim: color-mix(in srgb, #fff calc(78% - var(--glass-solid) * 0.35), transparent);
+  --glass-shade: color-mix(in srgb, var(--text) 10%, transparent);
 }
 
-/* The blur itself. Saturation is lifted a little with it: a plain blur washes
-   colour out of what shows through, and the backdrop going grey behind the
-   glass is what makes cheap frosted effects look like fog rather than glass. */
+/* The blur itself. Saturation and contrast are both lifted with it: a plain
+   blur drains colour *and* separation out of what shows through, and a flat
+   grey field behind the glass is what makes cheap frosted effects look like
+   fog rather than like a window. */
 :root.glass .worldbar,
 :root.glass .composer,
 :root.glass .sheet,
@@ -2445,8 +2460,77 @@ input.mono {
 :root.glass .reveal-btn,
 :root.glass .banner,
 :root.glass .sk-bubble {
-  backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.7) contrast(1.06) brightness(1.03);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.7) contrast(1.06) brightness(1.03);
+}
+
+/* The rim and the float. A lit top edge, a darker bottom one, and a shadow
+   underneath — together these are most of the effect, and none of them depend
+   on there being detail behind the pane. */
+:root.glass .bubble,
+:root.glass .wheel-disc,
+:root.glass .reveal-btn,
+:root.glass .banner,
+:root.glass .sk-bubble {
+  border: 1px solid var(--glass-rim);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 65%, transparent),
+    inset 0 -1px 0 var(--glass-shade),
+    0 8px 24px -6px color-mix(in srgb, var(--text) 22%, transparent);
+}
+
+/* The sheen. A highlight raking across the face, brightest at one corner and
+   gone by the middle — this is the single thing that turns a translucent
+   rectangle into a pane with a surface. Layered over the tint rather than
+   replacing it, so the palette colour still shows. */
+:root.glass .bubble,
+:root.glass .worldbar,
+:root.glass .composer,
+:root.glass .sheet-head,
+:root.glass .wheel-disc,
+:root.glass .sk-bubble {
+  background-image: linear-gradient(
+    138deg,
+    color-mix(in srgb, #fff 30%, transparent) 0%,
+    color-mix(in srgb, #fff 8%, transparent) 26%,
+    transparent 52%,
+    color-mix(in srgb, var(--text) 3%, transparent) 100%
+  );
+}
+
+/* The bars run the width of the screen, so the rake would be invisible on
+   them — they get a vertical fall instead, which is what a long horizontal
+   pane actually does with light. */
+:root.glass .worldbar,
+:root.glass .composer,
+:root.glass .sheet-head {
+  background-image: linear-gradient(
+    to bottom,
+    color-mix(in srgb, #fff 26%, transparent) 0%,
+    transparent 70%
+  );
+  border-bottom-color: var(--glass-rim);
+}
+:root.glass .composer { border-top-color: var(--glass-rim); }
+
+/* Text keeps a halo of its own surface colour. At high glassiness a bubble can
+   sit over a dark band of the backdrop, and a pane thin enough to see the room
+   through is thin enough to lose the words on it. This is the same trick the
+   platforms use behind vibrancy: not a drop shadow, which would look like a
+   effect, but a tight glow the colour of the surface the text belongs to, so
+   the letters stay separated from whatever happens to be behind them.
+
+   Scaled with the setting — at "barely there" it is not needed and not
+   applied, because a halo you can see is worse than one you cannot. */
+:root.glass .body,
+:root.glass .msg-tools,
+:root.glass .field-value,
+:root.glass .who,
+:root.glass .composer textarea,
+:root.glass .composer textarea::placeholder {
+  text-shadow:
+    0 0 6px color-mix(in srgb, var(--panel) calc(100% - var(--glass-solid)), transparent),
+    0 0 2px color-mix(in srgb, var(--panel) calc(100% - var(--glass-solid)), transparent);
 }
 
 /* Turning it on eases rather than snaps — the whole interface dissolves into
@@ -2457,14 +2541,6 @@ input.mono {
   transition: --glass-blur var(--dur-slow) var(--ease-in-out),
               --glass-solid var(--dur-slow) var(--ease-in-out);
 }
-
-/* A hairline of light along the top edge, which is what actually reads as
-   glass rather than as a translucent rectangle. Only where there is an edge
-   the eye expects to catch the light. */
-:root.glass .worldbar,
-:root.glass .sheet-head { box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 45%, transparent); }
-:root.glass .composer { box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 35%, transparent); }
-:root.glass .bubble { box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 40%, transparent); }
 
 /* ==================================================== every interaction ==== */
 

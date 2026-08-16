@@ -125,6 +125,20 @@ The load-bearing ideas, each of which has a test protecting it:
   colour. Never give glass colours of its own — it has to work over all nine
   presets and any hand-picked set. Text, borders and icons stay fully opaque:
   blurring what someone is reading is the one place this hurts.
+  - **Transparency is not what reads as glass.** The first version was
+    translucent and blurred and still looked like a pale rectangle, because the
+    backdrop is flat vector art — blurring an even colour field returns the
+    same even colour field. What the eye actually uses is the **rim, the shadow
+    and the sheen**: a lit top edge, a drop shadow proving the pane floats, and
+    a highlight raking across the face. Those work over flat art as well as
+    over a photograph.
+  - Text under glass carries a halo of its own surface colour, scaled with the
+    setting. A pane thin enough to see the room through is thin enough to lose
+    the words on it.
+  - The switch eases both ways, which needs the class **added before** the
+    values move and **removed after** they finish. Otherwise `backdrop-filter`
+    jumps between `none` and a value in one frame. Dragging the slider does not
+    animate — the value already tracks the finger.
 - **Icons:** one SVG sprite at the top of `index.html`, referenced with
   `<use href="#i-name">`. Never an emoji: it is drawn by whichever font the
   phone happens to ship, so a row of them arrives in several weights and will

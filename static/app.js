@@ -1836,7 +1836,11 @@ function tavern() {
       this.updateColorScheme();
       this.applyBackground();
       this.applyMotion();
-      this.applyGlass();
+      // Not animated here: applyTheme runs on boot and on every settings
+      // reload, and easing into glass each time would flash the interface
+      // solid for a frame before frosting it. Only the switch and the slider
+      // animate, because those are the moments someone is looking at it.
+      this.applyGlass({ animate: false });
     },
 
     // Frosted glass, as a layer over whatever palette is in force. One slider
@@ -1844,19 +1848,52 @@ function tavern() {
     // the room is clearly visible through the interface. They move together
     // because transparency without blur reads as a rendering fault rather than
     // as glass.
-    applyGlass() {
+    applyGlass({ animate = true } = {}) {
       const root = document.documentElement;
-      // Deferred to the end of this function via applyBackground: the wash
-      // depends on the glass settings, so the two cannot be applied
-      // independently.
       const on = !!this.settings.glass;
       const a = Math.max(0, Math.min(100, Number.isFinite(this.settings.glass_amount)
         ? this.settings.glass_amount : 60)) / 100;
-      root.classList.toggle("glass", on);
-      // 88% solid down to 52%, and 4px of blur up to 22px.
-      root.style.setProperty("--glass-solid", `${(88 - a * 36).toFixed(1)}%`);
-      root.style.setProperty("--glass-blur", `${(4 + a * 18).toFixed(1)}px`);
-      this.applyBackground();
+      // 90% solid down to 26%, and 3px of blur up to 34px. The old ceiling of
+      // 52% was the complaint: at "max glassiness" the surface was still more
+      // than half opaque, which is a tinted panel rather than a window.
+      const solid = on ? 90 - a * 64 : 100;
+      const blur = on ? 3 + a * 31 : 0;
+
+      const write = () => {
+        root.style.setProperty("--glass-solid", `${solid.toFixed(1)}%`);
+        root.style.setProperty("--glass-blur", `${blur.toFixed(1)}px`);
+        this.applyBackground();
+      };
+
+      clearTimeout(this._glassTimer);
+      if (!animate) {
+        root.classList.toggle("glass", on);
+        write();
+        return;
+      }
+
+      if (on) {
+        // The class has to be on the element *before* the values move, or the
+        // rules that read them are not applied yet and there is nothing to
+        // transition from. One frame of solid-and-unblurred, then it eases in.
+        if (!root.classList.contains("glass")) {
+          root.classList.add("glass");
+          root.style.setProperty("--glass-solid", "100%");
+          root.style.setProperty("--glass-blur", "0px");
+          requestAnimationFrame(() => requestAnimationFrame(write));
+        } else {
+          write();
+        }
+      } else {
+        // Going the other way, the class has to stay *until* the values have
+        // finished moving — dropping it first would take backdrop-filter from
+        // a value to none in a single frame, which is the snap this exists to
+        // avoid. Same keep-it-mounted-until-it-finishes rule as everywhere.
+        write();
+        this._glassTimer = setTimeout(
+          () => root.classList.remove("glass"), dur("slow", 340) + 40
+        );
+      }
     },
 
     setGlass(on) {
@@ -1864,9 +1901,12 @@ function tavern() {
       this.applyGlass();
     },
 
+    // Dragging the slider must not animate: the value is already tracking the
+    // finger, and easing towards a target that moves every frame lags behind
+    // it. Only the switch eases.
     setGlassAmount(value) {
       this.settings.glass_amount = parseInt(value, 10);
-      this.applyGlass();
+      this.applyGlass({ animate: false });
     },
 
     get glassLabel() {
@@ -2096,7 +2136,9 @@ function tavern() {
       if (this.settings.glass) {
         const a = Math.max(0, Math.min(100, Number.isFinite(this.settings.glass_amount)
           ? this.settings.glass_amount : 60)) / 100;
-        dim = Math.round(dim - (dim - 22) * a);
+        // At full glass the wash is almost gone: the room is the point, and
+        // the pane's own rim and sheen are carrying the readability now.
+        dim = Math.round(dim - (dim - 8) * a);
       }
 
       // The wash derives from --bg rather than being a fixed dark overlay, so
