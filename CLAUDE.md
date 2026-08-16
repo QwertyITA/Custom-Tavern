@@ -132,9 +132,19 @@ The load-bearing ideas, each of which has a test protecting it:
     and the sheen**: a lit top edge, a drop shadow proving the pane floats, and
     a highlight raking across the face. Those work over flat art as well as
     over a photograph.
-  - Text under glass carries a halo of its own surface colour, scaled with the
-    setting. A pane thin enough to see the room through is thin enough to lose
-    the words on it.
+  - **The thinner the pane, the less of our colour reaches the eye.** Rim,
+    sheen, inset highlight and text halo all scale by `--glass-keep`; at full
+    transparency only the drop shadow survives, because a pane you can see
+    straight through still casts one and that is the last cue that it is a pane.
+    A rim sized for a near-solid card is a white smear on a thin one.
+  - `--glass-solid` is a **unitless number**, not a percentage — a percentage
+    cannot be subtracted from 1, and doing it anyway silently voids every rule
+    derived from it with no error anywhere.
+  - Anything drawn in `--muted` disappears over a photograph. Under glass the
+    tools, arrows and world line climb towards `--text` — but `:not(.danger)`,
+    because delete is red for a reason.
+  - Keep `backdrop-filter` saturation near 1. Pushing it with a brightness lift
+    turns a warm photograph orange; the room should look like the room.
   - The switch eases both ways, which needs the class **added before** the
     values move and **removed after** they finish. Otherwise `backdrop-filter`
     jumps between `none` and a value in one frame. Dragging the slider does not

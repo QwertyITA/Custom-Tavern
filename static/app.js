@@ -1851,17 +1851,20 @@ function tavern() {
     applyGlass({ animate = true } = {}) {
       const root = document.documentElement;
       const on = !!this.settings.glass;
-      const a = Math.max(0, Math.min(100, Number.isFinite(this.settings.glass_amount)
-        ? this.settings.glass_amount : 60)) / 100;
-      // 90% solid down to 26%, and 3px of blur up to 34px. The old ceiling of
-      // 52% was the complaint: at "max glassiness" the surface was still more
-      // than half opaque, which is a tinted panel rather than a window.
-      const solid = on ? 90 - a * 64 : 100;
-      const blur = on ? 3 + a * 31 : 0;
 
+      // Recomputed inside the closure rather than captured: the "on" path
+      // defers this by two frames, and the slider can move in between. The
+      // captured version wrote the value the switch was thrown at, undoing
+      // whatever the slider had since asked for.
       const write = () => {
-        root.style.setProperty("--glass-solid", `${solid.toFixed(1)}%`);
-        root.style.setProperty("--glass-blur", `${blur.toFixed(1)}px`);
+        const live = !!this.settings.glass;
+        const a = Math.max(0, Math.min(100, Number.isFinite(this.settings.glass_amount)
+          ? this.settings.glass_amount : 60)) / 100;
+        // 0.90 solid down to 0.26, and 3px of blur up to 34px. A unitless
+        // number, not a percentage — a percentage cannot be subtracted from 1,
+        // and doing it anyway silently voided every rule derived from it.
+        root.style.setProperty("--glass-solid", live ? (0.9 - a * 0.64).toFixed(3) : "1");
+        root.style.setProperty("--glass-blur", live ? `${(3 + a * 31).toFixed(1)}px` : "0px");
         this.applyBackground();
       };
 
@@ -1878,7 +1881,7 @@ function tavern() {
         // transition from. One frame of solid-and-unblurred, then it eases in.
         if (!root.classList.contains("glass")) {
           root.classList.add("glass");
-          root.style.setProperty("--glass-solid", "100%");
+          root.style.setProperty("--glass-solid", "1");
           root.style.setProperty("--glass-blur", "0px");
           requestAnimationFrame(() => requestAnimationFrame(write));
         } else {

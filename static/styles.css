@@ -16,7 +16,7 @@
    unregistered custom property is a string that swaps rather than a value that
    animates. */
 @property --glass-blur { syntax: "<length>"; inherits: true; initial-value: 0px; }
-@property --glass-solid { syntax: "<percentage>"; inherits: true; initial-value: 100%; }
+@property --glass-solid { syntax: "<number>"; inherits: true; initial-value: 1; }
 @property --dur-fast { syntax: "<time>"; inherits: true; initial-value: 140ms; }
 @property --dur-base { syntax: "<time>"; inherits: true; initial-value: 240ms; }
 @property --dur-slow { syntax: "<time>"; inherits: true; initial-value: 340ms; }
@@ -125,7 +125,7 @@
      transparent and more blurred, because a translucent surface with no blur
      just looks like a bug. */
   --glass-blur: 0px;
-  --glass-solid: 100%;
+  --glass-solid: 1;
   /* Every surface that can be glass reads these rather than the palette
      directly, so turning it on is one rule rather than a hunt through the
      stylesheet. Off, they are exactly the palette. */
@@ -2429,22 +2429,32 @@ input.mono {
    Not applied to text, borders or icons. Blurring the thing you are reading is
    the one place this would actively hurt. */
 :root.glass {
-  --surface: color-mix(in srgb, var(--panel) var(--glass-solid), transparent);
-  --surface-2: color-mix(in srgb, var(--panel-2) var(--glass-solid), transparent);
-  --surface-ai: color-mix(in srgb, var(--ai-bubble) var(--glass-solid), transparent);
-  --surface-user: color-mix(in srgb, var(--user-bubble) var(--glass-solid), transparent);
+  --surface: color-mix(in srgb, var(--panel) calc(var(--glass-solid) * 100%), transparent);
+  --surface-2: color-mix(in srgb, var(--panel-2) calc(var(--glass-solid) * 100%), transparent);
+  --surface-ai: color-mix(in srgb, var(--ai-bubble) calc(var(--glass-solid) * 100%), transparent);
+  --surface-user: color-mix(in srgb, var(--user-bubble) calc(var(--glass-solid) * 100%), transparent);
   /* The sheet covers the whole screen, so it is the one surface where the
      glass is doing the most work — the conversation stays visible behind the
      settings rather than being replaced by them. Held a little more solid than
      the rest, because it carries the most text. */
   --surface-bg: color-mix(in srgb, var(--bg)
-                calc(var(--glass-solid) + (100% - var(--glass-solid)) * 0.4), transparent);
+                calc((var(--glass-solid) + (1 - var(--glass-solid)) * 0.4) * 100%), transparent);
 
-  /* The rim, the sheen and the float, all derived so they scale with how much
-     glass was asked for. A pane at "barely there" should not carry the same
-     hard edge as one you can see the room through. */
-  --glass-rim: color-mix(in srgb, #fff calc(78% - var(--glass-solid) * 0.35), transparent);
-  --glass-shade: color-mix(in srgb, var(--text) 10%, transparent);
+  /* Everything the pane adds on top of the room fades as the pane gets
+     thinner. That is the rule: the more you can see through it, the less of
+     *our* colour should be reaching your eye. A rim and a sheen sized for a
+     near-solid card become a white smear on a pane you can read a photograph
+     through.
+
+     `--glass-solid` runs 90% down to 26%, so this factor runs 0 → 1 as the
+     glass opens up, and everything below is scaled by what is left of it. */
+  --glass-thin: calc(1 - var(--glass-solid));
+  --glass-keep: var(--glass-solid);
+
+  /* A hairline, not a border. It carried 78% white before, which over a
+     photograph reads as a sticker cut out and laid on top. */
+  --glass-rim: color-mix(in srgb, #fff calc(26% * var(--glass-keep) + 6%), transparent);
+  --glass-shade: color-mix(in srgb, var(--text) calc(8% * var(--glass-keep)), transparent);
 }
 
 /* The blur itself. Saturation and contrast are both lifted with it: a plain
@@ -2460,8 +2470,11 @@ input.mono {
 :root.glass .reveal-btn,
 :root.glass .banner,
 :root.glass .sk-bubble {
-  backdrop-filter: blur(var(--glass-blur)) saturate(1.7) contrast(1.06) brightness(1.03);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.7) contrast(1.06) brightness(1.03);
+  /* Gently. Saturate 1.7 with a brightness lift turned a warm photograph
+     orange — the room behind the glass should look like the room, not like a
+     filter was applied to it. Just enough to put back what the blur takes. */
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.12);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.12);
 }
 
 /* The rim and the float. A lit top edge, a darker bottom one, and a shadow
@@ -2473,10 +2486,13 @@ input.mono {
 :root.glass .banner,
 :root.glass .sk-bubble {
   border: 1px solid var(--glass-rim);
+  /* The shadow is what survives at full transparency, and it should: a pane
+     you can see straight through still casts one, and that is the only cue
+     left telling you it is a pane at all. */
   box-shadow:
-    inset 0 1px 0 color-mix(in srgb, #fff 65%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff calc(30% * var(--glass-keep) + 8%), transparent),
     inset 0 -1px 0 var(--glass-shade),
-    0 8px 24px -6px color-mix(in srgb, var(--text) 22%, transparent);
+    0 10px 28px -8px color-mix(in srgb, var(--text) 26%, transparent);
 }
 
 /* The sheen. A highlight raking across the face, brightest at one corner and
@@ -2491,10 +2507,10 @@ input.mono {
 :root.glass .sk-bubble {
   background-image: linear-gradient(
     138deg,
-    color-mix(in srgb, #fff 30%, transparent) 0%,
-    color-mix(in srgb, #fff 8%, transparent) 26%,
+    color-mix(in srgb, #fff calc(18% * var(--glass-keep) + 3%), transparent) 0%,
+    color-mix(in srgb, #fff calc(5% * var(--glass-keep)), transparent) 26%,
     transparent 52%,
-    color-mix(in srgb, var(--text) 3%, transparent) 100%
+    color-mix(in srgb, var(--text) calc(3% * var(--glass-keep)), transparent) 100%
   );
 }
 
@@ -2506,7 +2522,7 @@ input.mono {
 :root.glass .sheet-head {
   background-image: linear-gradient(
     to bottom,
-    color-mix(in srgb, #fff 26%, transparent) 0%,
+    color-mix(in srgb, #fff calc(16% * var(--glass-keep) + 2%), transparent) 0%,
     transparent 70%
   );
   border-bottom-color: var(--glass-rim);
@@ -2523,14 +2539,50 @@ input.mono {
    Scaled with the setting — at "barely there" it is not needed and not
    applied, because a halo you can see is worse than one you cannot. */
 :root.glass .body,
-:root.glass .msg-tools,
 :root.glass .field-value,
-:root.glass .who,
-:root.glass .composer textarea,
-:root.glass .composer textarea::placeholder {
-  text-shadow:
-    0 0 6px color-mix(in srgb, var(--panel) calc(100% - var(--glass-solid)), transparent),
-    0 0 2px color-mix(in srgb, var(--panel) calc(100% - var(--glass-solid)), transparent);
+:root.glass .who {
+  /* One tight pass, not two wide ones. The first version put a 6px glow on
+     every letter, which over a photograph reads as a bloom filter rather than
+     as legible text — you could see the effect, which means it failed. */
+  text-shadow: 0 1px 2px color-mix(in srgb, var(--bg) calc(52% * var(--glass-thin)), transparent);
+}
+
+/* ---- the things that vanish ----
+
+   Everything drawn in `--muted` disappears over a photograph: the variant
+   arrows, the message tools, the world line, the hamburger. They were legible
+   against a flat panel and are not against a room. Under glass they climb
+   towards the full text colour, by as much as the pane has opened up. */
+/* `:not(.danger)` matters: delete is red because red means delete, and
+   climbing it towards the text colour with everything else threw that away. */
+:root.glass .glyph-btn:not(.danger),
+:root.glass .icon-btn:not(.danger),
+:root.glass .variants,
+:root.glass .edited,
+:root.glass .field,
+:root.glass .composing-label {
+  color: color-mix(in srgb, var(--text) calc(45% + 55% * var(--glass-thin)), var(--muted));
+}
+:root.glass .glyph-btn:disabled,
+:root.glass .icon-btn:disabled { opacity: .55; }
+
+/* Red on wood is not the red that was designed on white. It keeps its hue and
+   gains the weight it needs to stay a warning over a photograph. */
+:root.glass .glyph-btn.danger {
+  color: color-mix(in srgb, var(--error) calc(70% + 30% * var(--glass-thin)), var(--text));
+}
+
+/* The world line and the menu button sit on the thinnest surface in the app
+   and carry the smallest text. They get the tint back — the bar is chrome, not
+   content, and chrome you cannot read is worse than chrome you can see through.
+   Held at least two thirds solid however far the slider goes. */
+:root.glass .worldbar {
+  background-color: color-mix(in srgb, var(--panel)
+                    calc((var(--glass-solid) + (1 - var(--glass-solid)) * 0.55) * 100%), transparent);
+}
+:root.glass .composer {
+  background-color: color-mix(in srgb, var(--panel)
+                    calc((var(--glass-solid) + (1 - var(--glass-solid)) * 0.45) * 100%), transparent);
 }
 
 /* Turning it on eases rather than snaps — the whole interface dissolves into
