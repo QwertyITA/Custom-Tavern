@@ -64,13 +64,60 @@ def parse_json_loose(text: str) -> dict[str, Any] | None:
     return None
 
 
+def _after_json(text: str) -> str:
+    """Whatever follows the first complete JSON object in `text`.
+
+    Brace-counting rather than a regex, because the payload contains nested
+    objects and a lazy match stops at the first inner `}`. Strings are tracked
+    so a brace inside one does not close the object.
+    """
+    start = text.find("{")
+    if start == -1:
+        return ""
+    depth = 0
+    in_string = False
+    escaped = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[i + 1 :]
+    return ""
+
+
 def split_state_suffix(text: str) -> tuple[str, dict[str, Any] | None]:
-    """Split a completed reply into (visible prose, state payload)."""
+    """Split a completed reply into (visible prose, state payload).
+
+    The contract asks for the marker *after* the reply, and small models often
+    put it first instead — it is the last instruction in the system prompt and
+    so the most salient thing in it. Taking `text[:index]` alone then throws the
+    entire reply away and leaves the turn blank, which is one of the two ways
+    this used to hand back nothing at all.
+
+    So prose on both sides of the payload counts. Anything before the marker,
+    plus anything after the JSON object that follows it.
+    """
     index = text.find(MARKER)
     if index == -1:
         return text, None
-    body = text[:index]
-    payload = parse_json_loose(text[index + len(MARKER) :])
+    before = text[:index]
+    rest = text[index + len(MARKER) :]
+    payload = parse_json_loose(rest)
+    after = _after_json(rest) if payload is not None else ""
+    body = (before + ("\n" if before.strip() and after.strip() else "") + after)
     return body, payload
 
 
@@ -173,9 +220,19 @@ class SuffixStreamFilter:
         return emit
 
     def finish(self) -> tuple[str, dict[str, Any] | None]:
-        """Flush the held-back tail and parse the payload."""
+        """Flush the held-back tail and parse the payload.
+
+        When the marker arrived first — which small models do, because the
+        contract is the last thing they read — the reply is sitting *after* the
+        JSON in the tail. It cannot be streamed, since nothing could tell it
+        from the payload until the object closed, so it arrives in one piece at
+        the end. That is worse than streaming and enormously better than the
+        blank reply this used to produce.
+        """
         if self._found:
-            return "", parse_json_loose(self._tail)
+            payload = parse_json_loose(self._tail)
+            after = _after_json(self._tail) if payload is not None else ""
+            return after, payload
         remainder = self._buffer
         self._buffer = ""
         # A marker can still be sitting entirely inside the held-back tail.

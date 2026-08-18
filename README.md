@@ -133,6 +133,28 @@ Editing only rewrites the text fields; portraits, backgrounds, lorebook and
 state schema come from the card and are left alone. Deleting a character
 deletes its chats with it, which is why both deletes take two taps.
 
+### When a reply comes back empty
+
+The character never says "…". If you see the turn fail with a sentence instead
+of a reply, that sentence is this app telling you which setting to change —
+there are four of them and they are all real things small local models do:
+
+- **Only reasoning, no reply.** A thinking model spent its whole token budget
+  in `<think>` and never got to the line. Raise **Max tokens** for the Reply
+  pass. This is the common one, and it fails nearly every turn rather than
+  occasionally, because a model that thinks always thinks.
+- **The state block and nothing else.** The reply pass asks for a small JSON
+  block *after* the reply; a model too small to hold that order writes it
+  first. Text on either side of it is recovered now, so this should be rare.
+- **Nothing at all.** Usually a stop string matching immediately, or a model
+  that is not actually loaded.
+- **Everything stripped.** The whole reply looked like a continuation of your
+  own turn and was removed. Turn off *strip user turn leakage* if that was
+  wrong.
+
+The turn is left unanswered rather than filled in, so **try again** appears
+under your message and re-runs it once the setting is fixed.
+
 ### Stop strings
 
 Sequences that end a generation. Two places, because they answer two different

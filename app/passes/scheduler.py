@@ -45,6 +45,7 @@ from ..providers.base import estimate_tokens
 from ..state import SLICE_SEARCH, SLICE_SIGNALS, SLICE_VARS, slice_for
 from . import registry
 from .contract import (
+    MARKER,
     REPLY_SUFFIX_MARKER_HELP,
     SuffixStreamFilter,
     normalise_payload,
@@ -592,8 +593,28 @@ class PassScheduler:
         reply = self._rewrite_reply(reply)
         if thinking:
             yield {"type": "thinking", "text": thinking}
+
+        # An empty reply used to be stored as "…" and shown as if the character
+        # had said it. That is the worst possible answer: nothing is wrong with
+        # the *conversation*, something is wrong with the *setup*, and a silent
+        # ellipsis hides which. Worse, it looks like the model's own doing, so
+        # the setting that would fix it never gets touched.
+        #
+        # It is a failed turn instead, with the reason. The transcript is left
+        # ending on the user's message, which the retry affordance already
+        # knows how to answer.
         if not reply.strip():
-            reply = "…"
+            reason = _why_empty(
+                raw_reply, thinking, body,
+                used=sink.tokens_out,
+                budget=definition.sampling.max_tokens or 0,
+            )
+            self._record_run(
+                ctx, definition, "error", run_id=run_id,
+                finished_at=time.time(), error=reason,
+            )
+            yield {"type": "error", "error": reason, "pass_id": "basic"}
+            return
 
         message = repo.add_message(
             self.db,
@@ -1467,6 +1488,47 @@ def _itemised(assembled: assembly.Assembled, contract: str) -> list[dict]:
         "text": contract,
     })
     return parts
+
+
+def _why_empty(
+    raw: str, thinking: str, body: str, *, used: int = 0, budget: int = 0
+) -> str:
+    """Why a reply came back with nothing in it, in words that name the fix.
+
+    Every branch here is something a real local model does, and every one of
+    them used to arrive as a single "…" with no way to tell them apart.
+
+    `used` and `budget` turn the commonest one from a guess into a fact: a
+    reasoning model that spent the whole allowance thinking is not a maybe, it
+    is a number, and the message can say so.
+    """
+    if not raw.strip():
+        return (
+            "The model returned nothing at all. Check that the model is loaded "
+            "and that the stop strings for this backend or character are not "
+            "matching immediately."
+        )
+    if thinking.strip() and not body.strip():
+        spent = (
+            f" It spent all {budget} tokens reasoning."
+            if budget and used >= budget * 0.9
+            else ""
+        )
+        return (
+            "The model produced only its reasoning and never reached the "
+            f"reply.{spent} Raise Max tokens for the Reply pass under "
+            "Brain \u2192 Sampling, or use a model that does not think out loud."
+        )
+    if MARKER in raw:
+        return (
+            "The model wrote the state block and no reply. It usually settles "
+            "after a turn or two; if it does not, the model is too small to "
+            "follow the output contract."
+        )
+    return (
+        "The whole reply was removed as a continuation of your own turn. Turn "
+        "off \"strip user turn leakage\" in the Brain panel if that was wrong."
+    )
 
 
 def _suffix_instructions(ctx: TurnContext) -> str:
