@@ -1860,11 +1860,17 @@ function tavern() {
         const live = !!this.settings.glass;
         const a = Math.max(0, Math.min(100, Number.isFinite(this.settings.glass_amount)
           ? this.settings.glass_amount : 60)) / 100;
-        // 0.90 solid down to 0.26, and 3px of blur up to 34px. A unitless
-        // number, not a percentage — a percentage cannot be subtracted from 1,
-        // and doing it anyway silently voided every rule derived from it.
-        root.style.setProperty("--glass-solid", live ? (0.9 - a * 0.64).toFixed(3) : "1");
-        root.style.setProperty("--glass-blur", live ? `${(3 + a * 31).toFixed(1)}px` : "0px");
+        // The slider runs **frosted to clear**, and the blur runs *down* as
+        // the pane opens up. That is the whole shape of the thing: frosted
+        // glass is opaque and heavily diffused, clear glass is transparent and
+        // sharp. Raising both together — which is what this did at first —
+        // gives you a thin sheet of fog, which is neither.
+        //
+        // Solid is a unitless number, not a percentage: a percentage cannot be
+        // subtracted from 1, and doing it anyway silently voids every rule
+        // derived from it.
+        root.style.setProperty("--glass-solid", live ? (0.78 - a * 0.70).toFixed(3) : "1");
+        root.style.setProperty("--glass-blur", live ? `${(26 - a * 25).toFixed(1)}px` : "0px");
         this.applyBackground();
       };
 
@@ -1912,13 +1918,15 @@ function tavern() {
       this.applyGlass({ animate: false });
     },
 
+    // Named along the axis the slider actually travels, which is not "how
+    // much glass" but "what kind" — from a bathroom window to a windowpane.
     get glassLabel() {
       const v = Number.isFinite(this.settings.glass_amount) ? this.settings.glass_amount : 60;
-      if (v <= 20) return "barely there";
-      if (v <= 45) return "misted";
-      if (v <= 70) return "frosted";
-      if (v <= 90) return "deep";
-      return "the room shows through";
+      if (v <= 12) return "frosted";
+      if (v <= 35) return "misted";
+      if (v <= 60) return "hazy";
+      if (v <= 82) return "almost clear";
+      return "clear";
     },
 
     // The motion dial, as a multiplier every duration is written against.

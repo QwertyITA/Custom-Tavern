@@ -132,6 +132,10 @@ The load-bearing ideas, each of which has a test protecting it:
     and the sheen**: a lit top edge, a drop shadow proving the pane floats, and
     a highlight raking across the face. Those work over flat art as well as
     over a photograph.
+  - **The slider runs frosted → clear, and blur runs *down* as it opens.**
+    Frosted glass is opaque and heavily diffused; clear glass is transparent
+    and sharp. Raising transparency and blur together — the obvious first
+    guess — gives a thin sheet of fog, which is neither of them.
   - **The thinner the pane, the less of our colour reaches the eye.** Rim,
     sheen, inset highlight and text halo all scale by `--glass-keep`; at full
     transparency only the drop shadow survives, because a pane you can see
@@ -140,6 +144,11 @@ The load-bearing ideas, each of which has a test protecting it:
   - `--glass-solid` is a **unitless number**, not a percentage — a percentage
     cannot be subtracted from 1, and doing it anyway silently voids every rule
     derived from it with no error anywhere.
+  - The text halo scales the opposite way to everything else: nothing at the
+    frosted end, real work at the clear one. A frosted pane already separates
+    the words from the room and a halo on top of that reads as a bloom filter;
+    a clear pane separates nothing, and then the halo is all that holds the
+    words together, the way a subtitle is set over a film.
   - Anything drawn in `--muted` disappears over a photograph. Under glass the
     tools, arrows and world line climb towards `--text` — but `:not(.danger)`,
     because delete is red for a reason.

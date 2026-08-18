@@ -2540,11 +2540,25 @@ input.mono {
    applied, because a halo you can see is worse than one you cannot. */
 :root.glass .body,
 :root.glass .field-value,
-:root.glass .who {
-  /* One tight pass, not two wide ones. The first version put a 6px glow on
-     every letter, which over a photograph reads as a bloom filter rather than
-     as legible text — you could see the effect, which means it failed. */
-  text-shadow: 0 1px 2px color-mix(in srgb, var(--bg) calc(52% * var(--glass-thin)), transparent);
+:root.glass .who,
+:root.glass .msg-tools,
+:root.glass .variants {
+  /* Both the radius and the colour scale with how clear the pane has become,
+     so this is literally nothing at the frosted end and does real work at the
+     clear one. That asymmetry is the point: a frosted pane already separates
+     the text from the room, and a halo you can see on top of that reads as a
+     bloom filter — which is what the first version did. A clear pane separates
+     nothing, and then the halo is the only thing holding the words together,
+     the same way a subtitle is set over a film.
+
+     The surface colour rather than the background colour: it is the colour the
+     text would have been sitting on if the pane were solid, so the letters
+     keep looking like they belong to a card even when the card is a window. */
+  text-shadow:
+    0 0 calc(5px * var(--glass-thin))
+      color-mix(in srgb, var(--panel) calc(88% * var(--glass-thin)), transparent),
+    0 1px calc(2px * var(--glass-thin))
+      color-mix(in srgb, var(--panel) calc(72% * var(--glass-thin)), transparent);
 }
 
 /* ---- the things that vanish ----
