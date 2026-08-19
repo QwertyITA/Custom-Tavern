@@ -40,6 +40,7 @@ from ..events import BUS
 from ..markup import to_plain
 from ..models import Character, PassDef, Sampling, VariableSchema
 from ..postprocess import clean_reply, split_thinking
+from .. import worldline
 from ..providers import GenRequest, GenResult, ProviderError, provider_for_tier
 from ..providers.base import estimate_tokens
 from ..state import SLICE_SEARCH, SLICE_SIGNALS, SLICE_VARS, slice_for
@@ -938,6 +939,11 @@ class PassScheduler:
                 return True
 
             value = _clean_panel_payload(payload)
+            if slice_name == state_mod.SLICE_SCENE:
+                # One word each (§10). The prompt asks; this makes sure — the
+                # instruction that gives "Rainy" nine times gives "Rainy, with
+                # the wind picking up" on the tenth.
+                value = worldline.shorten(value)
             # A pass that came back with nothing usable has nothing to say, and
             # writing its empty result would destroy whatever the slice already
             # held. That is not hypothetical: the random-event pass returning

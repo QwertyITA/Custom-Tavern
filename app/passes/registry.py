@@ -73,10 +73,14 @@ CANONICAL_PASSES: list[PassDef] = [
         prompt=(
             "You track the physical setting of a roleplay scene.\n"
             "From the recent exchange, report where the scene is, the weather, and the "
-            "time of day.\n"
-            'Reply with JSON only: {"place": "<short phrase>", "weather": "<short phrase>", '
-            '"time": "<generic time of day>"}\n'
-            "Time must be generic — 'early afternoon', never a clock reading. "
+            "time of day. Each answer is a label, not a description.\n"
+            'Reply with JSON only: {"place": "<1-3 words>", "weather": "<one word>", '
+            '"time": "<one word>"}\n'
+            "place: no article. 'Tavern', 'Back room', 'Harbour road'.\n"
+            "weather: one word for the sky. 'Rainy', 'Clear', 'Snowy', 'Windy', "
+            "'Foggy', 'Cold', 'Hot'.\n"
+            "time: exactly one of Dawn, Morning, Midday, Afternoon, Dusk, Evening, "
+            "Night, Midnight. Never a clock reading.\n"
             "If something is unchanged or unknown, repeat the current value."
         ),
     ),

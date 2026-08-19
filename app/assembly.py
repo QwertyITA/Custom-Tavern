@@ -31,6 +31,7 @@ from . import macros
 from . import prompt_layout
 from . import translation
 from . import websearch
+from . import worldline
 from .models import AuthorsNote, Character, VariableSchema
 from .providers.base import estimate_tokens
 from .state import SLICE_EVENT, SLICE_SCENE, SLICE_SEARCH, SLICE_VARS
@@ -176,7 +177,7 @@ def scene_line(db: Database, chat_id: str) -> str:
     scene = read_slice(db, chat_id, SLICE_SCENE)
     if not scene or not isinstance(scene["value"], dict):
         return ""
-    value = scene["value"]
+    value = worldline.shorten(scene["value"])
     parts = [value.get("place", ""), value.get("weather", ""), value.get("time", "")]
     parts = [p for p in parts if p]
     return " · ".join(parts)

@@ -18,7 +18,7 @@ if a session is cut off mid-way, the next one starts from the first unticked box
 - [x] **5. Bug: the hold wheel misses the option you move to** (~75% of the
       time).
 - [x] **6. Bug: scrolling up with the hold wheel open triggers "write for me".**
-- [ ] **7. Place / weather / time as short as possible.** "A tavern" → Tavern.
+- [x] **7. Place / weather / time as short as possible.** "A tavern" → Tavern.
       "Rain streaking the window" → Rainy. Time as Morning / Afternoon /
       Evening / Night / Dusk / Dawn.
 - [ ] **8. Streaming 40% slower**, and the bubble reaches its full width

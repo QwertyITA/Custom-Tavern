@@ -153,7 +153,9 @@ def test_scene_slice_reaches_the_prompt(db, chat, character):
     sync(write_slice(db, chat["id"], SLICE_SCENE,
                      {"place": "the back bar", "weather": "rain", "time": "dusk"}, source_turn=1))
     assembled = build(db, chat, character)
-    assert "the back bar · rain · dusk" in assembled.messages[-1]["content"]
+    # Cut down on the way out as well as on the way in (§10), so a chat that
+    # predates the shortening reads short immediately.
+    assert "Back bar · Rainy · Dusk" in assembled.messages[-1]["content"]
 
 
 def test_the_default_budget_is_a_whole_local_model_window():
