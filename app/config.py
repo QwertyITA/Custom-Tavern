@@ -261,7 +261,14 @@ class Settings:
     )
 
     # Context management (§7).
-    token_budget: int = 4096
+    # 32k because that is what the models this actually runs against ship with
+    # — Ollama sizes a local model's window from VRAM and lands on 32768 on any
+    # ordinary card, and the hosted APIs are far past it. The old 4096 was the
+    # on-device llama.cpp number, and using it everywhere quietly threw away
+    # the far end of every long chat on a backend that had room for all of it.
+    # Trimming is per-turn and driven by this alone, so a phone-side backend
+    # with a smaller window needs it turned down (Brain → Context budget).
+    token_budget: int = 32768
     verbatim_window: int = 24  # messages kept in full text
     summary_budget: int = 700  # tokens before the summary is re-summarised
     lorebook_scan_depth: int = 6

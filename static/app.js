@@ -3101,9 +3101,9 @@ function tavern() {
     numberFields(group) {
       const fields = {
         basic: [
-          { key: "token_budget", label: "Context budget", min: 1024, max: 32768, step: 512,
+          { key: "token_budget", label: "Context budget", min: 1024, max: 131072, step: 1024,
             unit: " tok",
-            note: "Prompt the reply is built from. Match your model's window — past it, the far end is dropped anyway." },
+            note: "Prompt the reply is built from. Match your model's window — past it, the far end is dropped anyway. 32k is what a local model on a PC usually has." },
           { key: "verbatim_window", label: "Messages kept in full", min: 4, max: 60,
             note: "Recent messages quoted word for word. Older ones survive as summary and memory." },
           { key: "memory_max_injected", label: "Memories recalled", min: 0, max: 12,

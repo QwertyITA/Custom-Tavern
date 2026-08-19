@@ -156,6 +156,29 @@ def test_scene_slice_reaches_the_prompt(db, chat, character):
     assert "the back bar · rain · dusk" in assembled.messages[-1]["content"]
 
 
+def test_the_default_budget_is_a_whole_local_model_window():
+    """4096 was the on-device number and it was applied to every backend, so a
+    PC model with a 32k window was fed an eighth of it and the far end of a
+    long chat was dropped for no reason. Ollama sizes a local model from VRAM
+    and lands on 32768 on an ordinary card; that is the number to default to."""
+    assert Settings().token_budget == 32768
+
+
+def test_the_example_settings_file_agrees_with_the_defaults():
+    """It is the file people copy to settings.json. A stale number in it is a
+    default nobody chose, applied to every fresh install."""
+    import json
+    from pathlib import Path as _Path
+
+    from app.config import REPO_ROOT
+
+    example = json.loads((_Path(REPO_ROOT) / "data" / "settings.example.json").read_text())
+    defaults = Settings()
+    for key in ("token_budget", "verbatim_window", "summary_budget",
+                "lorebook_scan_depth", "lorebook_total_budget", "memory_max_injected"):
+        assert example[key] == getattr(defaults, key), key
+
+
 def test_token_budget_trims_the_oldest_messages_first(db, chat, character):
     for i in range(30):
         repo.add_message(db, chat["id"], "user", f"message number {i} " + "padding " * 40)

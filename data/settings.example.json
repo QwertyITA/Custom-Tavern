@@ -50,7 +50,7 @@
   ],
 
   "_context": "Context management (§7).",
-  "token_budget": 4096,
+  "token_budget": 32768,
   "verbatim_window": 24,
   "summary_budget": 700,
   "lorebook_scan_depth": 6,
