@@ -2421,7 +2421,7 @@ function tavern() {
                 if (swipeMessageId) {
                   target = this.messages.find((m) => m.id === swipeMessageId);
                 } else {
-                  target = {
+                  this.messages.push({
                     id: "streaming",
                     role: "assistant",
                     turn: this.turn,
@@ -2429,8 +2429,18 @@ function tavern() {
                     variant_count: 1,
                     variant_index: 0,
                     edited: false,
-                  };
-                  this.messages.push(target);
+                  });
+                  // Read it back rather than keeping the object that went in.
+                  // Alpine stores a *proxy* of what you push, and only writes
+                  // through that proxy are seen: holding the raw object meant
+                  // every `target.text = buffer` below landed on something
+                  // nothing was watching. The reply then arrived in one frame
+                  // at the end of the stream — the bubble sat at the size of
+                  // the first token for the whole generation and then snapped
+                  // open, and the per-token fade (§2.1) never ran at all. The
+                  // swipe path never had this because `find()` hands back the
+                  // proxy already.
+                  target = this.messages[this.messages.length - 1];
                 }
                 this.composing = false;
 
@@ -2443,7 +2453,14 @@ function tavern() {
                   break;
                 }
               }
-              if (target) target.text = buffer;
+              // Trailing whitespace is trimmed from what is *shown*, never
+              // from the buffer. `pre-wrap` renders a trailing newline as a
+              // real empty line, so a reply that streams one mid-paragraph
+              // stood a blank line tall until the server's cleaned copy
+              // arrived and took it away — the bubble lost a line of height at
+              // the moment the reply settled, which is the one moment nothing
+              // should move.
+              if (target) target.text = buffer.replace(/\s+$/, "");
               if (!firstToken) { firstToken = true; buzz(6); }
               // `content-visibility: auto` on a message row skips style and
               // layout for its whole subtree, so the per-token fade ran as a
@@ -2453,6 +2470,7 @@ function tavern() {
               // row for the length of the stream can, and there is exactly one
               // row streaming at a time.
               this.markStreamingRow(target.id);
+              this.markFlowing();
               // No scroll call here on purpose: the observer follows the text
               // as it grows, and forcing it per delta would drag the user back
               // down every token if they had scrolled up to read.
@@ -2710,9 +2728,26 @@ function tavern() {
         ? this.bubbleFor(messageId)?.closest(".msg") || null
         : null;
       if (row === this._streamRow) return;
-      this._streamRow?.classList.remove("animating");
-      row?.classList.add("animating");
+      this._streamRow?.classList.remove("animating", "streaming", "flowing");
+      row?.classList.add("animating", "streaming");
       this._streamRow = row;
+      if (!row) {
+        clearTimeout(this._flowTimer);
+        this._flowTimer = 0;
+      }
+    },
+
+    // The cursor is solid while text is arriving and blinks once it stops, the
+    // way a terminal's does. Anything longer than a held breath between chunks
+    // counts as stopped — a model on a phone delivers unevenly enough that a
+    // shorter window would have the cursor flickering between tokens, which
+    // says "stalled" about a reply that is arriving perfectly well.
+    markFlowing() {
+      const row = this._streamRow;
+      if (!row) return;
+      row.classList.add("flowing");
+      clearTimeout(this._flowTimer);
+      this._flowTimer = setTimeout(() => row.classList.remove("flowing"), 420);
     },
 
     // Which way you moved. A cross-fade says the text changed; a slide says

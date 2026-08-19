@@ -227,6 +227,58 @@ animation whose effect was never computed. `runStream` now marks the row it is
 streaming into for the length of the stream, and there is exactly one at a
 time. Re-measured **inside a real row**: 12 distinct opacity steps, same curve.
 
+**And then it still did not work, for a much stupider reason.** Both
+measurements were taken with text being written to an element under test.
+In the real send path the reply is written to `target.text`, and `target` was
+the object *pushed into* `messages` — not the proxy Alpine stores in its place.
+Writes to the raw object are invisible to the reactive system, so nothing on
+screen changed until the `reply` event replaced the message wholesale at the
+end of the stream. Measured against a live reply: `Markup.schedule` ran **three
+times for a whole generation** — once for the user's message, once for the
+first token, once at the end. The bubble sat at the width of the first token
+for the entire reply and then snapped open in a single frame. The per-token
+animation was never the problem; nothing was streaming at all. `runStream`
+reads the message back out of the array now. Re-measured: **25 renders** over
+the same reply, text growing 3 → 145 characters. The swipe path never had this,
+because `find()` hands back the proxy already.
+
+Two layout faults were sitting behind it, invisible while the text arrived in
+one lump:
+
+- **The tools row was `x-show="!streaming"`.** `x-show` sets `display: none`,
+  so every message on screen lost its edit/delete row when a turn started and
+  got it back when the turn ended — the whole transcript shrank and grew, twice
+  a turn. It fades in place now and keeps its box.
+- **A trailing newline is a real line under `pre-wrap`.** Models stream one
+  mid-paragraph constantly; the server's cleaned copy does not have it. The
+  bubble stood a line too tall for the length of the stream and lost that line
+  at the moment the reply settled. What is *shown* is trimmed at the end; the
+  buffer is not.
+
+Measured end to end afterwards, the bubble grows line by line as the text does
+and the final frame changes its height by **zero pixels**.
+
+### 2.1a The cursor, and text that resolves rather than fades
+
+**Built**, replacing the plain fade. Each arriving chunk comes in out of focus
+and over-bright — `blur(3px)` and a glow the colour of the text itself — and
+resolves over `--dur-token-in`. Still no transform, for the reason the fade had
+none: text that moves is text you cannot read while it moves, and blur and glow
+do not reflow anything, so a chunk resolving never pushes the words after it
+around.
+
+A block cursor sits at the end of the streaming body (`::after` on
+`.msg.streaming`), accent-coloured, **zero-width and zero-height** so it can
+never push the last word into a wrap and then unwrap it when the stream ends.
+It is solid while chunks are arriving and blinks once they stop, which is the
+difference between a model that is working and one that has gone quiet.
+
+The blink is on `steps(1, end)`, not an easing and not a linear ramp: a
+terminal cursor is on or off, and a fade between the two reads as a pulse,
+which is something else saying something else. Four things in this app do not
+ease now — the spinner, the composing shimmer, the skeleton sweep, and this —
+and this is the only one that is not continuous.
+
 This is the trap to know about in this codebase. Two rules already existed for
 it (`.msg:has(.bubble.leaving)`, `.msg:has(.bubble.clipping)`) and `:has()` is
 not enough on its own — the animation starts in the frame the subtree is still

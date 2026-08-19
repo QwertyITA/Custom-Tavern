@@ -101,7 +101,9 @@ The load-bearing ideas, each of which has a test protecting it:
   - **Linear is right in exactly three places**, all continuous with no start
     or end to ease between: the refresh spinner, the composing-label shimmer
     and the skeleton sweep. Easing any of them makes it hesitate once per
-    cycle.
+    cycle. The streaming cursor is the fourth thing that does not ease, and it
+    is not linear either — it blinks on `steps(1, end)`, because a cursor is on
+    or off and a fade between the two reads as a pulse.
   - **`content-visibility: auto` on a message row silently kills animations
     inside it.** Not just painting — style and layout for the whole subtree, so
     `getAnimations()` hands back a live animation whose effect is never

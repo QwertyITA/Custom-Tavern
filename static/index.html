@@ -395,7 +395,12 @@
              third control for it was the odd one out. Everything else lives in
              the hold-to-open wheel; these are the two or three worth having
              one tap away. -->
-        <div class="msg-tools" x-show="!streaming">
+        <!-- Kept in the layout while a reply streams, not removed from it.
+             `x-show` sets display:none, so hiding these took a row of height
+             out of *every* message on screen at the start of each turn and put
+             it back at the end — the whole transcript shrank and grew twice a
+             turn. Fading in place leaves the boxes exactly where they are. -->
+        <div class="msg-tools" :class="{ busy: streaming }">
           <template x-if="editing !== m.id">
             <div class="tools-row">
               <button class="glyph-btn" @click="startEdit(m, $el)" title="Edit" aria-label="Edit">

@@ -25,6 +25,7 @@
 @property --dur-panel-leave { syntax: "<time>"; inherits: true; initial-value: 260ms; }
 @property --dur-message-send { syntax: "<time>"; inherits: true; initial-value: 420ms; }
 @property --dur-message-leave { syntax: "<time>"; inherits: true; initial-value: 220ms; }
+@property --dur-token-in { syntax: "<time>"; inherits: true; initial-value: 200ms; }
 
 :root {
   --motion: 1;
@@ -118,6 +119,10 @@
   --dur-panel-leave: max(1ms, calc(260ms * var(--motion)));
   --dur-message-send: max(1ms, calc(420ms * var(--motion)));
   --dur-message-leave: max(1ms, calc(220ms * var(--motion)));
+  /* One arriving chunk of a reply resolving out of its blur. Short on purpose:
+     it lands under the reader's eye, and anything they have to wait to read is
+     an animation charging them for the privilege. */
+  --dur-token-in: max(1ms, calc(200ms * var(--motion)));
 
   /* Frosted glass, off by default. `--glass-solid` is how much of the surface
      colour survives; the rest is whatever is behind it, which on this app is
@@ -515,7 +520,13 @@ body {
 .mk-dialogue.mk-action { color: color-mix(in srgb, var(--c-dialogue) 65%, var(--c-action)); }
 .mk-dialogue.mk-strong { color: var(--c-dialogue); font-weight: 700; }
 
-.msg-tools { margin-top: 6px; }
+.msg-tools {
+  margin-top: 6px;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+/* While a reply is streaming. Space is still reserved — that is the point —
+   and nothing here can be tapped by a finger aiming at text that moved. */
+.msg-tools.busy { opacity: 0; pointer-events: none; }
 .tools-row { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); }
 
 /* Message controls are symbols, never words or emoji. The U+FE0E variation
@@ -1690,6 +1701,7 @@ body {
 .msg.sending,
 .msg.collapsing,
 .msg.animating,
+.msg.streaming,
 .msg:has(.bubble.leaving),
 .msg:has(.bubble.clipping),
 .msg:has(.mk-new) {
@@ -2260,11 +2272,68 @@ input.mono {
    Deliberately not a translate: text that slides is text you cannot read while
    it moves, and this lands under the reader's eye. */
 .mk-new {
-  animation: token-in 180ms var(--ease-out) both;
+  animation: token-in var(--dur-token-in) var(--ease-out) both;
 }
+/* Text resolving rather than appearing: each chunk arrives out of focus and
+   over-bright, then sharpens and cools into the colour its markup gives it.
+   Read from a compositor's window animations rather than from chat UI — the
+   feel is a thing coming into focus, not a thing sliding into place.
+
+   Still no transform, for the reason the fade had none: text that moves is
+   text you cannot read while it moves, and this lands directly under the
+   reader's eye. Blur and glow do not reflow anything, so a chunk resolving
+   never pushes the words after it around — which matters more here than
+   anywhere, since the next chunk is already arriving.
+
+   Cheap enough for a phone that is also running the model: at most a couple
+   of spans carry it at once and each one is marked exactly once. */
 @keyframes token-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+  from {
+    opacity: 0;
+    filter: blur(3px);
+    text-shadow: 0 0 12px currentColor;
+  }
+  60% { opacity: 1; }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    text-shadow: 0 0 0 transparent;
+  }
+}
+
+/* The cursor. Only on the row tokens are actually arriving into, and only on
+   the real body — every bubble holds two, and the first is the regeneration
+   cue with no box.
+
+   It blinks on a step function, not an easing: a terminal cursor is on or off
+   and a fade between the two reads as a pulse, which is a different thing
+   saying something else. It is one of the four places in this app that does
+   not ease, and the only one that is not continuous — see ANIMATIONS.md.
+
+   Solid while text is flowing, blinking when it stops: a still cursor after
+   the last word says the model is still there and thinking, where no cursor
+   at all says the reply ended. */
+.msg.streaming .body:not(.regen)::after {
+  content: "\258D";
+  color: var(--accent);
+  animation: caret-blink 1.06s steps(1, end) infinite;
+  /* Zero advance width, drawn anyway. A cursor that occupies a cell can push
+     the last word of a line into a wrap, and then removing it at the end of
+     the stream unwraps it — the bubble lost a line of height at the exact
+     moment the reply settled. Sitting over the cell after the text is also
+     what a terminal cursor actually does. */
+  display: inline-block;
+  width: 0;
+  height: 0;
+  vertical-align: baseline;
+}
+.msg.streaming.flowing .body:not(.regen)::after {
+  animation: none;
+  opacity: 1;
+}
+@keyframes caret-blink {
+  0%, 55% { opacity: 1; }
+  56%, 100% { opacity: .15; }
 }
 
 /* ------------------------------------------------------ loading skeleton */
