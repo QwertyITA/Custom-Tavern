@@ -46,6 +46,18 @@ push a real key.
 `tests/test_secrets.py` guards the ignore rules themselves, so the protection
 cannot regress silently.
 
+## Where work lands
+
+The phone is the only installation that matters, and it tracks
+**`claude/develop-this-tgypnk`**. Push finished work there, always — a commit
+sitting on a feature branch waiting to be merged is a commit the person who
+asked for it cannot run. Fast-forwarding that branch is the last step of the
+task, not a separate errand, and `git pull` on the device is then the whole
+update procedure.
+
+Nothing else consumes this repository, so there is no release to coordinate
+with and no one else's checkout to break.
+
 ## What this project is
 
 A phone-hosted roleplay frontend built on a conditional multi-pass engine.
