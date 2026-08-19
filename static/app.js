@@ -608,6 +608,7 @@ function tavern() {
         persona: "Edit persona",
         story: "Story state",
         sent: "What was sent",
+        thought: "What it thought",
       }[this.panel] || "";
     },
 
@@ -710,6 +711,21 @@ function tavern() {
       } catch (e) {
         this.previewText = String(e.message || e);
         this.previewStop = "";
+      }
+    },
+
+    // ---- what it thought (§5.6) ----
+
+    async showThinking(message) {
+      this.thought = null;
+      this.thoughtError = "";
+      this.openPanel("thought");
+      try {
+        const body = await api.get(`/api/messages/${message.id}/thinking`);
+        if (body.ok) this.thought = body;
+        else this.thoughtError = body.reason || "Nothing was kept for this one.";
+      } catch (e) {
+        this.thoughtError = String(e.message || e);
       }
     },
 
@@ -2493,6 +2509,9 @@ function tavern() {
                 message.variant_index = event.variant.idx;
                 message.variant_count = event.variant.idx + 1;
                 message.edited = false;
+                // Per variant, like the reasoning itself: this swipe may have
+                // thought where the one before it did not.
+                message.has_thinking = !!event.variant.has_thinking;
               }
               this.setBands(event.state.bands || []);
               this.stateProvisional = !!event.state.provisional;
@@ -2705,6 +2724,9 @@ function tavern() {
       message.text = updated.text;
       message.variant_index = updated.variant_index;
       message.variant_count = updated.variant_count;
+      // The reasoning belongs to the variant, so walking to the next one walks
+      // to its thoughts — or to none, if this one did not think.
+      message.has_thinking = !!updated.has_thinking;
       // Driven from JS rather than a class, because a class here has to win a
       // cascade fight it keeps losing: `.body.regen` is still on the element
       // from the swipe that made this variant, and the row carries
@@ -2895,6 +2917,11 @@ function tavern() {
         ...(message && message.role === "assistant"
           ? [{ id: "prompt", label: "What was sent", icon: "#i-list" }]
           : []),
+        // Only when this variant actually came with reasoning, which makes the
+        // option itself the answer to "did it think?" — present means it did.
+        ...(message && message.has_thinking
+          ? [{ id: "thought", label: "What it thought", icon: "#i-brain" }]
+          : []),
         { id: "delete", label: "Delete", icon: "#i-delete", danger: true },
         { id: "suggest", label: "Suggest edit", icon: "#i-suggest", soon: true },
         { id: "react", label: "React", icon: "#i-react", soon: true },
@@ -3047,6 +3074,7 @@ function tavern() {
       if (option.id === "continue") return this.continueReply(message);
       if (option.id === "hide") return this.toggleHidden(message);
       if (option.id === "prompt") return this.showPrompt(message);
+      if (option.id === "thought") return this.showThinking(message);
       if (option.id === "delete") {
         // Arm the bubble's own delete rather than deleting outright. A drag
         // that lands one option over should not be able to destroy a message.
@@ -3114,6 +3142,8 @@ function tavern() {
                 think_modes: [],
                 kind_defaults: {}, theme_tokens: [], theme: {},
                 backgrounds: [], background: "none", background_dim: 70, path: "" },
+    thought: null,
+    thoughtError: "",
     saving: false,
     saveMsg: "",
     saveError: "",

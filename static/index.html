@@ -1824,6 +1824,32 @@
     <!-- (8) what was actually sent for one reply (§15). The record, not a
          re-assembly: rebuilding it now would use today's state and today's
          memories, and answer a different question than the one being asked. -->
+    <!-- The reasoning behind one reply (§5.6). Deliberately its own screen and
+         not part of the bubble: this is not something the character said, and
+         a model that thinks for six hundred tokens to write forty would bury
+         the story under its own working out. -->
+    <template x-if="panel === 'thought'">
+      <div>
+        <p class="note" x-show="thoughtError" x-text="thoughtError"></p>
+        <template x-if="thought">
+          <div>
+            <div class="sent-head">
+              <div>
+                <strong x-text="`${thought.thinking.length} characters of reasoning`"></strong>
+                <span class="kind-note"
+                      x-text="`${thought.model || 'unknown model'} · ${thought.provider || 'unknown backend'}`"></span>
+              </div>
+            </div>
+            <p class="note">
+              What the model worked through before it answered. It is kept per
+              swipe, so this belongs to the variant you are looking at.
+            </p>
+            <pre class="preview thought-text" x-text="thought.thinking"></pre>
+          </div>
+        </template>
+      </div>
+    </template>
+
     <template x-if="panel === 'sent'">
       <div>
         <p class="note" x-show="sentError" x-text="sentError"></p>

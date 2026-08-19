@@ -49,6 +49,11 @@ CREATE TABLE IF NOT EXISTS message_variants (
     -- written; this is the same thing said in the language the other side of
     -- the conversation uses. Empty when translation is off.
     translation TEXT NOT NULL DEFAULT '',
+    -- What the model thought before it answered (§5.6), when it thinks out
+    -- loud: a `<think>` block in the stream, or Ollama's separate reasoning
+    -- channel. Never displayed inline — it is not what the character said —
+    -- and kept per variant, because a re-roll thought different things.
+    thinking   TEXT NOT NULL DEFAULT '',
     created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_variants_message ON message_variants(message_id, idx);

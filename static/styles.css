@@ -2336,6 +2336,17 @@ input.mono {
   56%, 100% { opacity: .15; }
 }
 
+/* Reasoning is long, and it is prose rather than code: wrapped, at the muted
+   colour, so a screen of it reads as a note about the reply rather than as the
+   reply. `.preview` alone is a monospace block sized for a prompt template. */
+.thought-text {
+  white-space: pre-wrap;
+  color: var(--muted);
+  font-family: inherit;
+  line-height: 1.5;
+  max-height: none;
+}
+
 /* ------------------------------------------------------ loading skeleton */
 
 /* Stands in for the transcript while it is fetched. A moving gradient reads as

@@ -305,6 +305,7 @@ def add_message(
     provider: str = "",
     model: str = "",
     speaker_id: str = "",
+    thinking: str = "",
 ) -> dict:
     message_id = new_id()
     variant_id = new_id()
@@ -319,8 +320,8 @@ def add_message(
         )
         conn.execute(
             "INSERT INTO message_variants(id, message_id, idx, text, provider, model, "
-            "created_at) VALUES(?,?,0,?,?,?,?)",
-            (variant_id, message_id, text, provider, model, timestamp),
+            "thinking, created_at) VALUES(?,?,0,?,?,?,?,?)",
+            (variant_id, message_id, text, provider, model, thinking, timestamp),
         )
         conn.execute("UPDATE chats SET updated_at=? WHERE id=?", (timestamp, chat_id))
 
@@ -335,12 +336,19 @@ def add_message(
         "variant_index": 0,
         "variant_count": 1,
         "edited": False,
+        "has_thinking": bool(thinking),
         "created_at": timestamp,
     }
 
 
 def add_variant(
-    db: Database, message_id: str, text: str, *, provider: str = "", model: str = ""
+    db: Database,
+    message_id: str,
+    text: str,
+    *,
+    provider: str = "",
+    model: str = "",
+    thinking: str = "",
 ) -> dict:
     """Add a swipe variant and make it active."""
     variant_id = new_id()
@@ -354,8 +362,8 @@ def add_variant(
         index = row["idx"]
         conn.execute(
             "INSERT INTO message_variants(id, message_id, idx, text, provider, model, "
-            "created_at) VALUES(?,?,?,?,?,?,?)",
-            (variant_id, message_id, index, text, provider, model, timestamp),
+            "thinking, created_at) VALUES(?,?,?,?,?,?,?,?)",
+            (variant_id, message_id, index, text, provider, model, thinking, timestamp),
         )
         conn.execute(
             "UPDATE messages SET active_variant=? WHERE id=?", (variant_id, message_id)
@@ -363,7 +371,7 @@ def add_variant(
         return index
 
     index = db.write_sync(_add)
-    return {"id": variant_id, "idx": index, "text": text}
+    return {"id": variant_id, "idx": index, "text": text, "has_thinking": bool(thinking)}
 
 
 def set_active_variant(db: Database, message_id: str, variant_id: str) -> bool:
@@ -403,7 +411,8 @@ def set_message_hidden(db: Database, message_id: str, hidden: bool) -> None:
 
 def get_message(db: Database, message_id: str) -> dict | None:
     row = db.query_one(
-        "SELECT m.*, v.text AS text, v.translation AS translation, v.idx AS variant_index "
+        "SELECT m.*, v.text AS text, v.translation AS translation, v.idx AS variant_index, "
+        "(LENGTH(COALESCE(v.thinking, '')) > 0) AS has_thinking "
         "FROM messages m LEFT JOIN message_variants v ON v.id = m.active_variant "
         "WHERE m.id=?",
         (message_id,),
@@ -413,6 +422,7 @@ def get_message(db: Database, message_id: str) -> dict | None:
     message = dict(row)
     message["text"] = message["text"] or ""
     message["edited"] = bool(message["edited"])
+    message["has_thinking"] = bool(message["has_thinking"])
     message["variant_id"] = message.pop("active_variant")
     count = db.query_one(
         "SELECT COUNT(*) AS c FROM message_variants WHERE message_id=?", (message_id,)
@@ -437,6 +447,7 @@ def list_messages(db: Database, chat_id: str, include_dropped: bool = True) -> l
         "SELECT m.id, m.turn, m.role, m.edited, m.stage, m.hidden, m.speaker_id, "
         "m.created_at, m.active_variant, "
         "v.text AS text, v.translation AS translation, v.idx AS variant_index, "
+        "(LENGTH(COALESCE(v.thinking, '')) > 0) AS has_thinking, "
         "(SELECT COUNT(*) FROM message_variants mv WHERE mv.message_id = m.id) AS variant_count "
         "FROM messages m LEFT JOIN message_variants v ON v.id = m.active_variant "
         "WHERE m.chat_id=?"
@@ -449,6 +460,7 @@ def list_messages(db: Database, chat_id: str, include_dropped: bool = True) -> l
         message = dict(row)
         message["text"] = message["text"] or ""
         message["edited"] = bool(message["edited"])
+        message["has_thinking"] = bool(message["has_thinking"])
         message["variant_id"] = message.pop("active_variant")
         out.append(message)
     return out
@@ -522,6 +534,33 @@ def save_prompt_record(db: Database, run_id: str, chat_id: str, parts: list[dict
         )
 
     db.write_sync(_write)
+
+
+def thinking_for(db: Database, message_id: str) -> dict | None:
+    """What the model thought before writing the variant now on screen (§5.6).
+
+    Per variant, like the prompt record and for the same reason: a re-roll
+    thought its own way to its own answer, and showing the first attempt's
+    reasoning under the third attempt's text would be worse than showing
+    nothing.
+
+    Fetched on demand rather than sent with every message — reasoning routinely
+    runs longer than the reply it produced, and a transcript that carries all of
+    it is one that costs several times what it shows.
+    """
+    row = db.query_one(
+        "SELECT v.thinking, v.model, v.provider, v.created_at FROM messages m "
+        "JOIN message_variants v ON v.id = m.active_variant WHERE m.id=?",
+        (message_id,),
+    )
+    if row is None:
+        return None
+    return {
+        "thinking": row["thinking"] or "",
+        "model": row["model"] or "",
+        "provider": row["provider"] or "",
+        "created_at": row["created_at"],
+    }
 
 
 def prompt_record(db: Database, message_id: str) -> dict | None:

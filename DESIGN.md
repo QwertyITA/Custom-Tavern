@@ -162,7 +162,13 @@ streams clean prose and structure rides in a suffix.
   reply, then a cheap second call extracts signals. Doubles blocking latency; used only
   when needed.
 - **Reasoning models:** if a pass runs a local `<think>` model, the think block is
-  captured and hidden (optionally shown in the HUD), never displayed inline. It
+  captured and hidden (optionally shown in the HUD), never displayed inline. It is
+  **kept**, on the variant it produced, and read back from the message's hold menu —
+  "did it actually think, and what did it decide" is the question a reasoning model
+  raises every single turn, and a think block that is counted and then dropped leaves
+  it unanswerable a minute later. Two shapes arrive and land in the same column: a
+  `<think>` block inside the stream, and a separate reasoning channel on the result,
+  which is what Ollama gives once its own parser has taken the model apart. It
   arrives in one of two shapes: inline in the text, or — where the backend parses
   it for us, as Ollama does — on a separate channel that never enters the stream
   at all. Both are captured; a diagnosis that reads only the stream calls the

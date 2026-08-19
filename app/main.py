@@ -842,6 +842,29 @@ async def remove_attachment(attachment_id: str) -> dict:
     return {"ok": True}
 
 
+@app.get("/api/messages/{message_id}/thinking")
+async def message_thinking(message_id: str) -> dict:
+    """What the model thought before it wrote this reply (§5.6).
+
+    Never inline: reasoning is not what the character said, and a bubble that
+    prints it has the character muttering their working out. It is kept because
+    the question a reasoning model raises every turn — did it think, and what
+    did it decide — has no other answer once the turn is over.
+    """
+    db = get_db()
+    if repo.get_message(db, message_id) is None:
+        raise HTTPException(404, "message not found")
+    record = repo.thinking_for(db, message_id)
+    if record is None or not record["thinking"].strip():
+        return {
+            "ok": False,
+            "reason": "This reply came back with no reasoning attached. Either "
+            "the model does not think out loud, or Thinking is off for the "
+            "backend that answered.",
+        }
+    return {"ok": True, **record}
+
+
 @app.get("/api/messages/{message_id}/prompt")
 async def message_prompt(message_id: str) -> dict:
     """What was actually sent to produce this reply, section by section (§15).

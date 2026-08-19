@@ -162,6 +162,26 @@ they are all real things small local models do:
 The turn is left unanswered rather than filled in, so **try again** appears
 under your message and re-runs it once the setting is fixed.
 
+### What it thought
+
+Hold a reply and the wheel has **what it thought** on it — but only when that
+reply came with reasoning. The option being there *is* the answer to "is this
+model thinking?", and its absence is the other answer.
+
+Inside is what the model worked through before it wrote the reply, with the
+model and backend that produced it. It is kept per swipe, so walking the
+variant arrows walks the reasoning along with the text; a re-roll thought its
+own way to its own answer.
+
+Reasoning never appears in the bubble. It is not what the character said, and a
+model that spends six hundred tokens deciding to write forty would bury the
+story under its own working out.
+
+Two things produce it: a model that writes `<think>` blocks into the stream, and
+Ollama's separate reasoning channel, which is what you get when **Thinking** is
+on for an Ollama backend. With Thinking off and a model that obeys, no reply has
+the option at all — which is how you can tell the switch is doing something.
+
 ### Stop strings
 
 Sequences that end a generation. Two places, because they answer two different

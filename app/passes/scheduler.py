@@ -631,6 +631,11 @@ class PassScheduler:
             provider=sink.provider or provider.name,
             model=sink.model or provider.model,
             speaker_id=ctx.character.id,
+            # Kept with the reply it produced (§5.6). It used to be counted,
+            # streamed to the HUD and dropped, which left no way to answer
+            # "did it actually think?" a minute later — the question a
+            # reasoning model raises on every single turn.
+            thinking=thinking,
         )
         ctx.message_id = message["id"]
         ctx.variant_id = message["variant_id"]
@@ -1227,7 +1232,12 @@ class PassScheduler:
         ) or "…"
 
         variant = repo.add_variant(
-            self.db, message_id, reply, provider=provider.name, model=sink.model or provider.model
+            self.db,
+            message_id,
+            reply,
+            provider=provider.name,
+            model=sink.model or provider.model,
+            thinking=thinking,
         )
         ctx.variant_id = variant["id"]
         self._record_run(

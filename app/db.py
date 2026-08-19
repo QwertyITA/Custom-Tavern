@@ -172,7 +172,7 @@ class Database:
             self._writer_thread.join(timeout=5)
 
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 def _run_migration_step(conn: sqlite3.Connection, step: str) -> None:
     """Apply one migration statement, tolerating one that has already landed.
@@ -274,6 +274,11 @@ MIGRATIONS: dict[int, list[str]] = {
     # holds what you read, and for your own message what the character was
     # given. `text` stays what was actually written either way.
     10: ["ALTER TABLE message_variants ADD COLUMN translation TEXT NOT NULL DEFAULT ''"],
+    # Reasoning, kept rather than dropped (§5.6). A thinking model's think
+    # block used to be split out of the reply and thrown away the moment it had
+    # been counted; there was no way to answer "did it actually think?" after
+    # the fact, which is the question a reasoning model raises every turn.
+    11: ["ALTER TABLE message_variants ADD COLUMN thinking TEXT NOT NULL DEFAULT ''"],
 }
 
 
