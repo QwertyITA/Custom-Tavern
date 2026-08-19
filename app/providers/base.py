@@ -43,6 +43,10 @@ class GenRequest:
     # constrain output (Ollama's format, OpenAI's response_format) use it;
     # the rest ignore it. Declared by the pass, never guessed from the prompt.
     expects_json: bool = False
+    # Overrides the backend's own thinking setting for this one request, when
+    # the caller has a reason (§5.6): the retry after an empty reply asks for
+    # no reasoning, because reasoning is what ate the first attempt.
+    think: bool | None = None
     # Which pass this request belongs to. Real backends ignore it; it exists so
     # routing and mocks never have to infer intent from prompt wording.
     pass_id: str = ""

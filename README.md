@@ -135,6 +135,12 @@ deletes its chats with it, which is why both deletes take two taps.
 
 ### When a reply comes back empty
 
+**It is tried once more first.** Small reasoning models reason and then stop
+every few turns, and the setup is fine — the same prompt works next time — so
+failing the turn would send you to fix something that is not broken. The second
+attempt asks for no reasoning, which is the difference that makes it work, and
+does not stream: nobody watches a recovery.
+
 The character never says "…". If you see the turn fail with a sentence instead
 of a reply, that sentence is this app telling you which setting to change —
 they are all real things small local models do:

@@ -56,10 +56,16 @@ class OllamaProvider(Provider):
         # single request (§5.6).
         self._no_think_field = False
 
-    def think(self) -> bool | None:
+    def think(self, request: GenRequest | None = None) -> bool | None:
         """None means "send nothing and let the model's template decide"."""
+        if self._no_think_field:
+            return None
+        # A request that has made up its own mind wins over the backend's
+        # setting — nothing else can say "not this time".
+        if request is not None and request.think is not None:
+            return request.think
         mode = getattr(self.config, "think", "auto")
-        if mode == "auto" or self._no_think_field:
+        if mode == "auto":
             return None
         return mode == "on"
 
@@ -104,7 +110,7 @@ class OllamaProvider(Provider):
                 "stream": stream,
                 "options": _options(request.sampling, stop),
             }
-        think = self.think()
+        think = self.think(request)
         if think is not None:
             payload["think"] = think
         if request.expects_json:

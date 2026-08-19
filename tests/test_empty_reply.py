@@ -243,6 +243,96 @@ def test_a_backend_that_reports_no_work_is_still_the_old_answer():
     assert "nothing at all" in _why_empty("", "", "", used=0, budget=600)
 
 
+class Flaky:
+    """Nothing the first time, a reply the second — a small reasoning model on
+    an ordinary turn."""
+
+    name = "flaky"
+    model = "flaky-1"
+    sees_images = False
+
+    def __init__(self, output: str) -> None:
+        self.output = output
+        self.asked = []
+
+    async def stream(self, request, sink=None):
+        if sink is not None:
+            sink.provider, sink.model = self.name, self.model
+            sink.thinking = "thinking, and then forgetting to answer"
+        self.asked.append(request)
+        return
+        yield ""  # pragma: no cover - makes this an async generator
+
+    async def generate(self, request):
+        from app.providers import GenResult
+
+        self.asked.append(request)
+        return GenResult(text=self.output, provider=self.name, model=self.model)
+
+    async def aclose(self):
+        return None
+
+
+@pytest.fixture
+def flaky(monkeypatch):
+    from app.passes import scheduler as sched_mod
+
+    real = sched_mod.provider_for_tier
+    made = {}
+
+    def use(output):
+        provider = Flaky(output)
+        made["provider"] = provider
+
+        def fake(tier, settings=None):
+            return provider if tier == "blocking" else real(tier, settings)
+
+        monkeypatch.setattr(sched_mod, "provider_for_tier", fake)
+        return provider
+
+    return use
+
+
+def test_an_empty_first_attempt_is_tried_once_more(db, chat, character, sched, flaky):
+    """Reported against GLM-4.7-flash: every few turns it reasons and stops.
+    The setup is fine — the same prompt works next time — so failing the turn
+    sends someone to fix something that is not broken."""
+    from app import repo
+    from tests.conftest import events_of, sync, turn
+
+    provider = flaky(REPLY)
+    events = sync(turn(sched, chat["id"], "hello"))
+
+    assert events_of(events, "reply"), events
+    assert "Sit wherever" in repo.list_messages(db, chat["id"])[-1]["text"]
+
+
+def test_the_second_attempt_asks_for_no_reasoning(db, chat, character, sched, flaky):
+    """Not the same request again: reasoning is what ate the first one, and a
+    retry that changes nothing is a retry that fails the same way."""
+    from tests.conftest import sync, turn
+
+    provider = flaky(REPLY)
+    sync(turn(sched, chat["id"], "hello"))
+
+    assert len(provider.asked) == 2
+    assert provider.asked[0].think is None
+    assert provider.asked[1].think is False
+    assert provider.asked[1].stream is False
+
+
+def test_two_empty_attempts_still_fail_the_turn(db, chat, character, sched, flaky):
+    from app import repo
+    from tests.conftest import events_of, sync, turn
+
+    flaky("")
+    events = sync(turn(sched, chat["id"], "hello"))
+
+    assert not events_of(events, "reply")
+    assert events_of(events, "error")
+    assert repo.list_messages(db, chat["id"])[-1]["role"] == "user"
+
+
 def test_the_failed_turn_is_retryable(db, chat, character, sched, speaking):
     """The two halves have to fit together: an empty reply leaves exactly the
     state `retry_turn` exists to resolve — a user message with nothing after

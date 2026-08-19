@@ -25,7 +25,7 @@ import random
 import time
 import uuid
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from .. import assembly
@@ -610,6 +610,26 @@ class PassScheduler:
         # It is a failed turn instead, with the reason. The transcript is left
         # ending on the user's message, which the retry affordance already
         # knows how to answer.
+        if not reply.strip():
+            # One more go before giving up. The commonest cause by a distance
+            # is a reasoning model that thought its way past its own budget and
+            # never started the answer, so the retry asks for no reasoning
+            # rather than repeating the request that just failed — and it does
+            # not stream, because there is nothing to watch arrive and a second
+            # empty bubble is worse than a pause.
+            second = await self._one_more_go(provider, request, definition)
+            if second.strip():
+                reply = self._rewrite_reply(
+                    clean_reply(
+                        second,
+                        strip_leakage=self.settings.strip_user_turn_leakage,
+                        user_names=("You", "{{user}}"),
+                    )
+                )
+                if payload is None:
+                    reply, payload = split_state_suffix(reply)
+                yield {"type": "delta", "text": reply}
+
         if not reply.strip():
             reason = _why_empty(
                 raw_reply, thinking, body,
@@ -1349,6 +1369,30 @@ class PassScheduler:
             if text.lower().startswith(prefix.lower()):
                 text = text[len(prefix):].lstrip()
         yield {"type": "impersonated", "text": text}
+
+    async def _one_more_go(self, provider, request, definition) -> str:
+        """A second attempt at a reply that came back with nothing usable.
+
+        Reported against GLM-4.7-flash on Ollama, and true of every small
+        reasoning model: every few turns it reasons and then stops, or emits
+        the state block and stops, and the turn arrives empty. The setup is
+        fine — the same prompt works the next time — so failing the turn asks
+        someone to fix something that is not broken.
+
+        Deliberately not the same request again. Reasoning is switched off for
+        this one, which is the difference that makes it likely to work, and it
+        is unstreamed: nobody watches a recovery, and the text arriving in one
+        piece is paced by the client anyway.
+        """
+        retry = replace(request, stream=False, think=False)
+        try:
+            result = await asyncio.wait_for(
+                provider.generate(retry), timeout=self.settings.pass_timeout
+            )
+        except (ProviderError, asyncio.TimeoutError, OSError):
+            return ""
+        body, _thinking = split_thinking(result.text)
+        return body
 
     def run_pass_now(self, chat_id: str, pass_id: str) -> dict:
         """Run one pass on demand, outside the turn cycle.
