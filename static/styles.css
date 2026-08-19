@@ -2360,6 +2360,19 @@ input.mono {
    Solid while text is flowing, blinking when it stops: a still cursor after
    the last word says the model is still there and thinking, where no cursor
    at all says the reply ended. */
+/* Open to full width straight away, then only grow downwards. Text arriving
+   into a box that is still widening re-wraps every line it has already placed,
+   so the words a reader is halfway through move sideways under them — the one
+   direction text must never travel while it is being read. Getting the width
+   over with in one short movement costs a single re-wrap instead of one per
+   token.
+
+   Inline min-width from the regeneration pin wins over this, which is correct:
+   a swipe grows out of the cue at its own pace. */
+.msg.streaming .bubble:not([style*="min-width"]) {
+  min-width: var(--bubble-max);
+}
+
 .msg.streaming .body:not(.regen)::after {
   content: "\258D";
   color: var(--accent);

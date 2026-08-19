@@ -128,6 +128,88 @@ const WHEEL_SETTLE_MS = 340 + 34 * 5;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// How much slower the text is shown than the model produced it. A local model
+// on a good card arrives faster than anyone reads, and a reply that lands in a
+// lump is one you scroll back through rather than watch.
+const STREAM_PACE = 0.6;
+// Once the model has finished, whatever is still queued is cleared inside this
+// — a paced tail is pleasant, a paced tail four seconds after the backend went
+// quiet is the app looking broken.
+const STREAM_TAIL_MS = 1500;
+const PACE_MIN_CPS = 14;
+const PACE_MAX_CPS = 900;
+
+// Reveals text at a fraction of the rate it arrives at.
+//
+// The model writes in bursts — a phone-hosted one especially — so the naive
+// version (show everything the moment it lands) alternates between a wall of
+// text and nothing at all. This keeps one buffer and hands it out smoothly,
+// measuring how fast the source is actually going and staying that far behind
+// it. `done()` waits for the backlog, so nothing downstream can replace the
+// text while there is still some of it to show.
+function makePacer(apply) {
+  let full = "";
+  let shown = 0;
+  let started = 0;
+  let last = 0;
+  let closed = false;
+  let frame = 0;
+  let waiting = [];
+
+  const settle = () => {
+    for (const resolve of waiting) resolve();
+    waiting = [];
+  };
+
+  const tick = (now) => {
+    frame = 0;
+    if (!started) started = now;
+    if (!last) last = now;
+    // Clamped: a backgrounded tab hands back one enormous delta, and without
+    // this the reply would jump a paragraph the moment it came forward.
+    const dt = Math.min(0.25, (now - last) / 1000);
+    last = now;
+
+    const elapsed = Math.max(0.2, (now - started) / 1000);
+    const arrival = full.length / elapsed;
+    let rate = Math.min(PACE_MAX_CPS, Math.max(PACE_MIN_CPS, arrival * STREAM_PACE));
+    if (closed) {
+      const backlog = full.length - shown;
+      rate = Math.max(rate, backlog / (STREAM_TAIL_MS / 1000));
+    }
+
+    shown = Math.min(full.length, shown + rate * dt);
+    apply(full.slice(0, Math.floor(shown)));
+    if (Math.floor(shown) < full.length) schedule();
+    else if (closed) settle();
+  };
+
+  const schedule = () => {
+    if (!frame) frame = requestAnimationFrame(tick);
+  };
+
+  return {
+    push(text) {
+      full = text;
+      if (Math.floor(shown) < full.length) schedule();
+    },
+    // Everything, now — used when the turn is abandoned rather than finished.
+    flush() {
+      closed = true;
+      shown = full.length;
+      if (frame) { cancelAnimationFrame(frame); frame = 0; }
+      apply(full);
+      settle();
+    },
+    done() {
+      closed = true;
+      if (Math.floor(shown) >= full.length) return Promise.resolve();
+      schedule();
+      return new Promise((resolve) => waiting.push(resolve));
+    },
+  };
+}
+
 // How far from the bottom still counts as "following the conversation". Big
 // enough to absorb sub-pixel scroll heights and the rubber-band at the end of
 // a touch scroll, small enough that one deliberate flick upward detaches.
@@ -2464,6 +2546,13 @@ function tavern() {
       let target = null;
       let buffer = "";
       let firstToken = false;
+      // Shows the reply at a fraction of the speed it arrives at. `target` is
+      // assigned on the first delta, so the pacer reads it rather than closing
+      // over it.
+      const pacer = makePacer((text) => {
+        if (target) target.text = text;
+        this.markFlowing();
+      });
       try {
         const response = await fetch(url, {
           method: "POST",
@@ -2554,7 +2643,7 @@ function tavern() {
               // arrived and took it away — the bubble lost a line of height at
               // the moment the reply settled, which is the one moment nothing
               // should move.
-              if (target) target.text = buffer.replace(/\s+$/, "");
+              pacer.push(buffer.replace(/\s+$/, ""));
               if (!firstToken) { firstToken = true; buzz(6); }
               // `content-visibility: auto` on a message row skips style and
               // layout for its whole subtree, so the per-token fade ran as a
@@ -2564,13 +2653,16 @@ function tavern() {
               // row for the length of the stream can, and there is exactly one
               // row streaming at a time.
               this.markStreamingRow(target.id);
-              this.markFlowing();
               // No scroll call here on purpose: the observer follows the text
               // as it grows, and forcing it per delta would drag the user back
               // down every token if they had scrolled up to read.
               break;
 
             case "reply": {
+              // Not before the paced text has caught up: swapping in the
+              // finished reply while the bubble is still filling would skip
+              // the last of it into place.
+              await pacer.done();
               const index = this.messages.findIndex((m) => m.id === "streaming");
               const message = { ...event.message, text: event.message.text };
               if (index === -1) this.messages.push(message);
@@ -2581,6 +2673,7 @@ function tavern() {
             }
 
             case "variant": {
+              await pacer.done();
               const message = this.messages.find((m) => m.id === event.message_id);
               if (message) {
                 message.text = event.variant.text;
@@ -2605,6 +2698,7 @@ function tavern() {
           }
         }
       } catch (e) {
+        pacer.flush();
         if (e.name === "AbortError") {
           // Stopping is something the user did on purpose, so it is not an
           // error. The text that arrived stays where it is; the placeholder is
@@ -2621,6 +2715,7 @@ function tavern() {
           if (original && !original.text) original.text = this.regenPrevious;
         }
       } finally {
+        await pacer.done();
         this.streaming = false;
         this.composing = false;
         this.streamAbort = null;
@@ -2747,6 +2842,7 @@ function tavern() {
           }
         }
       } catch (e) {
+        pacer.flush();
         if (e.name === "AbortError") {
           this.flashHint("Stopped");
           await this.reloadMessages();

@@ -285,6 +285,25 @@ not enough on its own — the animation starts in the frame the subtree is still
 being skipped in, so the class has to be on the row *before* the animation
 begins.
 
+### 2.1b Paced, and open sideways first
+
+Two things the measurement above made obvious once the text was actually
+arriving. A local model on a good card writes faster than anyone reads, in
+bursts, so the reply alternated between a wall of text and nothing; and the
+bubble widened with the text, which re-wraps every line already placed and
+moves the words a reader is halfway through sideways under them.
+
+`makePacer` keeps one buffer and hands it out at **60% of the rate it arrives
+at**, measured continuously rather than assumed. Once the source closes,
+whatever is left is cleared inside 1.5s — a paced tail is pleasant, a paced
+tail four seconds after the backend went quiet is the app looking broken. The
+finished reply is not swapped in until the backlog has drained, or the last of
+it would skip into place.
+
+The bubble takes its full width in one movement at the start of the stream
+instead of growing into it: one re-wrap rather than one per token, and the only
+direction the text then travels is down.
+
 ### 2.2 A shimmer on the composing cue
 
 The cue is three bouncing dots and a label. Current practice for AI chat has

@@ -21,7 +21,7 @@ if a session is cut off mid-way, the next one starts from the first unticked box
 - [x] **7. Place / weather / time as short as possible.** "A tavern" → Tavern.
       "Rain streaking the window" → Rainy. Time as Morning / Afternoon /
       Evening / Night / Dusk / Dawn.
-- [ ] **8. Streaming 40% slower**, and the bubble reaches its full width
+- [x] **8. Streaming 40% slower**, and the bubble reaches its full width
       quickly, before the text arrives at the right-hand edge.
 - [ ] **9. Empty replies from GLM-4.7-flash q4.** The model drops its final
       answer often enough to need handling rather than an error message.
