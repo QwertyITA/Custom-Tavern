@@ -58,7 +58,7 @@ class OllamaProvider(Provider):
 
     def think(self) -> bool | None:
         """None means "send nothing and let the model's template decide"."""
-        mode = getattr(self.config, "think", "off")
+        mode = getattr(self.config, "think", "auto")
         if mode == "auto" or self._no_think_field:
             return None
         return mode == "on"

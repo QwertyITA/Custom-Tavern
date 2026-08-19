@@ -1283,9 +1283,10 @@ body {
 .wheel-opt.danger.active .wheel-disc { background: var(--error); border-color: var(--error); color: var(--on-accent); }
 .wheel-opt.soon .wheel-disc { opacity: .55; border-style: dashed; }
 
-/* Names appear only for the tap-to-choose path. While the finger is still
-   down the icon under it is the label, and five words around the hand would
-   mostly be covered by it. */
+/* Every name appears once the finger is off; while it is still down, only the
+   one under it does. An icon alone is a guess — "what was that third symbol?"
+   — and naming just the active option answers it without putting five words
+   around the hand for the hand to cover. */
 .wheel-label {
   font-size: 11px;
   color: var(--text);
@@ -1298,7 +1299,12 @@ body {
   transition: opacity 200ms var(--ease-out), transform 220ms var(--ease-back);
   pointer-events: none;
 }
-.wheel.released .wheel-label { opacity: 1; transform: none; }
+.wheel.released .wheel-label,
+.wheel-opt.active .wheel-label { opacity: 1; transform: none; }
+/* Over the top of its neighbours, which are close enough to overlap a long
+   name, and never under the accent disc it belongs to. */
+.wheel-opt.active { z-index: 2; }
+.wheel-opt.active .wheel-label { font-weight: 600; }
 
 /* ----------------------------------------------------------- hint toast */
 
@@ -1380,6 +1386,10 @@ body {
   accent-color: var(--accent);
   height: 44px;
   background: none;
+  /* Vertical belongs to the panel, horizontal to the slider. The press itself
+     is taken away from the control until the drag is clearly sideways — see
+     guardSliders in app.js; this is the half of it the browser handles. */
+  touch-action: pan-y;
 }
 .num-field .kind-note { margin: 3px 0 0; }
 .num-field .kind-note:empty { display: none; }
@@ -1706,6 +1716,43 @@ body {
 .msg:has(.bubble.clipping),
 .msg:has(.mk-new) {
   content-visibility: visible;
+}
+
+/* Three connected buttons: one choice, all of it visible, no dropdown to open
+   before you can see what the options were. The middle one has no rounded
+   corners, so the group reads as one control rather than three. */
+.seg-row { align-items: center; }
+.seg {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.seg-btn {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 4px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: .06em;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out),
+              transform var(--dur-fast) var(--ease-out);
+}
+.seg-btn:last-child { border-right: 0; }
+.seg-btn:active { transform: scale(.94); }
+.seg-btn.on {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
 }
 
 /* ------------------------------------------------------ template editor */

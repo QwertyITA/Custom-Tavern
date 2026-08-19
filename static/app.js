@@ -139,7 +139,9 @@ const BOTTOM_SLACK = 48;
 const GESTURE_WINDOW_MS = 250;
 
 // Pull-up-past-the-end, which reveals the impersonate control.
-const PULL_DISTANCE = 96;      // travel past the bottom that fully reveals it
+// 2.5x what it was. At 96px an ordinary flick at the end of the chat armed it,
+// which meant a gesture aimed at the last message opened the composer instead.
+const PULL_DISTANCE = 240;     // travel past the bottom that fully reveals it
 // A flick completes the pull without going the full distance. 520px/s is about
 // where a deliberate throw separates from a drag that happened to end while
 // moving; the reveal floor stops a fast scroll at the bottom of the chat from
@@ -384,6 +386,7 @@ function tavern() {
 
     async boot() {
       window.Markup = window.Markup || {};
+      this.guardSliders();
       // Load settings first: the saved palette should be on screen before the
       // first paint of any message, not applied a beat later.
       try {
@@ -412,6 +415,81 @@ function tavern() {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register("/sw.js").catch(() => {});
       }
+    },
+
+    // ---- sliders that do not answer a scroll ----
+    //
+    // A range input sets its value the moment a finger lands on it. Every
+    // panel here is a tall scroller full of them, so a scroll that started
+    // with a thumb over a slider changed a setting on the way past — and the
+    // setting it changed was whichever one happened to be under the finger,
+    // to whatever value the finger happened to be at.
+    //
+    // `touch-action: pan-y` alone does not fix it: the browser still hands the
+    // input the initial touch and only takes the gesture away once it has
+    // moved. So the press is taken away from the control instead, and given
+    // back only once the drag is clearly sideways — the same claim rule the
+    // message swipe uses, for the same reason.
+    guardSliders() {
+      const SLOP = 8;         // movement before the direction counts as decided
+      const TAP_MS = 350;     // a stationary press this short is a deliberate tap
+
+      const setFromX = (el, clientX) => {
+        const rect = el.getBoundingClientRect();
+        if (!rect.width) return;
+        const min = parseFloat(el.min || "0");
+        const max = parseFloat(el.max === "" ? "100" : el.max);
+        const step = parseFloat(el.step || "1") || 1;
+        const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+        const raw = min + ratio * (max - min);
+        // Snapped to the step and then rounded, or a 0.05 step arrives as
+        // 0.30000000000000004 and the number beside it says so.
+        const value = parseFloat((Math.round(raw / step) * step).toFixed(4));
+        if (String(value) === el.value) return;
+        el.value = String(value);
+        // Alpine binds these with x-model, which listens for `input`.
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      };
+
+      document.addEventListener("pointerdown", (event) => {
+        const el = event.target?.closest?.('input[type="range"]');
+        // A mouse has no scroll conflict and keeps its native behaviour.
+        if (!el || event.pointerType === "mouse" || !event.isPrimary) return;
+        // Stops the control acting on the press. Scrolling is governed by
+        // touch-action, so the panel can still be dragged from here.
+        event.preventDefault();
+        this._slide = {
+          el, id: event.pointerId, x: event.clientX, y: event.clientY,
+          at: performance.now(), claimed: false,
+        };
+      }, { passive: false });
+
+      document.addEventListener("pointermove", (event) => {
+        const slide = this._slide;
+        if (!slide || event.pointerId !== slide.id) return;
+        if (!slide.claimed) {
+          const dx = event.clientX - slide.x;
+          const dy = event.clientY - slide.y;
+          // Vertical wins outright: that is a scroll, and this press is over.
+          if (Math.abs(dy) > Math.abs(dx)) { this._slide = null; return; }
+          if (Math.abs(dx) < SLOP) return;
+          slide.claimed = true;
+          try { slide.el.setPointerCapture(event.pointerId); } catch (_) { /* gone */ }
+        }
+        setFromX(slide.el, event.clientX);
+      });
+
+      const release = (event) => {
+        const slide = this._slide;
+        if (!slide || event.pointerId !== slide.id) return;
+        this._slide = null;
+        if (slide.claimed) return setFromX(slide.el, event.clientX);
+        // Never moved: a tap on a slider is still a deliberate way to set it.
+        const still = Math.hypot(event.clientX - slide.x, event.clientY - slide.y) < SLOP;
+        if (still && performance.now() - slide.at < TAP_MS) setFromX(slide.el, event.clientX);
+      };
+      document.addEventListener("pointerup", release);
+      document.addEventListener("pointercancel", () => { this._slide = null; });
     },
 
     // Which variables changed on the last update, so the rows that moved can
@@ -2891,6 +2969,14 @@ function tavern() {
     },
 
     onMsgCancel() {
+      // A cancelled pointer used to leave the wheel open and deaf: the release
+      // never comes, so neither path can choose. Falling back to tap-to-choose
+      // means the worst case is one extra tap rather than a dead menu.
+      if (this.wheel && !this.wheel.released) {
+        this.wheel.released = true;
+        this.wheel.active = -1;
+        this.clearMagnet();
+      }
       this.cancelHold();
       this.dragStart = null;
       this.dragId = null;
@@ -2974,6 +3060,19 @@ function tavern() {
       this.hold = null;
       buzz(12);
 
+      // The bubble is `touch-action: pan-y`, and that is read when the touch
+      // *starts* — so the first vertical move after the wheel opens is a
+      // scroll as far as the browser is concerned. It takes the gesture,
+      // fires pointercancel, and the release that would have chosen an option
+      // never arrives: the option under the finger is not the one that gets
+      // picked, most of the time. Blocking touchmove from here on stops the
+      // pan before it begins, which is possible only because the finger has
+      // been still for HOLD_MS and no scroll has started yet.
+      if (!this._wheelBlock) {
+        this._wheelBlock = (e) => e.preventDefault();
+      }
+      document.addEventListener("touchmove", this._wheelBlock, { passive: false });
+
       // The fly-out is a keyframe animation holding its end state, which would
       // override any transform the magnet sets. Once it has finished the wheel
       // is marked settled and the same transform becomes a transition.
@@ -3051,6 +3150,9 @@ function tavern() {
     },
 
     closeWheel() {
+      if (this._wheelBlock) {
+        document.removeEventListener("touchmove", this._wheelBlock, { passive: false });
+      }
       clearTimeout(this._wheelSettleTimer);
       this.wheel = null;
       this.wheelSettled = false;
@@ -3354,7 +3456,7 @@ function tavern() {
       const backend = {
         name: `backend-${this.settings.backends.length + 1}`,
         kind: "ollama", model: "", base_url: "", api_key: "",
-        template: "auto", timeout: 120, think: "off", models: [],
+        template: "auto", timeout: 120, think: "auto", models: [],
       };
       this.applyKindDefaults(backend);
       this.settings.backends.push(backend);
@@ -3372,7 +3474,7 @@ function tavern() {
       backend.timeout = defaults.timeout ?? 120;
       backend.model = defaults.model ?? "";
       backend.api_key = defaults.api_key ?? "";
-      backend.think = defaults.think ?? "off";
+      backend.think = defaults.think ?? "auto";
       backend.models = [];
     },
 
@@ -3504,9 +3606,10 @@ function tavern() {
     // mean to someone choosing between them.
     thinkLabel(mode) {
       return {
-        off: "off — answer straight away",
-        auto: "whatever the model does by default",
-        on: "on — think first",
+        on: "Always reason first. Costs part of the reply's token budget, and "
+            + "what it thought is kept — hold a reply to read it.",
+        auto: "Whatever the model does by default. Nothing is sent either way.",
+        off: "Answer straight away. Ask a reasoning model not to reason.",
       }[mode] || mode;
     },
 
@@ -3617,11 +3720,16 @@ function tavern() {
       };
 
       port.addEventListener("touchstart", (event) => {
+        // Not while a message is being held or its wheel is open: that finger
+        // is choosing an option, and reading it as a pull past the end of the
+        // chat opened "write for me" behind the menu.
+        if (this.wheel || this.hold) { pullFrom = null; return; }
         pullFrom = this.atVeryBottom() ? event.touches[0].clientY : null;
         track = [];
         if (pullFrom !== null) sample(pullFrom);
       }, { passive: true });
       port.addEventListener("touchmove", (event) => {
+        if (this.wheel || this.hold) { pullFrom = null; this.setReveal(0); return; }
         if (pullFrom === null) return;
         if (!this.atVeryBottom()) { pullFrom = null; this.setReveal(0); return; }
         const y = event.touches[0].clientY;
@@ -3643,6 +3751,7 @@ function tavern() {
       port.addEventListener("touchcancel", endPull, { passive: true });
 
       port.addEventListener("wheel", (event) => {
+        if (this.wheel || this.hold) { if (this.reveal) this.setReveal(0); return; }
         if (event.deltaY <= 0 || !this.atVeryBottom()) {
           if (this.reveal) this.setReveal(0);
           return;

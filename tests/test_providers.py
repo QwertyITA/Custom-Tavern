@@ -356,16 +356,15 @@ def ndjson(rows: list[dict]):
     return body()
 
 
-def test_ollama_asks_for_no_thinking_by_default():
-    """The default has to be the one that answers. A reasoning model left to
-    think spends the reply budget on reasoning and returns an empty turn."""
-    assert ollama_payload()["think"] is False
+def test_ollama_leaves_thinking_to_the_model_by_default():
+    """`auto` sends nothing: the model's own template decides. Safe as a
+    default now that a reply which never gets past its reasoning is recovered
+    rather than reported (§5.6)."""
+    assert "think" not in ollama_payload()
 
 
-def test_auto_keeps_the_field_off_the_wire_entirely():
-    """"Whatever the model does by default" means saying nothing, not saying
-    false — an Ollama old enough to have no switch must still work."""
-    assert "think" not in ollama_payload(think="auto")
+def test_off_asks_the_model_not_to_reason():
+    assert ollama_payload(think="off")["think"] is False
 
 
 def test_thinking_can_be_asked_for():
@@ -433,7 +432,7 @@ def test_an_ollama_that_rejects_the_think_field_is_retried_without_it():
             return httpx.Response(400, json={"error": 'model does not support "think"'})
         return httpx.Response(200, json={"message": {"content": "hi"}})
 
-    provider = wired(handler)
+    provider = wired(handler, think="off")
     assert sync(provider.generate(GenRequest())).text == "hi"
     assert len(seen) == 2 and "think" not in seen[1]
 
@@ -452,7 +451,7 @@ def test_the_streamed_path_retries_without_think_as_well():
             return httpx.Response(400, json={"error": 'unknown field "think"'})
         return httpx.Response(200, content=ndjson([{"message": {"content": "hi"}, "done": True}]))
 
-    provider = wired(handler)
+    provider = wired(handler, think="off")
 
     async def run():
         return [delta async for delta in provider.stream(GenRequest())]
@@ -472,7 +471,12 @@ def test_any_other_error_is_still_an_error():
 
 
 def test_thinking_is_a_backend_setting_the_gui_can_offer():
-    from app.config import VALID_THINK
+    """Three modes, in the order the buttons sit in, and a default per kind:
+    auto everywhere except Horde, where the GPU belongs to a volunteer."""
+    from app.config import VALID_THINK, default_think
 
-    assert set(VALID_THINK) == {"off", "auto", "on"}
-    assert KIND_DEFAULTS["ollama"]["think"] == "off"
+    assert VALID_THINK == ("on", "auto", "off")
+    for kind in KIND_DEFAULTS:
+        assert KIND_DEFAULTS[kind]["think"] == default_think(kind)
+    assert default_think("horde") == "off"
+    assert default_think("ollama") == "auto"

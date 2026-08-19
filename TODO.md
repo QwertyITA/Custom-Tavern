@@ -6,18 +6,18 @@ if a session is cut off mid-way, the next one starts from the first unticked box
 
 ## Fixes and small changes
 
-- [ ] **1. Thinking: a three-way ON | AUTO | OFF control**, visible rather than
+- [x] **1. Thinking: a three-way ON | AUTO | OFF control**, visible rather than
       buried in a select. Default **auto** for every backend kind except
       **horde**, which defaults to off.
-- [ ] **2. "Write for me" 2.5× less sensitive** — the pull-up past the end of
+- [x] **2. "Write for me" 2.5× less sensitive** — the pull-up past the end of
       the chat has to travel 2.5× as far before it arms.
-- [ ] **3. The hold wheel names what is under the finger.** Hovering *Copy*
+- [x] **3. The hold wheel names what is under the finger.** Hovering *Copy*
       shows "Copy".
-- [ ] **4. Bug: a slider under a scrolling finger jumps to it.** Scrolling a
+- [x] **4. Bug: a slider under a scrolling finger jumps to it.** Scrolling a
       panel must never change a setting.
-- [ ] **5. Bug: the hold wheel misses the option you move to** (~75% of the
+- [x] **5. Bug: the hold wheel misses the option you move to** (~75% of the
       time).
-- [ ] **6. Bug: scrolling up with the hold wheel open triggers "write for me".**
+- [x] **6. Bug: scrolling up with the hold wheel open triggers "write for me".**
 - [ ] **7. Place / weather / time as short as possible.** "A tavern" → Tavern.
       "Rain streaking the window" → Rainy. Time as Morning / Afternoon /
       Evening / Night / Dusk / Dawn.

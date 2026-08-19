@@ -25,12 +25,13 @@ MASK = "***"
 
 VALID_KINDS = ("echo", "ollama", "llamacpp", "openai", "horde")
 VALID_TEMPLATES = ("auto", "messages", "chatml", "llama3", "mistral", "plain", "custom")
-# Whether a backend that has a reasoning switch should use it. "off" is the
-# default because a reasoning model spends the reply pass's whole token budget
-# thinking and then returns an empty message — the single most confusing way
-# for a working setup to look broken. "auto" sends nothing and leaves the
-# decision to the model's own template.
-VALID_THINK = ("off", "auto", "on")
+# Whether a backend that has a reasoning switch should use it, in the order the
+# three buttons sit in. "auto" sends nothing and leaves the decision to the
+# model's own template, which is the right default now that a reply which never
+# gets past its reasoning is recovered rather than reported (§5.6). Horde is
+# the exception: its workers are volunteers on a queue, and paying for someone
+# else's GPU to think is not a default anyone would choose.
+VALID_THINK = ("on", "auto", "off")
 TIERS = ("blocking", "foreground", "background")
 
 # Sensible starting values per backend kind. The settings screen fills these in
@@ -40,29 +41,31 @@ TIERS = ("blocking", "foreground", "background")
 KIND_DEFAULTS: dict[str, dict[str, Any]] = {
     "echo": {
         "model": "echo-1", "base_url": "", "template": "auto", "timeout": 120,
+        "think": "auto",
         "note": "Built-in fake model. No network, no key — use it to test the UI.",
     },
     "ollama": {
         "model": "llama3.1:8b", "base_url": "http://127.0.0.1:11434",
-        "template": "auto", "timeout": 120, "think": "off",
+        "template": "auto", "timeout": 120, "think": "auto",
         "note": "Your PC over Tailscale. Use its tailnet IP, not localhost, "
                 "unless Ollama runs on the phone.",
     },
     "llamacpp": {
         "model": "qwen2.5-3b-instruct", "base_url": "http://127.0.0.1:8080",
-        "template": "chatml", "timeout": 300,
+        "template": "chatml", "timeout": 300, "think": "auto",
         "note": "llama.cpp server on the phone. Foreground only — it throttles "
                 "hard when backgrounded.",
     },
     "openai": {
         "model": "gpt-4o-mini", "base_url": "https://api.openai.com/v1",
-        "template": "auto", "timeout": 120,
+        "template": "auto", "timeout": 120, "think": "auto",
         "note": "Any OpenAI-compatible /v1 endpoint: hosted APIs, LM Studio, "
                 "vLLM, text-generation-webui.",
     },
     "horde": {
         "model": "", "base_url": "https://aihorde.net/api/v2",
         "api_key": "0000000000", "template": "chatml", "timeout": 300,
+        "think": "off",
         "note": "Free and network-only, so it is the safest background tier. "
                 "Slow and queue-bound: never use it for the reply. "
                 "0000000000 is the anonymous key — a real key gets priority.",
@@ -238,7 +241,7 @@ class BackendConfig:
     template_spec: dict[str, str] = field(default_factory=dict)
     # Reasoning switch, for the backends that have one (Ollama's `think`).
     # off | auto | on — see VALID_THINK.
-    think: str = "off"
+    think: str = "auto"
     # Horde-only knobs; ignored elsewhere.
     models: list[str] = field(default_factory=list)
 
@@ -432,7 +435,7 @@ def merge_backend(raw: dict, existing: list[BackendConfig]) -> BackendConfig:
     except (TypeError, ValueError):
         raise SettingsError(f"{name}: timeout must be a number") from None
 
-    think = str(raw.get("think", "off")).strip() or "off"
+    think = str(raw.get("think", default_think(kind))).strip() or default_think(kind)
     if think not in VALID_THINK:
         raise SettingsError(f"{name}: unknown thinking mode {think!r}")
 
@@ -453,6 +456,11 @@ def merge_backend(raw: dict, existing: list[BackendConfig]) -> BackendConfig:
         think=think,
         models=[str(m) for m in models],
     )
+
+
+def default_think(kind: str) -> str:
+    """What a new backend of this kind starts on."""
+    return "off" if kind == "horde" else "auto"
 
 
 def _template_spec(raw: Any) -> dict[str, str]:
