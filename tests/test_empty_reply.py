@@ -227,6 +227,22 @@ def test_reasoning_off_the_stream_is_still_reported_as_reasoning(
     assert "nothing at all" not in errors[0]["error"]
 
 
+def test_tokens_generated_but_none_handed_over_says_so():
+    """The hardest one to diagnose: Ollama answers 200, reports six hundred
+    tokens of work, and returns an empty string, because its own parser kept
+    the reasoning and the reply never started. "Nothing at all" sends someone
+    to check the model is loaded — the count proves it was."""
+    why = _why_empty("", "", "", used=600, budget=600)
+    assert "600 tokens" in why
+    assert "nothing at all" not in why
+    assert "Thinking" in why
+
+
+def test_a_backend_that_reports_no_work_is_still_the_old_answer():
+    """Zero tokens really is "check the model is loaded"."""
+    assert "nothing at all" in _why_empty("", "", "", used=0, budget=600)
+
+
 def test_the_failed_turn_is_retryable(db, chat, character, sched, speaking):
     """The two halves have to fit together: an empty reply leaves exactly the
     state `retry_turn` exists to resolve — a user message with nothing after

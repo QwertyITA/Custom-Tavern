@@ -137,17 +137,24 @@ deletes its chats with it, which is why both deletes take two taps.
 
 The character never says "…". If you see the turn fail with a sentence instead
 of a reply, that sentence is this app telling you which setting to change —
-there are four of them and they are all real things small local models do:
+they are all real things small local models do:
 
 - **Only reasoning, no reply.** A thinking model spent its whole token budget
-  in `<think>` and never got to the line. Raise **Max tokens** for the Reply
-  pass. This is the common one, and it fails nearly every turn rather than
-  occasionally, because a model that thinks always thinks.
+  deciding what to say and never got to the line. Turn **Thinking** off for the
+  backend, or raise **Max tokens** for the Reply pass. This is the common one,
+  and it fails nearly every turn rather than occasionally, because a model that
+  thinks always thinks.
+- **Tokens generated, none handed over.** The backend reports the work it did
+  and returns an empty string — Ollama's own parser keeping a reasoning model's
+  thinking to itself. The message quotes the count, because a number is what
+  separates this from a model that never ran. Same fix: **Thinking** off; if it
+  already is, set **Template** to anything but *messages*, which drives the raw
+  endpoint and bypasses the parser entirely.
 - **The state block and nothing else.** The reply pass asks for a small JSON
   block *after* the reply; a model too small to hold that order writes it
   first. Text on either side of it is recovered now, so this should be rare.
-- **Nothing at all.** Usually a stop string matching immediately, or a model
-  that is not actually loaded.
+- **Nothing at all.** No text and no tokens either: usually a stop string
+  matching immediately, or a model that is not actually loaded.
 - **Everything stripped.** The whole reply looked like a continuation of your
   own turn and was removed. Turn off *strip user turn leakage* if that was
   wrong.

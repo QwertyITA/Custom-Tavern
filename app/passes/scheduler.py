@@ -1525,6 +1525,19 @@ def _why_empty(
             "Brain \u2192 Sampling."
         )
     if not raw.strip():
+        if used:
+            # The backend counted tokens it never handed over. That is not a
+            # quiet model — something between the model and here ate them, and
+            # on Ollama it is always its own parser holding a reasoning
+            # model's think block back.
+            return (
+                f"The backend generated {used} tokens and handed back none of "
+                "them as text. Something between the model and here kept them "
+                "\u2014 on Ollama that is its parser holding back a reasoning "
+                "model's thinking. Set Thinking to off for this backend under "
+                "Settings \u2192 Backends; if it already is, set Template to "
+                "anything other than Messages, which bypasses the parser."
+            )
         return (
             "The model returned nothing at all. Check that the model is loaded "
             "and that the stop strings for this backend or character are not "
