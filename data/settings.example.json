@@ -11,6 +11,7 @@
     "background": "horde"
   },
 
+  "_backends": "One entry per inference endpoint. `think` is Ollama-only, off | auto | on: Ollama parses a reasoning model itself and returns the thinking on its own channel, so a model left to think can spend the whole reply budget before it says a word (\u00a75.6). `auto` sends nothing and leaves the decision to the model's own template.",
   "backends": [
     {
       "name": "ollama",
@@ -18,7 +19,8 @@
       "base_url": "http://100.x.y.z:11434",
       "model": "llama3.1:8b",
       "template": "auto",
-      "timeout": 120
+      "timeout": 120,
+      "think": "off"
     },
     {
       "name": "openai",
@@ -48,7 +50,7 @@
   ],
 
   "_context": "Context management (§7).",
-  "token_budget": 4096,
+  "token_budget": 32768,
   "verbatim_window": 24,
   "summary_budget": 700,
   "lorebook_scan_depth": 6,

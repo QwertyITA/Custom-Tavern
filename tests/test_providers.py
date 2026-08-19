@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+
+import httpx
 import pytest
 
 from app.config import BackendConfig, KIND_DEFAULTS, VALID_KINDS, VALID_TEMPLATES
@@ -20,6 +23,7 @@ from app.providers.templates import (
     render,
     stop_for,
 )
+from tests.conftest import sync
 
 
 def horde_provider(**overrides) -> HordeProvider:
@@ -314,3 +318,161 @@ def test_horde_uses_the_model_field_when_no_models_list_is_set():
 def test_an_explicit_models_list_wins_over_the_model_field():
     provider = horde_provider(model="ignored", models=["a", "b"])
     assert provider.build_payload(GenRequest())["models"] == ["a", "b"]
+
+
+# --------------------------------------------------- ollama: reasoning models
+#
+# Reported from a real run: a thinking model on Ollama answered every turn with
+# "the model returned nothing at all". Nothing was broken — Ollama had parsed
+# the reasoning onto `message.thinking`, the reply pass's whole token budget
+# went into it, and `message.content` came back empty over a 200.
+
+
+def ollama_provider(**overrides):
+    from app.providers.ollama import OllamaProvider
+
+    return OllamaProvider(BackendConfig(name="o", kind="ollama", model="glm4:latest", **overrides))
+
+
+def ollama_payload(**overrides) -> dict:
+    request = GenRequest(messages=[{"role": "user", "content": "hi"}])
+    return ollama_provider(**overrides)._payload(request, stream=False)[1]
+
+
+def wired(handler, **overrides):
+    """A provider whose HTTP goes to `handler` instead of a machine."""
+    provider = ollama_provider(**overrides)
+    provider._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="http://ollama.test"
+    )
+    return provider
+
+
+def ndjson(rows: list[dict]):
+    async def body():
+        for row in rows:
+            yield (json.dumps(row) + "\n").encode()
+
+    return body()
+
+
+def test_ollama_asks_for_no_thinking_by_default():
+    """The default has to be the one that answers. A reasoning model left to
+    think spends the reply budget on reasoning and returns an empty turn."""
+    assert ollama_payload()["think"] is False
+
+
+def test_auto_keeps_the_field_off_the_wire_entirely():
+    """"Whatever the model does by default" means saying nothing, not saying
+    false — an Ollama old enough to have no switch must still work."""
+    assert "think" not in ollama_payload(think="auto")
+
+
+def test_thinking_can_be_asked_for():
+    assert ollama_payload(think="on")["think"] is True
+
+
+def test_the_reasoning_is_captured_and_never_streamed():
+    """It is not what the character said (§5.6), but losing it makes "it only
+    reasoned" indistinguishable from "it returned nothing"."""
+    from app.providers import GenResult
+
+    rows = [
+        {"message": {"role": "assistant", "thinking": "she would ", "content": ""}},
+        {"message": {"role": "assistant", "thinking": "be curt", "content": ""}},
+        {"message": {"role": "assistant", "content": '"Sit."'}},
+        {"message": {"content": ""}, "done": True, "eval_count": 7, "prompt_eval_count": 3},
+    ]
+    provider = wired(lambda request: httpx.Response(200, content=ndjson(rows)))
+    sink = GenResult()
+
+    async def run():
+        return [delta async for delta in provider.stream(GenRequest(), sink)]
+
+    assert "".join(sync(run())) == '"Sit."'
+    assert sink.thinking == "she would be curt"
+    assert sink.tokens_out == 7
+
+
+def test_a_reply_that_is_all_reasoning_arrives_as_reasoning_and_not_as_silence():
+    from app.providers import GenResult
+
+    rows = [
+        {"message": {"thinking": "thinking about it", "content": ""}},
+        {"message": {"content": ""}, "done": True},
+    ]
+    provider = wired(lambda request: httpx.Response(200, content=ndjson(rows)))
+    sink = GenResult()
+
+    async def run():
+        return [delta async for delta in provider.stream(GenRequest(), sink)]
+
+    assert sync(run()) == []
+    assert sink.thinking == "thinking about it"
+
+
+def test_generate_captures_the_reasoning_too():
+    provider = wired(
+        lambda request: httpx.Response(
+            200, json={"message": {"thinking": "hmm", "content": "hi"}, "eval_count": 2}
+        )
+    )
+    result = sync(provider.generate(GenRequest()))
+    assert (result.text, result.thinking) == ("hi", "hmm")
+
+
+def test_an_ollama_that_rejects_the_think_field_is_retried_without_it():
+    """Older Ollamas, and some builds asked about a model with no reasoning at
+    all, 400 the field itself. The request is fine without it."""
+    seen = []
+
+    def handler(request):
+        payload = json.loads(request.content)
+        seen.append(payload)
+        if "think" in payload:
+            return httpx.Response(400, json={"error": 'model does not support "think"'})
+        return httpx.Response(200, json={"message": {"content": "hi"}})
+
+    provider = wired(handler)
+    assert sync(provider.generate(GenRequest())).text == "hi"
+    assert len(seen) == 2 and "think" not in seen[1]
+
+    # And the discovery is paid for once, not on every turn.
+    sync(provider.generate(GenRequest()))
+    assert len(seen) == 3 and "think" not in seen[2]
+
+
+def test_the_streamed_path_retries_without_think_as_well():
+    seen = []
+
+    def handler(request):
+        payload = json.loads(request.content)
+        seen.append(payload)
+        if "think" in payload:
+            return httpx.Response(400, json={"error": 'unknown field "think"'})
+        return httpx.Response(200, content=ndjson([{"message": {"content": "hi"}, "done": True}]))
+
+    provider = wired(handler)
+
+    async def run():
+        return [delta async for delta in provider.stream(GenRequest())]
+
+    assert sync(run()) == ["hi"]
+    assert len(seen) == 2
+
+
+def test_any_other_error_is_still_an_error():
+    """The retry is for one specific rejection. Swallowing the rest would turn
+    a wrong model name into an empty reply with no explanation."""
+    from app.providers.base import ProviderError
+
+    provider = wired(lambda request: httpx.Response(404, json={"error": "model not found"}))
+    with pytest.raises(ProviderError):
+        sync(provider.generate(GenRequest()))
+
+
+def test_thinking_is_a_backend_setting_the_gui_can_offer():
+    from app.config import VALID_THINK
+
+    assert set(VALID_THINK) == {"off", "auto", "on"}
+    assert KIND_DEFAULTS["ollama"]["think"] == "off"

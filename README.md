@@ -137,17 +137,24 @@ deletes its chats with it, which is why both deletes take two taps.
 
 The character never says "…". If you see the turn fail with a sentence instead
 of a reply, that sentence is this app telling you which setting to change —
-there are four of them and they are all real things small local models do:
+they are all real things small local models do:
 
 - **Only reasoning, no reply.** A thinking model spent its whole token budget
-  in `<think>` and never got to the line. Raise **Max tokens** for the Reply
-  pass. This is the common one, and it fails nearly every turn rather than
-  occasionally, because a model that thinks always thinks.
+  deciding what to say and never got to the line. Turn **Thinking** off for the
+  backend, or raise **Max tokens** for the Reply pass. This is the common one,
+  and it fails nearly every turn rather than occasionally, because a model that
+  thinks always thinks.
+- **Tokens generated, none handed over.** The backend reports the work it did
+  and returns an empty string — Ollama's own parser keeping a reasoning model's
+  thinking to itself. The message quotes the count, because a number is what
+  separates this from a model that never ran. Same fix: **Thinking** off; if it
+  already is, set **Template** to anything but *messages*, which drives the raw
+  endpoint and bypasses the parser entirely.
 - **The state block and nothing else.** The reply pass asks for a small JSON
   block *after* the reply; a model too small to hold that order writes it
   first. Text on either side of it is recovered now, so this should be rare.
-- **Nothing at all.** Usually a stop string matching immediately, or a model
-  that is not actually loaded.
+- **Nothing at all.** No text and no tokens either: usually a stop string
+  matching immediately, or a model that is not actually loaded.
 - **Everything stripped.** The whole reply looked like a continuation of your
   own turn and was removed. Turn off *strip user turn leakage* if that was
   wrong.
@@ -459,6 +466,51 @@ than before it.
 
 Layout is global, not per character: it describes how you like prompts built.
 
+### The writing blocks
+
+Twelve sections at the end of **who they are** arrive with their own text and
+switched on, and two more sit under them switched off. They are the writing
+rules the app ships with: how prose reads, what a point of view is, how people
+talk, what a character is allowed to know, what drives them, how long a reply
+runs, which words never to use. Tap a name to read or rewrite it; the switch
+beside it leaves it out.
+
+| On by default | |
+| --- | --- |
+| How the world runs | You narrate everyone except {{user}}; the world moves off-screen |
+| Meeting someone new | One description on arrival, then only what changed |
+| Prose discipline | Literal, observable narration — the strictest one here |
+| Point of view | Third person for the room, second for what you feel |
+| Their turn is theirs | Never speak or act for you, never echo you |
+| How they talk | A third to a half dialogue, and no two voices alike |
+| What they can know | No knowing what they did not witness |
+| What moves them | Appetite and mood under the persona, never named |
+| They want their own things | No plot armour, no yes-men, no hovering hands |
+| How long a reply runs | Four to eight paragraphs |
+| Words to avoid | The tics that give a model away |
+| Hours and weather | Time moves, and bodies answer the temperature |
+
+**Combat as spectacle** and **adult scenes** ship off; they are a matter of
+taste rather than of craft.
+
+They cost about 1,700 tokens, paid on every turn but cached — which is why they
+sit in the first group and why the context budget defaults to 32k. On a
+backend with a small window, turn some off.
+
+Editing one stores only what you changed, so a block you have not touched
+follows the app if its wording improves later. Empty the box and save to get
+the original back.
+
+They are adapted from a SillyTavern preset — *Freaky Frankenstein 5.2*, the
+Internal States / BOLT setup — rewritten for this app's markup and its pass
+engine. Three kinds of block from it are deliberately not here. Anything that
+made the *reply* track state (internal-state blocks, chain-of-thought gates,
+notebooks, inventories) is what the pass engine already does, and doing it
+twice is what makes replies slow. Coloured dialogue is markup here, themed and
+parsed at render time, so asking a model for `<font>` tags would print the
+tags. And the refusal-bypass blocks are not shipped; a custom block and the
+card's own system prompt are both there if you want them.
+
 ### Writing your own instruct template
 
 Most models are covered by picking `chatml`, `llama3`, `mistral` or `plain` in
@@ -665,6 +717,13 @@ serve — pulled models from Ollama, `/v1/models` from an OpenAI-compatible
 endpoint, active text models from Horde ordered by worker count, since a model
 with no workers queues forever. The field stays typeable, so a model you are
 about to pull still works.
+
+An Ollama backend also has a **Thinking** switch, and it is **off**. Ollama
+parses a reasoning model itself and streams the reasoning on a channel of its
+own, so a thinking model left switched on can spend the reply's entire token
+budget deciding what to say and return an empty message over a request that
+looked completely successful. Off answers straight away; *whatever the model
+does by default* sends nothing and leaves it to the model's own template.
 
 The key handling is deliberate:
 

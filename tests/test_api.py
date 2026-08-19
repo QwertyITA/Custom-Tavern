@@ -1327,6 +1327,46 @@ def test_a_backend_can_carry_its_own_stop_strings(client, isolated_settings):
     assert "\nUser:" in stops and "### " in stops
 
 
+def test_the_thinking_switch_survives_a_save(client, isolated_settings):
+    from app import config
+
+    client.put("/api/settings", json={
+        "backends": [{"name": "ollama", "kind": "ollama", "model": "glm4:latest",
+                      "think": "on"}],
+        "tiers": {"blocking": "ollama", "foreground": "ollama", "background": "ollama"},
+    })
+    assert config.SETTINGS.backend("ollama").think == "on"
+
+    body = client.get("/api/settings").json()
+    assert body["backends"][0]["think"] == "on"
+    assert body["think_modes"] == list(config.VALID_THINK), "the GUI is served the choices"
+
+
+def test_an_unknown_thinking_mode_is_rejected(client, isolated_settings):
+    response = client.put("/api/settings", json={
+        "backends": [{"name": "o", "kind": "ollama", "model": "m", "think": "sometimes"}],
+        "tiers": {"blocking": "o", "foreground": "o", "background": "o"},
+    })
+    assert response.status_code == 400
+
+
+def test_a_settings_file_with_an_unknown_backend_key_still_loads(tmp_path):
+    """It used to take every other setting with it: the whole file failed to
+    construct and load_settings fell back to the defaults without saying so."""
+    import json
+
+    from app.config import load_settings
+
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({
+        "port": 9001,
+        "backends": [{"name": "o", "kind": "ollama", "model": "m", "_note": "hand-written"}],
+    }))
+    settings = load_settings(path)
+    assert settings.port == 9001
+    assert [b.name for b in settings.backends] == ["o"]
+
+
 def test_stop_strings_accept_lines_from_a_textarea(client):
     from app.config import parse_stop_strings
 

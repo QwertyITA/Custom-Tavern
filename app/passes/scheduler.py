@@ -578,6 +578,12 @@ class PassScheduler:
 
         raw_reply = "".join(collected)
         body, thinking = split_thinking(raw_reply)
+        # A backend that parses reasoning itself (Ollama) never puts it in the
+        # stream, so there is nothing for split_thinking to find — it arrives
+        # on the result instead (§5.6). Without this, the commonest failure a
+        # reasoning model has is reported as "returned nothing at all", which
+        # names the wrong fix.
+        thinking = thinking or sink.thinking
         # A model that ignored the suffix contract may still have emitted it
         # inside a think block or after it; check the full text once more.
         if payload is None:
@@ -1213,6 +1219,7 @@ class PassScheduler:
             yield {"type": "delta", "text": tail}
 
         body, thinking = split_thinking("".join(collected))
+        thinking = thinking or sink.thinking
         if payload is None:
             body, payload = split_state_suffix(body)
         reply = self._rewrite_reply(
@@ -1502,12 +1509,9 @@ def _why_empty(
     reasoning model that spent the whole allowance thinking is not a maybe, it
     is a number, and the message can say so.
     """
-    if not raw.strip():
-        return (
-            "The model returned nothing at all. Check that the model is loaded "
-            "and that the stop strings for this backend or character are not "
-            "matching immediately."
-        )
+    # Reasoning first: a backend that parses the think block itself streams
+    # nothing at all when the model never stops thinking, so testing the raw
+    # text first would answer "nothing arrived" when something did.
     if thinking.strip() and not body.strip():
         spent = (
             f" It spent all {budget} tokens reasoning."
@@ -1516,8 +1520,28 @@ def _why_empty(
         )
         return (
             "The model produced only its reasoning and never reached the "
-            f"reply.{spent} Raise Max tokens for the Reply pass under "
-            "Brain \u2192 Sampling, or use a model that does not think out loud."
+            f"reply.{spent} Turn Thinking off for this backend under Settings "
+            "\u2192 Backends, or raise Max tokens for the Reply pass under "
+            "Brain \u2192 Sampling."
+        )
+    if not raw.strip():
+        if used:
+            # The backend counted tokens it never handed over. That is not a
+            # quiet model — something between the model and here ate them, and
+            # on Ollama it is always its own parser holding a reasoning
+            # model's think block back.
+            return (
+                f"The backend generated {used} tokens and handed back none of "
+                "them as text. Something between the model and here kept them "
+                "\u2014 on Ollama that is its parser holding back a reasoning "
+                "model's thinking. Set Thinking to off for this backend under "
+                "Settings \u2192 Backends; if it already is, set Template to "
+                "anything other than Messages, which bypasses the parser."
+            )
+        return (
+            "The model returned nothing at all. Check that the model is loaded "
+            "and that the stop strings for this backend or character are not "
+            "matching immediately."
         )
     if MARKER in raw:
         return (

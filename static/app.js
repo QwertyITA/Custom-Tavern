@@ -867,6 +867,13 @@ function tavern() {
       return (this.settings.prompt_sections || []).filter((s) => s.band === band);
     },
 
+    // Sections that carry their own words rather than filling a slot: your
+    // blocks, and the writing blocks that ship with the app. Both open an
+    // editor when their name is tapped; everything else toggles.
+    hasText(section) {
+      return !!(section.custom || section.shipped);
+    },
+
     isFixed(section) {
       return (this.settings.prompt_fixed || []).includes(section.id);
     },
@@ -3069,6 +3076,7 @@ function tavern() {
     // without the browser ever having seen it.
 
     settings: { backends: [], tiers: {}, tier_names: [], kinds: [], templates: [],
+                think_modes: [],
                 kind_defaults: {}, theme_tokens: [], theme: {},
                 backgrounds: [], background: "none", background_dim: 70, path: "" },
     saving: false,
@@ -3100,9 +3108,9 @@ function tavern() {
     numberFields(group) {
       const fields = {
         basic: [
-          { key: "token_budget", label: "Context budget", min: 1024, max: 32768, step: 512,
+          { key: "token_budget", label: "Context budget", min: 1024, max: 131072, step: 1024,
             unit: " tok",
-            note: "Prompt the reply is built from. Match your model's window — past it, the far end is dropped anyway." },
+            note: "Prompt the reply is built from. Match your model's window — past it, the far end is dropped anyway. 32k is what a local model on a PC usually has." },
           { key: "verbatim_window", label: "Messages kept in full", min: 4, max: 60,
             note: "Recent messages quoted word for word. Older ones survive as summary and memory." },
           { key: "memory_max_injected", label: "Memories recalled", min: 0, max: 12,
@@ -3281,7 +3289,7 @@ function tavern() {
       const backend = {
         name: `backend-${this.settings.backends.length + 1}`,
         kind: "ollama", model: "", base_url: "", api_key: "",
-        template: "auto", timeout: 120, models: [],
+        template: "auto", timeout: 120, think: "off", models: [],
       };
       this.applyKindDefaults(backend);
       this.settings.backends.push(backend);
@@ -3299,6 +3307,7 @@ function tavern() {
       backend.timeout = defaults.timeout ?? 120;
       backend.model = defaults.model ?? "";
       backend.api_key = defaults.api_key ?? "";
+      backend.think = defaults.think ?? "off";
       backend.models = [];
     },
 
@@ -3424,6 +3433,16 @@ function tavern() {
       } finally {
         this.testing = "";
       }
+    },
+
+    // The stored values are what Ollama's API calls them; these are what they
+    // mean to someone choosing between them.
+    thinkLabel(mode) {
+      return {
+        off: "off — answer straight away",
+        auto: "whatever the model does by default",
+        on: "on — think first",
+      }[mode] || mode;
     },
 
     testLabel(name) {
