@@ -162,7 +162,15 @@ streams clean prose and structure rides in a suffix.
   reply, then a cheap second call extracts signals. Doubles blocking latency; used only
   when needed.
 - **Reasoning models:** if a pass runs a local `<think>` model, the think block is
-  captured and hidden (optionally shown in the HUD), never displayed inline.
+  captured and hidden (optionally shown in the HUD), never displayed inline. It
+  arrives in one of two shapes: inline in the text, or — where the backend parses
+  it for us, as Ollama does — on a separate channel that never enters the stream
+  at all. Both are captured; a diagnosis that reads only the stream calls the
+  second one "returned nothing".
+- **Reasoning is spent from the reply's budget**, so a thinking model can use a
+  whole pass reasoning and answer with an empty message over a successful
+  request. Where the backend has a switch for it, it is per-backend and **off by
+  default** (§13).
 
 ---
 
@@ -366,6 +374,11 @@ scene change) and `expression` (emotion→pfp sprite selection) — both backgro
   selects the template.
 - **Per-pass sampling profiles** (§5.1): auditor = low temp / near-deterministic;
   actor = creative. Set independently of tier.
+- **Thinking is a per-backend switch** (`think`: off / auto / on), off by default,
+  for the backends that expose one. Reasoning is not free output — it comes out of
+  the pass's token budget (§5.6) — so leaving it on by default makes a working
+  setup look broken. `auto` sends nothing and leaves it to the model's template,
+  which is also what an older backend that rejects the field falls back to.
 - **Output post-processing:** a regex/cleanup stage on the reply before display —
   strip artifacts, trailing user-turn leakage. Part of anti-slop lives here, not only
   in the prompt.

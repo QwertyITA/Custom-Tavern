@@ -666,6 +666,13 @@ endpoint, active text models from Horde ordered by worker count, since a model
 with no workers queues forever. The field stays typeable, so a model you are
 about to pull still works.
 
+An Ollama backend also has a **Thinking** switch, and it is **off**. Ollama
+parses a reasoning model itself and streams the reasoning on a channel of its
+own, so a thinking model left switched on can spend the reply's entire token
+budget deciding what to say and return an empty message over a request that
+looked completely successful. Off answers straight away; *whatever the model
+does by default* sends nothing and leaves it to the model's own template.
+
 The key handling is deliberate:
 
 - Saved keys are **never sent back to the browser**. A read returns `***`, and

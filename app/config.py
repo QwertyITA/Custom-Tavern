@@ -25,6 +25,12 @@ MASK = "***"
 
 VALID_KINDS = ("echo", "ollama", "llamacpp", "openai", "horde")
 VALID_TEMPLATES = ("auto", "messages", "chatml", "llama3", "mistral", "plain", "custom")
+# Whether a backend that has a reasoning switch should use it. "off" is the
+# default because a reasoning model spends the reply pass's whole token budget
+# thinking and then returns an empty message — the single most confusing way
+# for a working setup to look broken. "auto" sends nothing and leaves the
+# decision to the model's own template.
+VALID_THINK = ("off", "auto", "on")
 TIERS = ("blocking", "foreground", "background")
 
 # Sensible starting values per backend kind. The settings screen fills these in
@@ -38,7 +44,7 @@ KIND_DEFAULTS: dict[str, dict[str, Any]] = {
     },
     "ollama": {
         "model": "llama3.1:8b", "base_url": "http://127.0.0.1:11434",
-        "template": "auto", "timeout": 120,
+        "template": "auto", "timeout": 120, "think": "off",
         "note": "Your PC over Tailscale. Use its tailnet IP, not localhost, "
                 "unless Ollama runs on the phone.",
     },
@@ -230,6 +236,9 @@ class BackendConfig:
     stop: list[str] = field(default_factory=list)
     # Only read when template == "custom": the turn markers, written down.
     template_spec: dict[str, str] = field(default_factory=dict)
+    # Reasoning switch, for the backends that have one (Ollama's `think`).
+    # off | auto | on — see VALID_THINK.
+    think: str = "off"
     # Horde-only knobs; ignored elsewhere.
     models: list[str] = field(default_factory=list)
 
@@ -340,7 +349,16 @@ class Settings:
 
 
 def _coerce(raw: dict[str, Any]) -> Settings:
-    backends = [BackendConfig(**b) for b in raw.pop("backends", [])] or None
+    # Unknown keys are dropped rather than fatal, on backends as well as on the
+    # settings themselves. A file written by a newer version, or one with a
+    # "_note" typed into it by hand, would otherwise fail to construct and take
+    # every other setting down with it — silently, since load_settings falls
+    # back to the defaults.
+    fields = {f for f in BackendConfig.__dataclass_fields__}
+    backends = [
+        BackendConfig(**{k: v for k, v in b.items() if k in fields})
+        for b in raw.pop("backends", [])
+    ] or None
     known = {f for f in Settings.__dataclass_fields__}
     kwargs = {k: v for k, v in raw.items() if k in known}
     if backends:
@@ -407,6 +425,10 @@ def merge_backend(raw: dict, existing: list[BackendConfig]) -> BackendConfig:
     except (TypeError, ValueError):
         raise SettingsError(f"{name}: timeout must be a number") from None
 
+    think = str(raw.get("think", "off")).strip() or "off"
+    if think not in VALID_THINK:
+        raise SettingsError(f"{name}: unknown thinking mode {think!r}")
+
     models = raw.get("models") or []
     if not isinstance(models, list):
         raise SettingsError(f"{name}: models must be a list")
@@ -421,6 +443,7 @@ def merge_backend(raw: dict, existing: list[BackendConfig]) -> BackendConfig:
         timeout=timeout,
         stop=parse_stop_strings(raw.get("stop")),
         template_spec=_template_spec(raw.get("template_spec")),
+        think=think,
         models=[str(m) for m in models],
     )
 

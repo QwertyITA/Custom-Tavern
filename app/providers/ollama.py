@@ -3,6 +3,15 @@
 Uses /api/chat, which is chat-native, so no instruct template is applied unless
 one is configured explicitly. Ollama reports real token counts, so cost
 accounting (§14) is exact on this tier.
+
+Reasoning models are the one sharp edge. Ollama parses a thinking model's
+output itself and returns the reasoning under `message.thinking`, leaving
+`message.content` empty until the model stops thinking — so a reply pass with a
+few hundred tokens of budget spends all of them reasoning and returns nothing
+at all, over a request that looks completely successful from the outside. Hence
+`think` (§5.6): off by default, and the reasoning that does arrive is captured
+rather than dropped, so the empty-reply message can say which of the two
+happened.
 """
 
 from __future__ import annotations
@@ -42,6 +51,17 @@ class OllamaProvider(Provider):
     def __init__(self, config) -> None:
         super().__init__(config)
         self._client: httpx.AsyncClient | None = None
+        # Set once an Ollama that rejects `think` outright has told us so, so
+        # the retry below happens at most once per process rather than on every
+        # single request (§5.6).
+        self._no_think_field = False
+
+    def think(self) -> bool | None:
+        """None means "send nothing and let the model's template decide"."""
+        mode = getattr(self.config, "think", "off")
+        if mode == "auto" or self._no_think_field:
+            return None
+        return mode == "on"
 
     def client(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -84,6 +104,9 @@ class OllamaProvider(Provider):
                 "stream": stream,
                 "options": _options(request.sampling, stop),
             }
+        think = self.think()
+        if think is not None:
+            payload["think"] = think
         if request.expects_json:
             # Constrained decoding beats asking politely for JSON, especially
             # from the small models on the background tier.
@@ -96,12 +119,44 @@ class OllamaProvider(Provider):
             return chunk["message"].get("content", "")
         return chunk.get("response", "")
 
+    @staticmethod
+    def _think_delta(chunk: dict) -> str:
+        """The reasoning channel, which Ollama returns beside the content.
+
+        Never yielded to the caller — it is not what the character said (§5.6)
+        — but kept, because "it only reasoned" and "it returned nothing" are
+        different faults with different fixes and look identical without it.
+        """
+        if "message" in chunk:
+            return chunk["message"].get("thinking") or ""
+        return chunk.get("thinking") or ""
+
+    def _rejects_think(self, response: httpx.Response, payload: dict, body: str) -> bool:
+        """Whether this Ollama refused the request *because* of `think`.
+
+        Ollama versions before the reasoning switch existed reject the field
+        outright, and some builds reject it for a model with no thinking
+        capability even when it is set to false. Either way the request is
+        fine without it, so it is worth one silent retry — and remembering,
+        so the cost is one wasted round trip per process and not per turn.
+        """
+        if "think" not in payload or response.status_code != 400:
+            return False
+        return "think" in body.lower()
+
+    async def _post(self, url: str, payload: dict) -> dict:
+        response = await self.client().post(url, json=payload)
+        if self._rejects_think(response, payload, response.text):
+            self._no_think_field = True
+            payload.pop("think", None)
+            response = await self.client().post(url, json=payload)
+        response.raise_for_status()
+        return response.json()
+
     async def generate(self, request: GenRequest) -> GenResult:
         url, payload = self._payload(request, stream=False)
         try:
-            response = await self.client().post(url, json=payload)
-            response.raise_for_status()
-            data = response.json()
+            data = await self._post(url, payload)
         except httpx.HTTPError as exc:
             raise ProviderError(f"ollama: {exc}") from exc
         text = self._delta(data)
@@ -111,6 +166,7 @@ class OllamaProvider(Provider):
             tokens_out=data.get("eval_count") or estimate_tokens(text),
             model=self.model,
             provider=self.name,
+            thinking=self._think_delta(data),
             raw=data,
         )
 
@@ -119,25 +175,21 @@ class OllamaProvider(Provider):
     ) -> AsyncIterator[str]:
         url, payload = self._payload(request, stream=True)
         collected: list[str] = []
+        thought: list[str] = []
         final: dict = {}
         try:
-            async with self.client().stream("POST", url, json=payload) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    if not line.strip():
-                        continue
-                    try:
-                        chunk = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if chunk.get("error"):
-                        raise ProviderError(f"ollama: {chunk['error']}")
-                    delta = self._delta(chunk)
-                    if delta:
-                        collected.append(delta)
-                        yield delta
-                    if chunk.get("done"):
-                        final = chunk
+            async for chunk in self._stream_chunks(url, payload):
+                if chunk.get("error"):
+                    raise ProviderError(f"ollama: {chunk['error']}")
+                reasoning = self._think_delta(chunk)
+                if reasoning:
+                    thought.append(reasoning)
+                delta = self._delta(chunk)
+                if delta:
+                    collected.append(delta)
+                    yield delta
+                if chunk.get("done"):
+                    final = chunk
         except httpx.HTTPError as exc:
             raise ProviderError(f"ollama: {exc}") from exc
 
@@ -150,10 +202,36 @@ class OllamaProvider(Provider):
                     tokens_out=final.get("eval_count") or estimate_tokens(text),
                     model=self.model,
                     provider=self.name,
+                    thinking="".join(thought),
                     raw=final,
                 ),
                 sink,
             )
+
+    async def _stream_chunks(self, url: str, payload: dict) -> AsyncIterator[dict]:
+        """NDJSON chunks, with the one retry `think` may need.
+
+        The retry is only ever taken on the status line, before a single chunk
+        has been handed on, so nothing can arrive twice.
+        """
+        while True:
+            async with self.client().stream("POST", url, json=payload) as response:
+                if response.status_code >= 400:
+                    body = (await response.aread()).decode(errors="replace")
+                    if self._rejects_think(response, payload, body):
+                        self._no_think_field = True
+                        payload.pop("think", None)
+                        continue
+                    response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.strip():
+                        continue
+                    try:
+                        chunk = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    yield chunk
+            return
 
     @staticmethod
     def parse_models(data) -> list[str]:

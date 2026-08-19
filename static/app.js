@@ -3069,6 +3069,7 @@ function tavern() {
     // without the browser ever having seen it.
 
     settings: { backends: [], tiers: {}, tier_names: [], kinds: [], templates: [],
+                think_modes: [],
                 kind_defaults: {}, theme_tokens: [], theme: {},
                 backgrounds: [], background: "none", background_dim: 70, path: "" },
     saving: false,
@@ -3281,7 +3282,7 @@ function tavern() {
       const backend = {
         name: `backend-${this.settings.backends.length + 1}`,
         kind: "ollama", model: "", base_url: "", api_key: "",
-        template: "auto", timeout: 120, models: [],
+        template: "auto", timeout: 120, think: "off", models: [],
       };
       this.applyKindDefaults(backend);
       this.settings.backends.push(backend);
@@ -3299,6 +3300,7 @@ function tavern() {
       backend.timeout = defaults.timeout ?? 120;
       backend.model = defaults.model ?? "";
       backend.api_key = defaults.api_key ?? "";
+      backend.think = defaults.think ?? "off";
       backend.models = [];
     },
 
@@ -3424,6 +3426,16 @@ function tavern() {
       } finally {
         this.testing = "";
       }
+    },
+
+    // The stored values are what Ollama's API calls them; these are what they
+    // mean to someone choosing between them.
+    thinkLabel(mode) {
+      return {
+        off: "off — answer straight away",
+        auto: "whatever the model does by default",
+        on: "on — think first",
+      }[mode] || mode;
     },
 
     testLabel(name) {

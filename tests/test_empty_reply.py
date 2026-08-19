@@ -129,12 +129,17 @@ class Misbehaving:
     model = "stub-1"
     sees_images = False
 
-    def __init__(self, output: str) -> None:
+    def __init__(self, output: str, thinking: str = "") -> None:
         self.output = output
+        # Backends that parse reasoning themselves put it here rather than in
+        # the stream — Ollama does, so an empty reply from a thinking model
+        # arrives with nothing streamed at all.
+        self.thinking = thinking
 
     async def stream(self, request, sink=None):
         if sink is not None:
             sink.provider, sink.model = self.name, self.model
+            sink.thinking = self.thinking
         # Awkward chunking on purpose: the marker straddles a boundary.
         for i in range(0, len(self.output), 5):
             yield self.output[i : i + 5]
@@ -156,9 +161,11 @@ def speaking(monkeypatch):
 
     real = sched_mod.provider_for_tier
 
-    def use(output):
+    def use(output, thinking=""):
         def fake(tier, settings=None):
-            return Misbehaving(output) if tier == "blocking" else real(tier, settings)
+            if tier == "blocking":
+                return Misbehaving(output, thinking)
+            return real(tier, settings)
 
         monkeypatch.setattr(sched_mod, "provider_for_tier", fake)
 
@@ -200,6 +207,24 @@ def test_an_empty_reply_fails_the_turn_rather_than_saying_nothing(
     history = repo.list_messages(db, chat["id"])
     assert history[-1]["role"] == "user", "nothing was invented to fill the gap"
     assert not any(m["text"].strip() == "…" for m in history)
+
+
+def test_reasoning_off_the_stream_is_still_reported_as_reasoning(
+    db, chat, character, sched, speaking
+):
+    """Ollama never streams the think block — it hands it back on the result.
+    Reading only the stream made the commonest failure a reasoning model has
+    ("it thought until the budget ran out") report as "nothing at all", which
+    sends someone to check the model is loaded when the model was fine."""
+    from tests.conftest import events_of, sync, turn
+
+    speaking("", thinking="I should say something dry and in character here")
+    events = sync(turn(sched, chat["id"], "hello"))
+
+    errors = events_of(events, "error")
+    assert errors, events
+    assert "reasoning" in errors[0]["error"]
+    assert "nothing at all" not in errors[0]["error"]
 
 
 def test_the_failed_turn_is_retryable(db, chat, character, sched, speaking):

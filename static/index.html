@@ -750,6 +750,23 @@
               </div>
             </div>
 
+            <!-- Ollama parses a reasoning model itself and streams the
+                 thinking on its own channel, so an unattended thinking model
+                 can spend the whole reply budget before it says a word. -->
+            <label class="row" x-show="b.kind === 'ollama'">
+              <span class="row-label">Thinking</span>
+              <select x-model="b.think">
+                <template x-for="t in settings.think_modes || []" :key="t">
+                  <option :value="t" x-text="thinkLabel(t)"></option>
+                </template>
+              </select>
+            </label>
+            <p class="kind-note" x-show="b.kind === 'ollama'">
+              Reasoning models think before they answer, and the thinking comes
+              out of the same token budget as the reply — spend it all and the
+              turn arrives empty. Off unless you want it.
+            </p>
+
             <label class="col-field">
               <span class="row-label wide-label">Stop at</span>
               <textarea rows="2" :value="(b.stop || []).join('\n')"
