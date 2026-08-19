@@ -22,10 +22,79 @@ def ids(layout, band=None):
 # ------------------------------------------------------------- normalising
 
 
-def test_nothing_stored_gives_every_section_switched_on():
+def test_nothing_stored_gives_every_section_in_the_state_it_ships_in():
     layout = prompt_layout.normalise(None)
     assert ids(layout) == [s["id"] for s in prompt_layout.BUILTIN]
-    assert all(s["enabled"] for s in layout)
+    by_id = {s["id"]: s for s in layout}
+    for base in prompt_layout.BUILTIN:
+        assert by_id[base["id"]]["enabled"] is bool(base.get("default_enabled", True))
+
+
+def test_every_slot_ships_switched_on():
+    """Only the writing library gets to ship off, and only where it is a matter
+    of taste. A structural section that arrived off would look like a bug."""
+    assert all(s.get("default_enabled", True) for s in prompt_layout.STRUCTURAL)
+
+
+# ------------------------------------------------------------ the library
+
+
+def test_the_writing_blocks_carry_their_own_text():
+    assert prompt_layout.WRITING
+    for section in prompt_layout.WRITING:
+        assert section["text"].strip(), section["id"]
+        assert section["note"].strip(), section["id"]
+        assert section["band"] == "prefix", "static text belongs in the cached band"
+
+
+def test_the_library_sits_at_the_end_of_the_prefix():
+    """After the card, before the conversation: the rules read as rules rather
+    than as part of who the character is, and they are still inside the part of
+    the prompt that stays cached between turns."""
+    prefix = ids(prompt_layout.normalise(None), "prefix")
+    first_block = min(prefix.index(s["id"]) for s in prompt_layout.WRITING)
+    assert first_block > prefix.index("examples")
+
+
+def test_the_shipped_prompt_stays_affordable():
+    """Every block that ships on is paid for on every single turn. It caches,
+    but it still has to fit next to a character card and a conversation."""
+    from app.providers.base import estimate_tokens
+
+    on = [s for s in prompt_layout.WRITING if s.get("default_enabled", True)]
+    assert estimate_tokens("".join(s["text"] for s in on)) < 2500
+
+
+def test_the_reply_budget_holds_what_the_length_block_asks_for():
+    """The two are coupled and used not to be: the block asks for up to six
+    hundred words, which is around eight hundred tokens, and the state suffix
+    goes after them. Under that the reply is cut mid-sentence and the suffix
+    never arrives, which looks like the state engine having quietly died."""
+    from app.passes.registry import CANONICAL_PASSES
+
+    reply = next(p for p in CANONICAL_PASSES if p.id == "basic")
+    assert reply.sampling.max_tokens >= 900
+
+
+def test_an_edited_block_is_kept_and_a_cleared_one_falls_back():
+    shipped = prompt_layout.BUILTIN_BY_ID["craft:length"]["text"]
+    edited = prompt_layout.normalise([{"id": "craft:length", "enabled": True, "text": "Two lines."}])
+    assert {s["id"]: s for s in edited}["craft:length"]["text"] == "Two lines."
+
+    cleared = prompt_layout.normalise([{"id": "craft:length", "enabled": True, "text": ""}])
+    assert {s["id"]: s for s in cleared}["craft:length"]["text"] == shipped
+
+
+def test_only_the_edit_is_stored():
+    """Storing the shipped text would freeze this install's copy of it, and a
+    later version's rewording would never arrive."""
+    untouched = prompt_layout.to_storage(prompt_layout.normalise(None))
+    assert set(next(s for s in untouched if s["id"] == "craft:prose")) == {"id", "enabled"}
+
+    edited = prompt_layout.to_storage(
+        prompt_layout.normalise([{"id": "craft:prose", "enabled": True, "text": "Be plain."}])
+    )
+    assert next(s for s in edited if s["id"] == "craft:prose")["text"] == "Be plain."
 
 
 def test_a_section_added_in_a_later_version_arrives_switched_on():
@@ -171,6 +240,43 @@ def test_reordering_moves_the_text(db, chat, character):
     ])
     swapped = build(db, chat, character, settings)
     assert swapped.system.index("SCENARIO-MARK") < swapped.system.index(character.persona)
+
+
+def test_the_shipped_writing_blocks_reach_the_prompt(db, chat, character):
+    """The point of shipping them: a fresh install writes the way the preset
+    they came from writes, with nothing to paste in first."""
+    out = build(db, chat, character)
+    assert "## Prose discipline" in out.system
+    assert "## How they talk" in out.system
+
+
+def test_a_shipped_block_that_ships_off_stays_out(db, chat, character):
+    out = build(db, chat, character)
+    assert "## Combat as spectacle" not in out.system
+    assert "## Adult scenes" not in out.system
+
+
+def test_the_writing_blocks_come_after_the_card(db, chat, character):
+    """They are instructions about how to write this character, so they read
+    after the character rather than in front of them."""
+    out = build(db, chat, character)
+    assert out.system.index(character.persona) < out.system.index("## Prose discipline")
+
+
+def test_a_shipped_block_expands_macros(db, chat, character):
+    """They are written with {{user}} in them, and a prompt that says
+    "{{user}}" out loud is worse than one that never mentioned them."""
+    out = build(db, chat, character)
+    assert "{{user}}" not in out.system
+
+
+def test_an_edited_shipped_block_is_what_gets_built(db, chat, character):
+    settings = Settings(prompt_sections=[
+        {"id": "craft:prose", "enabled": True, "text": "Write it plainly."}
+    ])
+    out = build(db, chat, character, settings)
+    assert "Write it plainly." in out.system
+    assert "apophasis" not in out.system.lower()
 
 
 def test_a_custom_prefix_block_reaches_the_prompt(db, chat, character):

@@ -260,6 +260,31 @@ scan depth (how many recent messages scanned for keys), per-entry and total toke
 constant vs triggered entries. Character greetings (`first_mes`, example dialogue) load
 here at chat start.
 
+### 7.5 The writing library
+
+Some prefix sections ship with their **own text** rather than filling a slot: how
+prose reads, how people talk, what a character is allowed to know, how long a reply
+runs. They are ordinary sections — reorderable inside the prefix, switchable, and
+editable, with only the edit stored so an untouched block follows the app.
+
+They live in the **prefix** because they never change, which is the same reason the
+persona does: the KV cache is built on them once and reused (§7.1).
+
+Adapted from a SillyTavern preset (*Freaky Frankenstein 5.2*, the Internal States /
+BOLT setup), which is a stack of toggles a person picks from. Three kinds of block did
+not port, for reasons that are structural rather than editorial:
+
+- **State through the reply.** Internal-state HTML blocks, chain-of-thought gates,
+  notebooks, inventories, relationship trackers. This engine tracks state in separate
+  passes (§1, §5.5), and the reply pass staying ignorant of it is what makes the reply
+  cheap. Asking the reply to print a state block would be the design this one is a
+  reaction to.
+- **Markup by instruction.** Coloured dialogue asks the model for `<font>` tags. Here
+  dialogue colour is a render-time property of the markup tokenizer (§8), themed by the
+  user, so the tags would arrive as visible text.
+- **Refusal bypasses.** Not shipped as a default. The card's own system prompt and a
+  custom block are both there.
+
 ---
 
 ## 8. Message rendering & inline markup

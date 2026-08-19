@@ -843,7 +843,7 @@
                       </button>
                     </div>
                     <div class="p-body">
-                      <button class="p-name" @click="s.custom ? (openBlock = openBlock === s.id ? '' : s.id) : toggleSection(s)">
+                      <button class="p-name" @click="hasText(s) ? (openBlock = openBlock === s.id ? '' : s.id) : toggleSection(s)">
                         <span x-text="s.label"></span>
                       </button>
                       <span class="kind-note" x-text="s.note"></span>
@@ -860,11 +860,15 @@
                   </div>
                 </template>
 
-                <!-- A custom block's own editor, opened by tapping its name. -->
-                <template x-for="s in sectionsIn(band.id).filter(x => x.custom)" :key="`e-${s.id}`">
+                <!-- The editor for anything that carries its own words: your
+                     own blocks, and the ones that ship with the app. Opened by
+                     tapping the name. A shipped block has no title field and
+                     cannot be deleted — switching it off is the same thing and
+                     is undoable. -->
+                <template x-for="s in sectionsIn(band.id).filter(x => hasText(x))" :key="`e-${s.id}`">
                   <div class="fold" :class="{ open: openBlock === s.id }">
                     <div class="fold-clip">
-                      <label class="col-field tight">
+                      <label class="col-field tight" x-show="s.custom">
                         <span class="row-label wide-label">Title</span>
                         <input x-model="s.label" spellcheck="false" placeholder="What this block is">
                       </label>
@@ -873,8 +877,19 @@
                         <textarea rows="4" x-model="s.text"
                                   placeholder="Goes in exactly as written. {{char}} and {{user}} work here."></textarea>
                       </label>
-                      <button class="link danger" @click="removeBlock(s)"
+                      <button class="link danger" x-show="s.custom" @click="removeBlock(s)"
                               x-text="armedBlock === s.id ? 'Tap again to delete' : 'Delete this block'"></button>
+                      <template x-if="s.shipped">
+                        <div>
+                          <p class="kind-note">
+                            Yours to rewrite. Only what you change is stored, so
+                            an untouched block follows the app when its wording
+                            improves.
+                          </p>
+                          <button class="link" @click="s.text = ''"
+                                  x-show="s.text.trim()">Empty it, and saving puts the original back</button>
+                        </div>
+                      </template>
                     </div>
                   </div>
                 </template>

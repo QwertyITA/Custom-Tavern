@@ -213,8 +213,11 @@ def build_reply_context(
     # structural rather than a warning the user is asked to remember.
     layout = prompt_layout.normalise(settings.prompt_sections)
 
-    def custom_text(section: dict) -> str:
-        body = expand(section["text"]).strip()
+    def block_text(section: dict) -> str:
+        """A section that carries its own words: a custom block, or one of the
+        shipped writing blocks (§14). Both are headed with their own label, so
+        what the panel calls a thing is what the prompt calls it."""
+        body = expand(section.get("text") or "").strip()
         return f"## {section['label']}\n{body}" if body else ""
 
     # ---- stable prefix -------------------------------------------------
@@ -253,7 +256,11 @@ def build_reply_context(
     }
 
     prefix = [
-        _part(assembled, s, custom_text(s) if s["custom"] else prefix_parts.get(s["id"], ""))
+        _part(
+            assembled,
+            s,
+            block_text(s) if prompt_layout.has_text(s) else prefix_parts.get(s["id"], ""),
+        )
         for s in prompt_layout.order_for(layout, "prefix")
     ]
 
@@ -328,7 +335,11 @@ def build_reply_context(
             bucket = after_conversation
             conversation_at = len(assembled.parts)
             continue
-        text = custom_text(section) if section["custom"] else middle_parts.get(section["id"], "")
+        text = (
+            block_text(section)
+            if prompt_layout.has_text(section)
+            else middle_parts.get(section["id"], "")
+        )
         if _part(assembled, section, text):
             bucket.append(text)
     if conversation_at is None:  # only reachable from a hand-broken layout
@@ -432,7 +443,11 @@ def build_reply_context(
         else "",
     }
     volatile = [
-        _part(assembled, s, custom_text(s) if s["custom"] else volatile_parts.get(s["id"], ""))
+        _part(
+            assembled,
+            s,
+            block_text(s) if prompt_layout.has_text(s) else volatile_parts.get(s["id"], ""),
+        )
         for s in prompt_layout.order_for(layout, "volatile")
     ]
 

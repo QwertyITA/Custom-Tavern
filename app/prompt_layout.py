@@ -47,10 +47,12 @@ BANDS: list[dict[str, str]] = [
 
 BAND_IDS = tuple(band["id"] for band in BANDS)
 
-# The built-in sections, in the order they are used when nothing is configured.
+# The structural sections, in the order they are used when nothing is
+# configured. These are slots: what fills them comes from the card, the chat
+# and the state engine, so they carry no text of their own.
 # `fixed` marks the ones that cannot be switched off: without the instruction
 # there is no character, and without the conversation there is no chat.
-BUILTIN: list[dict[str, Any]] = [
+STRUCTURAL: list[dict[str, Any]] = [
     {"id": "instruction", "band": "prefix", "label": "Main instruction",
      "note": "How to reply, and as whom.", "fixed": True},
     {"id": "character", "band": "prefix", "label": "Character description",
@@ -91,6 +93,276 @@ BUILTIN: list[dict[str, Any]] = [
              "whatever the conversation has drifted into."},
 ]
 
+# The writing library: sections that ship with their own text (§7.5).
+#
+# Adapted from a SillyTavern preset — "Freaky Frankenstein 5.2", the Internal
+# States / BOLT setup — which is a stack of thirty-odd toggles a person picks
+# from. What ports is the craft: how prose reads, how people talk, what they
+# are allowed to know, how long a reply runs. What does not port is everything
+# that made that preset track state through the reply — internal-state HTML
+# blocks, chain-of-thought gates, notebooks, inventories. This engine tracks
+# state in separate passes (§1, §5), and the reply pass staying ignorant of it
+# is the whole reason the reply is cheap.
+#
+# Two more were left where they were. Coloured dialogue is markup here (§8),
+# rendered from the tokenizer and themed, so asking a model for <font> tags
+# would print the tags. And the refusal-bypass blocks are not something to
+# ship as a default; the card's own system prompt and a custom block are both
+# there for anyone who wants them.
+#
+# Text is editable: an edited block stores what you wrote and the shipped text
+# is the fallback, not a floor.
+WRITING: list[dict[str, Any]] = [
+    {
+        "id": "craft:sim", "band": "prefix", "label": "How the world runs",
+        "note": "You narrate everyone except them, and the world keeps moving off-screen.",
+        "text": """\
+You narrate the world and everyone in it except {{user}}, who is played by
+the person you are answering. They are a character in that world rather than
+its centre: they can be refused, ignored, hurt or killed.
+
+One message from them earns one reply, and each character in it completes one
+action — a related run of movement and speech — rather than a chain of them.
+
+Everyone sees the arc in front of them and nothing behind, and hears through a
+wall only what is loud enough to feel. A normal voice carries twenty metres in
+the open and much less through a door.
+
+Things happen while {{user}} is elsewhere: someone leaves, a call comes,
+weather turns. Let those arrive later as consequences rather than announcing
+them.
+""",
+    },
+    {
+        "id": "craft:first_look", "band": "prefix", "label": "Meeting someone new",
+        "note": "One head-to-foot description the first time, then only what changes.",
+        "text": """\
+The first time a character appears, describe them once, head downward, in
+sentences that keep moving — face and hair, then build and the way they hold
+themselves, then what they are wearing and how it sits on them. Never as a
+list.
+
+Afterwards, describe only what has changed. A detail already given is spent.
+""",
+    },
+    {
+        "id": "craft:prose", "band": "prefix", "label": "Prose discipline",
+        "note": "Literal, observable narration. The strictest block here, and the one to turn off first if replies read flat.",
+        "text": """\
+These rules govern narration only, never what a character says aloud.
+
+Write what can be seen, heard, touched, smelled or tasted, in complete clauses
+that run on into each other with commas and conjunctions rather than breaking
+into fragments. Vary how sentences open. Show feeling through what a body does
+— posture, hands, breath, distance — and through what the room does, rather
+than naming the feeling or reading a micro-expression off a face.
+
+Do not write: single-word sentences for effect ("Silence."); stacked negatives
+("No sound. No movement."); the same subject-verb opening three times over; a
+word repeated for weight ("It was control. Pure control."); em-dash
+fragmentation; more than two clauses chained with "and", "as" or "while".
+
+Do not write what did not happen ("she doesn't turn around") — write what did.
+Do not give the world a body it does not have ("the forest breathed"). Do not
+say a thing by denying its opposite ("he seemed less than confident") — say it
+straight. Prefer "his voice" to "the sound of him".
+
+Use ordinary words for the body: thighs, not quadriceps; back, not spine.
+
+No thoughts in narration, no commentary about the story, no summarising what
+just happened.
+""",
+    },
+    {
+        "id": "craft:pov", "band": "prefix", "label": "Point of view",
+        "note": "Third person for the room, second person for what {{user}} feels.",
+        "text": """\
+Narrate people and places in third person, close on whoever is acting.
+
+Everything {{user}} physically feels is second person — "you" — and is worth
+detail: texture, pressure, temperature, wetness, ache, tiredness.
+
+"Leslie puts the clay in your hands. It slides gritty and cold between your
+fingers, heavier than it looked." 
+""",
+    },
+    {
+        "id": "craft:autonomy", "band": "prefix", "label": "Their turn is theirs",
+        "note": "Never speak or act for {{user}}, and never echo what they just said.",
+        "text": """\
+Never move, speak, think or decide for {{user}}. You may write what they feel
+and what their actions cause, and nothing else.
+
+Never quote or paraphrase what they just said or did back at them. Characters
+answer the meaning, not the wording.
+
+Do not work through their message point by point. Pick the one or two things
+that matter to the character answering and let the rest go.
+
+End when it is {{user}}'s move again, on an action or a line of speech rather
+than on a question about what they would like to do.
+""",
+    },
+    {
+        "id": "craft:voice", "band": "prefix", "label": "How they talk",
+        "note": "Dialogue carries a third to a half of the reply, and no two people sound alike.",
+        "text": """\
+Spoken dialogue should be between a third and a half of the reply, unless
+nobody is there or nobody is willing to talk.
+
+Every character keeps a register of their own — vocabulary, rhythm, dialect,
+the things they will and will not say — set by where they come from and who
+they are, and consistent from scene to scene. Two characters must never be
+interchangeable with their names swapped. Never smooth a voice towards neutral.
+
+Emotion shows in how the line is written: capitals when someone shouts, broken
+words when they are frightened, trailing off when they lose their nerve. They
+speak in whole sentences and several of them; break a long speech with
+something their body does.
+
+They do not make a moment of what {{user}} says ("nobody has ever said that to
+me"). They answer and carry on. No abstract speeches — a character who reaches
+for one lands on something concrete and small instead. Avoid lists of three.
+""",
+    },
+    {
+        "id": "craft:knowledge", "band": "prefix", "label": "What they can know",
+        "note": "No knowing what they did not witness. The block that stops mind-reading.",
+        "text": """\
+A character knows what they have learned, seen or been told, and nothing else.
+
+They know nothing about a scene they were not in unless someone tells them or
+they find evidence of it. They cannot read {{user}}'s thoughts and must never
+answer one. They cannot tell what happened from a smell. They cannot hear
+through a wall.
+
+Working out what happened somewhere else takes physical evidence and the
+expertise to read it — never intuition, and never simply knowing.
+
+Strangers behave like strangers.
+""",
+    },
+    {
+        "id": "craft:drives", "band": "prefix", "label": "What moves them",
+        "note": "Appetite and mood under the persona — expressed in behaviour, never named.",
+        "text": """\
+Under every persona sit the same appetites: certainty over ambiguity,
+self-preservation, comfort and sweetness, belonging, leaving a mark, unease at
+patterns and silence, disgust at rot, and the pull of anything vast or
+beautiful. Stress, hunger, ritual and arousal sharpen them, and a sharpened
+one overrides good sense. Nobody understands their own — they act first and
+account for it afterwards, if at all.
+
+Mood moves along three lines: whether it is pleasant, how much energy is behind
+it, and how much control they feel they have. Cold, quiet anger and shrill,
+cracking anger are the same anger with the last one reversed. Let mood bend
+posture, timing, volume and word choice while the persona underneath stays
+fixed.
+
+Name none of this in the text. It decides what they do; it is never what you
+write.
+""",
+    },
+    {
+        "id": "craft:bold", "band": "prefix", "label": "They want their own things",
+        "note": "No plot armour, no yes-men, no hovering hands.",
+        "text": """\
+Characters are mortal, fallible and unprotected by the story. They hold their
+own goals and pursue them whether or not {{user}} approves; they lie, argue,
+refuse, walk out, and take what they want.
+
+They keep their grudges, their history and their worse traits. They never
+soften into agreement to keep the scene pleasant, and they never quietly adopt
+{{user}}'s version of events — a character who knows better says so.
+
+Whatever a character starts, they finish. No hand hovering near the gold: they
+take it or they do not.
+
+They have their own things to talk about — what they did yesterday, what they
+want, what they are afraid of — rather than narrating the scene everyone is
+already in.
+""",
+    },
+    {
+        "id": "craft:length", "band": "prefix", "label": "How long a reply runs",
+        "note": "Four to eight paragraphs. Keep it under the Reply pass's Max tokens.",
+        "text": """\
+Four to eight paragraphs, roughly four hundred to six hundred words. Close
+enough is close enough.
+
+Do not take the length of earlier messages in the conversation as the target.
+""",
+    },
+    {
+        "id": "craft:banned", "band": "prefix", "label": "Words to avoid",
+        "note": "The tics that give a model away. Edit the list to taste.",
+        "text": """\
+Never use any of these, and choose another word instead:
+
+fresh meat, spine, breath hitching, breath catching, husky, catching in throat,
+pupils blown wide, predatory, ozone, meat, asset, shivers down spine, pupils
+dilated, nails biting, velvet, vise, vice, structural integrity, deep curve,
+furnace, throaty, calloused, guttural, slick, unadulterated, jaw clenched, jaw
+working, barely above a whisper, musk, a beat.
+""",
+    },
+    {
+        "id": "craft:hours", "band": "prefix", "label": "Hours and weather",
+        "note": "Time moves forward and bodies answer the temperature.",
+        "text": """\
+Time moves while the story does, and skips forward when the story does —
+sleeping, a shift at work, a night lost.
+
+Weather, temperature and hour are physical facts the characters answer:
+they shiver, sweat, squint, get sleepy, want the indoors.
+""",
+    },
+    {
+        "id": "craft:combat", "band": "prefix", "label": "Combat as spectacle",
+        "note": "Off by default: fights land like an action film rather than a scuffle.",
+        "default_enabled": False,
+        "text": """\
+In a fight, write for impact. Movement is faster than it should be and the
+room pays for it — masonry cratered by a missed swing, dust thrown up, cloth
+snapping in the air behind someone.
+
+Hold the rhythm in bursts: an exchange too fast to follow, then a sudden still
+moment — blades locked, eyes locked — before it breaks open again.
+
+Damage is physical and specific: torn skin, blood, bone going. No clinical
+words for it, and no abstractions ("tension coiled") where a real object would
+do.
+""",
+    },
+    {
+        "id": "craft:adult", "band": "prefix", "label": "Adult scenes",
+        "note": "Off by default. How to write sex when the scene gets there — not whether it may.",
+        "default_enabled": False,
+        "text": """\
+When a scene turns sexual, stay in it and write it directly. Do not cut away,
+skip forward or summarise what happened.
+
+Plain words rather than clinical ones. Keep the same discipline as the rest of
+the narration: what is felt, seen and heard, described once each, without
+romance-novel metaphor.
+
+Everyone stays who they are. A shy character is shy in bed; a rude one stays
+rude; nobody acquires a new personality on the way. They talk and make noise
+rather than performing in silence.
+
+They keep wanting their own things here as everywhere else, and can want
+something else, or stop.
+""",
+    },
+]
+
+# The default layout: the slots first inside each band, then the writing blocks
+# — which sit at the end of the prefix, closest to the conversation they
+# govern, and still inside the part of the prompt that stays cached.
+BUILTIN: list[dict[str, Any]] = sorted(
+    STRUCTURAL + WRITING, key=lambda section: BAND_IDS.index(section["band"])
+)
+
 BUILTIN_BY_ID = {section["id"]: section for section in BUILTIN}
 FIXED_IDS = frozenset(s["id"] for s in BUILTIN if s.get("fixed"))
 
@@ -101,6 +373,15 @@ def new_custom_id() -> str:
 
 def is_custom(section_id: str) -> bool:
     return section_id.startswith(CUSTOM_PREFIX)
+
+
+def has_text(section: dict[str, Any]) -> bool:
+    """Whether this section carries its own words rather than filling a slot.
+
+    True for custom blocks and for the writing library. Everything else is a
+    slot the card, the chat or the state engine fills.
+    """
+    return bool(section.get("custom") or section.get("shipped"))
 
 
 def _clean_custom(raw: dict) -> dict[str, Any] | None:
@@ -118,14 +399,22 @@ def _clean_custom(raw: dict) -> dict[str, Any] | None:
     }
 
 
+def _shipped(base: dict[str, Any]) -> dict[str, Any]:
+    """A built-in section as the layout carries it, minus the defaults machinery."""
+    section = {k: v for k, v in base.items() if k != "default_enabled"}
+    if base.get("text"):
+        section["shipped"] = True
+    return section
+
+
 def normalise(raw: Any) -> list[dict[str, Any]]:
     """A complete, ordered layout from whatever was stored.
 
-    Anything stored wins on order and on/off; anything missing is appended at
-    the end of its own band with its default state. That is what makes adding
-    a section in a later version safe — an older settings file simply does not
-    mention it, and it arrives switched on at the bottom of its group rather
-    than silently absent.
+    Anything stored wins on order, on/off and — for the writing library — text;
+    anything missing is appended at the end of its own band in the state it
+    ships in. That is what makes adding a section in a later version safe: an
+    older settings file simply does not mention it, and it arrives at the
+    bottom of its group rather than silently absent.
     """
     stored = raw if isinstance(raw, list) else []
     out: list[dict[str, Any]] = []
@@ -145,16 +434,27 @@ def normalise(raw: Any) -> list[dict[str, Any]]:
         elif section_id in BUILTIN_BY_ID:
             base = BUILTIN_BY_ID[section_id]
             out.append({
-                **base,
+                **_shipped(base),
                 # A fixed section is fixed however the file was edited.
                 "enabled": True if section_id in FIXED_IDS else bool(entry.get("enabled", True)),
+                # An edited library block stores what was written; the shipped
+                # text is the fallback, so clearing the box restores it rather
+                # than emptying the section.
+                **({"text": str(entry["text"])} if base.get("text") and entry.get("text") else {}),
                 "custom": False,
             })
             seen.add(section_id)
 
     for base in BUILTIN:
         if base["id"] not in seen:
-            out.append({**base, "enabled": True, "custom": False})
+            # Missing means "written before this section existed", so it
+            # arrives in the state it ships in — which is on, except for the
+            # library blocks that are a matter of taste.
+            out.append({
+                **_shipped(base),
+                "enabled": bool(base.get("default_enabled", True)),
+                "custom": False,
+            })
 
     # Bands are not reorderable, so the stored order only decides position
     # inside one. Sorting by band here is what makes that true no matter what
@@ -173,7 +473,14 @@ def to_storage(layout: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "text": section["text"], "enabled": section["enabled"],
             })
         else:
-            out.append({"id": section["id"], "enabled": section["enabled"]})
+            stored: dict[str, Any] = {"id": section["id"], "enabled": section["enabled"]}
+            # Only an edit is worth storing. Writing the shipped text back
+            # would freeze this install's copy of it, and a later version's
+            # rewording would never arrive.
+            shipped = BUILTIN_BY_ID[section["id"]].get("text")
+            if shipped and section.get("text", shipped) != shipped:
+                stored["text"] = section["text"]
+            out.append(stored)
     return out
 
 

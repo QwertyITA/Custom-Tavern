@@ -179,10 +179,25 @@ def test_the_example_settings_file_agrees_with_the_defaults():
         assert example[key] == getattr(defaults, key), key
 
 
+def bare_layout() -> list[dict]:
+    """Every section on except the shipped writing blocks (§14).
+
+    They are around 1700 tokens of prefix, which is nothing against the default
+    32k budget and everything against the deliberately tiny ones these trimming
+    tests use — with them on, the budget is spent before the first message.
+    """
+    from app import prompt_layout
+
+    return [
+        {"id": s["id"], "enabled": not s.get("shipped")}
+        for s in prompt_layout.normalise(None)
+    ]
+
+
 def test_token_budget_trims_the_oldest_messages_first(db, chat, character):
     for i in range(30):
         repo.add_message(db, chat["id"], "user", f"message number {i} " + "padding " * 40)
-    tight = Settings(token_budget=900, verbatim_window=30)
+    tight = Settings(token_budget=900, verbatim_window=30, prompt_sections=bare_layout())
     assembled = assembly.build_reply_context(db, chat, character, tight)
     assert assembled.trimmed > 0
     kept = [m["content"] for m in assembled.messages if m["role"] == "user"]

@@ -867,6 +867,13 @@ function tavern() {
       return (this.settings.prompt_sections || []).filter((s) => s.band === band);
     },
 
+    // Sections that carry their own words rather than filling a slot: your
+    // blocks, and the writing blocks that ship with the app. Both open an
+    // editor when their name is tapped; everything else toggles.
+    hasText(section) {
+      return !!(section.custom || section.shipped);
+    },
+
     isFixed(section) {
       return (this.settings.prompt_fixed || []).includes(section.id);
     },

@@ -466,6 +466,51 @@ than before it.
 
 Layout is global, not per character: it describes how you like prompts built.
 
+### The writing blocks
+
+Twelve sections at the end of **who they are** arrive with their own text and
+switched on, and two more sit under them switched off. They are the writing
+rules the app ships with: how prose reads, what a point of view is, how people
+talk, what a character is allowed to know, what drives them, how long a reply
+runs, which words never to use. Tap a name to read or rewrite it; the switch
+beside it leaves it out.
+
+| On by default | |
+| --- | --- |
+| How the world runs | You narrate everyone except {{user}}; the world moves off-screen |
+| Meeting someone new | One description on arrival, then only what changed |
+| Prose discipline | Literal, observable narration — the strictest one here |
+| Point of view | Third person for the room, second for what you feel |
+| Their turn is theirs | Never speak or act for you, never echo you |
+| How they talk | A third to a half dialogue, and no two voices alike |
+| What they can know | No knowing what they did not witness |
+| What moves them | Appetite and mood under the persona, never named |
+| They want their own things | No plot armour, no yes-men, no hovering hands |
+| How long a reply runs | Four to eight paragraphs |
+| Words to avoid | The tics that give a model away |
+| Hours and weather | Time moves, and bodies answer the temperature |
+
+**Combat as spectacle** and **adult scenes** ship off; they are a matter of
+taste rather than of craft.
+
+They cost about 1,700 tokens, paid on every turn but cached — which is why they
+sit in the first group and why the context budget defaults to 32k. On a
+backend with a small window, turn some off.
+
+Editing one stores only what you changed, so a block you have not touched
+follows the app if its wording improves later. Empty the box and save to get
+the original back.
+
+They are adapted from a SillyTavern preset — *Freaky Frankenstein 5.2*, the
+Internal States / BOLT setup — rewritten for this app's markup and its pass
+engine. Three kinds of block from it are deliberately not here. Anything that
+made the *reply* track state (internal-state blocks, chain-of-thought gates,
+notebooks, inventories) is what the pass engine already does, and doing it
+twice is what makes replies slow. Coloured dialogue is markup here, themed and
+parsed at render time, so asking a model for `<font>` tags would print the
+tags. And the refusal-bypass blocks are not shipped; a custom block and the
+card's own system prompt are both there if you want them.
+
 ### Writing your own instruct template
 
 Most models are covered by picking `chatml`, `llama3`, `mistral` or `plain` in
