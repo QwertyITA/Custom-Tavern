@@ -474,7 +474,14 @@ body {
 .msg .pfp-slot { margin-top: 2px; }
 .msg.user { justify-content: flex-end; }
 
-.pfp-slot { flex: none; }
+.pfp-slot {
+  flex: none;
+  position: relative;
+  width: 34px; height: 34px;
+}
+.pfp-slot-large { width: 72px; height: 72px; }
+/* The picture, over the placeholder that is always underneath it. */
+.pfp-over { position: absolute; inset: 0; }
 .pfp {
   width: 34px; height: 34px;
   border-radius: 8px;
@@ -501,7 +508,6 @@ body {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.pfp-slot.blank .pfp { visibility: hidden; }
 
 /* The editor's copy, big enough to see what you chose. */
 .pfp-edit { display: flex; gap: 12px; align-items: center; margin: 4px 0 12px; }
@@ -632,8 +638,16 @@ body {
   /* min-height comes from the rendered text, so entering edit mode never
      shrinks the bubble — it only ever grows downward as you type. */
   min-height: 2.5em;
-  resize: none;
-  overflow: hidden;
+  /* Long messages are the ones most worth editing, so the box has to be able
+     to show them: it grows to fit up to a little over half the screen and
+     scrolls beyond that. `hidden` here meant the rest of a long reply could
+     not be reached at all. */
+  max-height: 55vh;
+  resize: vertical;
+  overflow-y: auto;
+  /* The chat scroller must not take a drag that starts inside the box. */
+  touch-action: pan-y;
+  overscroll-behavior: contain;
   background: var(--panel);
   color: var(--text);
   border: 1px solid var(--line);

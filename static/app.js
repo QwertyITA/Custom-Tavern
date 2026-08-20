@@ -2874,7 +2874,11 @@ function tavern() {
     // rendered text had, and only grows from there.
     startEdit(message, fromEl) {
       const bubble = fromEl && fromEl.closest(".bubble");
-      const body = bubble && bubble.querySelector(".body");
+      // `:not(.regen)` matters: every bubble holds two `.body` elements and the
+      // first is the hidden regeneration cue, which has no box. Measuring that
+      // one gave every edit box a height of zero, so it fell back to its 2.5em
+      // floor — two lines to edit six paragraphs in.
+      const body = bubble && bubble.querySelector(".body:not(.regen)");
       if (bubble && body) {
         const rect = body.getBoundingClientRect();
         bubble.style.minWidth = `${Math.ceil(bubble.getBoundingClientRect().width)}px`;
@@ -2883,10 +2887,34 @@ function tavern() {
       this.editingEl = bubble || null;
       this.editing = message.id;
       this.editText = message.text;
+      // Fit the box to the text now rather than on the first keystroke: the
+      // measurement above is the *rendered* height, and markup renders shorter
+      // than the raw text it came from — asterisks and quotes are characters
+      // in the box and formatting on the screen.
+      this.$nextTick(() => {
+        const box = this.editingEl?.querySelector(".edit-box");
+        if (!box) return;
+        box.focus();
+        // Never taller than a little over half the screen, whatever the
+        // rendered text measured: the bubble it came from can be the whole
+        // screen, and a text box that tall has nowhere to put the keyboard.
+        if (this.editHeight) {
+          box.style.minHeight = `${Math.min(this.editHeight, window.innerHeight * 0.55)}px`;
+        }
+        // A frame after the tick, not in it: `x-model` writes the value during
+        // the same flush, and a box measured before its text is in it reports
+        // the height of an empty one — which is how a six-paragraph reply got
+        // three lines to be edited in.
+        requestAnimationFrame(() => this.autosize(box, 0.55));
+      });
     },
 
     endEdit() {
-      if (this.editingEl) this.editingEl.style.minWidth = "";
+      if (this.editingEl) {
+        this.editingEl.style.minWidth = "";
+        const box = this.editingEl.querySelector(".edit-box");
+        if (box) { box.style.minHeight = ""; box.style.height = ""; }
+      }
       this.editingEl = null;
       this.editHeight = 0;
       this.editing = null;
@@ -3973,9 +4001,13 @@ function tavern() {
 
     // ---- misc ----
 
-    autosize(el) {
+    // Grows to fit, up to a limit, and scrolls past that. The limit is what
+    // stops a long reply from filling the screen with a text box; scrolling is
+    // what makes the rest of it reachable, which it was not — the box was
+    // `overflow: hidden`, so anything past the cap was simply gone.
+    autosize(el, cap = 0.3) {
       el.style.height = "auto";
-      el.style.height = Math.min(el.scrollHeight, window.innerHeight * 0.3) + "px";
+      el.style.height = Math.min(el.scrollHeight, window.innerHeight * cap) + "px";
     },
 
     // ---- stick to bottom ----

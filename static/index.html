@@ -343,12 +343,20 @@
            placeholder holds the same space, so nothing shifts sideways when
            one is added. -->
       <template x-if="m.role === 'assistant'">
+        <!-- The placeholder is always here and the picture sits on top of it
+             when there is one. Two reasons, both learned the hard way: an
+             `<img>` with an empty `src` resolves to the current page, fails,
+             and fires `error` — so a row rendered before a picture existed had
+             been permanently marked broken, and stayed blank after one was
+             added while newer rows showed it. And a picture that will not load
+             now falls back to the placeholder by simply going away. -->
         <span class="pfp-slot">
-          <img class="pfp" x-show="portraitFor(m)" :src="portraitFor(m)" alt=""
-               @error="$el.closest('.pfp-slot').classList.add('blank')">
-          <span class="pfp pfp-blank" x-show="!portraitFor(m)" aria-hidden="true">
+          <span class="pfp pfp-blank" aria-hidden="true">
             <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
           </span>
+          <template x-if="portraitFor(m)">
+            <img class="pfp pfp-over" :src="portraitFor(m)" alt="" @error="$el.remove()">
+          </template>
         </span>
       </template>
       <!-- Swipe the message itself to change variant: left forward, right back
@@ -401,9 +409,12 @@
             </span>
           </template>
         </div>
+        <!-- No `:style` binding here on purpose. Alpine writes the whole
+             style attribute for one, which wiped the height `autosize` had
+             just measured — the box stayed at its floor however long the
+             message was. Both numbers are set from `startEdit` instead. -->
         <textarea class="edit-box" x-show="editing === m.id" x-model="editText"
-                  :style="editHeight ? `min-height:${editHeight}px` : ''"
-                  @input="autosize($event.target)" x-cloak></textarea>
+                  @input="autosize($event.target, 0.55)" x-cloak></textarea>
 
         <!-- Both roles get tools now. There is no regenerate button: the
              right-arrow and the swipe gesture already do exactly that, and a
@@ -475,10 +486,12 @@
        existing bubble instead, so nothing appears underneath it. -->
   <article class="msg assistant" x-show="composing && !regenId" x-cloak>
     <span class="pfp-slot">
-      <img class="pfp" x-show="portrait" :src="portrait" alt="">
-      <span class="pfp pfp-blank" x-show="!portrait" aria-hidden="true">
+      <span class="pfp pfp-blank" aria-hidden="true">
         <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
       </span>
+      <template x-if="portrait">
+        <img class="pfp pfp-over" :src="portrait" alt="" @error="$el.remove()">
+      </template>
     </span>
     <div class="bubble composing">
       <span class="anim anim-typing" x-show="composingKind === 'typing'"><i></i><i></i><i></i></span>
@@ -1685,9 +1698,14 @@
              all before, which made every conversation with one a column of
              blank squares. -->
         <div class="pfp-edit">
-          <img class="pfp pfp-large" x-show="draftPortrait()" :src="draftPortrait()" alt="">
-          <span class="pfp pfp-large pfp-blank" x-show="!draftPortrait()" aria-hidden="true">
-            <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
+          <span class="pfp-slot pfp-slot-large">
+            <span class="pfp pfp-large pfp-blank" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
+            </span>
+            <template x-if="draftPortrait()">
+              <img class="pfp pfp-large pfp-over" :src="draftPortrait()" alt=""
+                   @error="$el.remove()">
+            </template>
           </span>
           <div class="pfp-edit-actions">
             <label class="link file-link">
