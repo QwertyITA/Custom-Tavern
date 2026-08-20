@@ -47,7 +47,12 @@ _MIN_PREDICT = 256
 
 
 def _options(
-    sampling: Sampling, stop: list[str], kind: str = "ollama", *, thinking: bool = False
+    sampling: Sampling,
+    stop: list[str],
+    kind: str = "ollama",
+    *,
+    thinking: bool = False,
+    cap: int = 0,
 ) -> dict:
     """Ollama's `options` block: the samplers it takes, under its own names.
 
@@ -55,7 +60,11 @@ def _options(
     does not know, but a request carrying a dozen parameters nobody set is how
     output changes for reasons nobody can account for.
     """
-    predict = sampling.max_tokens
+    # `cap` is what this pass may answer with — its own request, under the
+    # backend's ceiling. Reasoning is added on top of that rather than taken
+    # out of it: the slider says how long the *answer* may be, and a model that
+    # thinks for six hundred tokens has not written any of it yet.
+    predict = cap or sampling.max_tokens
     if thinking and predict > 0:
         predict += min(int(predict * THINKING_HEADROOM), THINKING_HEADROOM_CAP)
     return {
@@ -98,7 +107,7 @@ class OllamaProvider(Provider):
             return None
         return mode == "on"
 
-    async def context_limit(self) -> int | None:
+    async def _probe_context(self) -> int | None:
         """What this model is actually serving, prompt and reply together.
 
         Two sources, in order. `/api/ps` knows what a *loaded* model was loaded
@@ -163,7 +172,11 @@ class OllamaProvider(Provider):
         think = self.think(request)
         # `None` is "the model's template decides", which for a reasoning model
         # means it will. Anything but an explicit no gets the headroom.
-        options = _options(request.sampling, stop, thinking=think is not False)
+        options = _options(
+            request.sampling, stop,
+            thinking=think is not False,
+            cap=self.cap(request.sampling),
+        )
         if limit:
             # The last word on how much room there is. The scheduler has
             # already fitted the *prompt* to this window; this is the other
@@ -370,7 +383,7 @@ class LlamaCppProvider(OllamaProvider):
     kind = "llamacpp"
     native_chat = False
 
-    async def context_limit(self) -> int | None:
+    async def _probe_context(self) -> int | None:
         """`/props` reports what the server was started with, which for
         llama.cpp is the whole story: `-c` is the window and there is no
         per-request resizing."""

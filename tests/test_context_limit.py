@@ -227,3 +227,54 @@ def test_the_reply_ships_asking_for_five_thousand():
 
     reply = next(p for p in CANONICAL_PASSES if p.id == "basic")
     assert reply.sampling.max_tokens == 5000
+
+
+# ------------------------------------------------ the ceiling on the backend
+
+
+def capped(**overrides):
+    return OllamaProvider(BackendConfig(name="o", kind="ollama", model="m", **overrides))
+
+
+def test_a_pass_gets_what_it_asked_for_under_the_ceiling():
+    provider = capped(max_tokens=2000)
+    assert provider.cap(Sampling(max_tokens=5000)) == 2000
+    assert provider.cap(Sampling(max_tokens=300)) == 300
+
+
+def test_the_ceiling_ships_at_five_thousand():
+    assert capped().cap(Sampling(max_tokens=5000)) == 5000
+
+
+def test_the_cheap_passes_stay_cheap_under_a_big_ceiling():
+    """The ceiling is a ceiling, not a target: raising it must not make the
+    sixty-token passes ask for thousands."""
+    provider = capped(max_tokens=16000)
+    assert provider.cap(Sampling(max_tokens=60)) == 60
+
+
+def test_a_configured_window_is_believed_over_the_backend():
+    """For the backends that cannot be asked, and the ones that answer wrong."""
+    def handler(request):
+        raise AssertionError("nothing should be asked when it is configured")
+
+    provider = wired(handler, context=8192)
+    assert sync(provider.context_limit()) == 8192
+
+
+def test_horde_asks_for_no_more_than_it_allows():
+    from app.providers.horde import HordeProvider
+
+    provider = HordeProvider(BackendConfig(name="h", kind="horde", max_tokens=512))
+    payload = provider.build_payload(GenRequest(sampling=Sampling(max_tokens=5000)))
+    assert payload["params"]["max_length"] == 512
+
+
+def test_the_openai_shape_carries_the_ceiling_too():
+    from app.providers.openai_compat import OpenAICompatProvider
+
+    provider = OpenAICompatProvider(
+        BackendConfig(name="o", kind="openai", model="gpt", max_tokens=1500)
+    )
+    payload = provider._payload(GenRequest(sampling=Sampling(max_tokens=5000)), stream=False)
+    assert payload["max_tokens"] == 1500

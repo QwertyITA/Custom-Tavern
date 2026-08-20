@@ -77,31 +77,34 @@ TIER_GROUPS: tuple[dict[str, Any], ...] = (
 KIND_DEFAULTS: dict[str, dict[str, Any]] = {
     "echo": {
         "model": "echo-1", "base_url": "", "template": "auto", "timeout": 120,
-        "think": "auto",
+        "think": "auto", "max_tokens": 5000, "context": 0,
         "note": "Built-in fake model. No network, no key — use it to test the UI.",
     },
     "ollama": {
         "model": "llama3.1:8b", "base_url": "http://127.0.0.1:11434",
         "template": "auto", "timeout": 120, "think": "auto",
+        "max_tokens": 5000, "context": 0,
         "note": "Your PC over Tailscale. Use its tailnet IP, not localhost, "
                 "unless Ollama runs on the phone.",
     },
     "llamacpp": {
         "model": "qwen2.5-3b-instruct", "base_url": "http://127.0.0.1:8080",
         "template": "chatml", "timeout": 300, "think": "auto",
+        "max_tokens": 2000, "context": 0,
         "note": "llama.cpp server on the phone. Foreground only — it throttles "
                 "hard when backgrounded.",
     },
     "openai": {
         "model": "gpt-4o-mini", "base_url": "https://api.openai.com/v1",
         "template": "auto", "timeout": 120, "think": "auto",
+        "max_tokens": 5000, "context": 0,
         "note": "Any OpenAI-compatible /v1 endpoint: hosted APIs, LM Studio, "
                 "vLLM, text-generation-webui.",
     },
     "horde": {
         "model": "", "base_url": "https://aihorde.net/api/v2",
         "api_key": "0000000000", "template": "chatml", "timeout": 300,
-        "think": "off",
+        "think": "off", "max_tokens": 512, "context": 32000,
         "note": "Free and network-only, so it is the safest background tier. "
                 "Slow and queue-bound: never use it for the reply. "
                 "0000000000 is the anonymous key — a real key gets priority.",
@@ -278,6 +281,15 @@ class BackendConfig:
     # Reasoning switch, for the backends that have one (Ollama's `think`).
     # off | auto | on — see VALID_THINK.
     think: str = "auto"
+    # The most this backend may generate in one call, reasoning included. A
+    # ceiling rather than a target: each pass still asks for what it needs, and
+    # the cheap ones ask for very little. It lives on the backend because that
+    # is what it is a property of — a 4k phone model and a hosted 200k one do
+    # not have one answer between them.
+    max_tokens: int = 5000
+    # The window, prompt and reply together. 0 asks the backend, which is right
+    # whenever it can answer; a number overrides it, for the ones that cannot.
+    context: int = 0
     # Horde-only knobs; ignored elsewhere.
     models: list[str] = field(default_factory=list)
 
@@ -484,6 +496,9 @@ def merge_backend(raw: dict, existing: list[BackendConfig]) -> BackendConfig:
     if think not in VALID_THINK:
         raise SettingsError(f"{name}: unknown thinking mode {think!r}")
 
+    max_tokens = _positive(raw.get("max_tokens"), 5000, low=32, high=32768)
+    context = _positive(raw.get("context"), 0, low=0, high=1_000_000)
+
     models = raw.get("models") or []
     if not isinstance(models, list):
         raise SettingsError(f"{name}: models must be a list")
@@ -499,8 +514,19 @@ def merge_backend(raw: dict, existing: list[BackendConfig]) -> BackendConfig:
         stop=parse_stop_strings(raw.get("stop")),
         template_spec=_template_spec(raw.get("template_spec")),
         think=think,
+        max_tokens=max_tokens,
+        context=context,
         models=[str(m) for m in models],
     )
+
+
+def _positive(raw: Any, fallback: int, *, low: int, high: int) -> int:
+    """One whole number from a settings file, or the default if it is nonsense."""
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return fallback
+    return max(low, min(high, value))
 
 
 def default_think(kind: str) -> str:

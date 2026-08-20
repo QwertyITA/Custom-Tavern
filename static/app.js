@@ -1043,6 +1043,40 @@ function tavern() {
       return (this.settings.prompt_sections || []).filter((s) => s.band === band);
     },
 
+    // The two numbers a backend has rather than a pass: how much it may write
+    // at once, and how much it can hold. Ranges are the useful span — the box
+    // beside each still takes anything the server allows.
+    backendNumbers() {
+      return [
+        { key: "max_tokens", label: "Max output", min: 128, max: 16384, step: 64,
+          unit: " tok", zero: "",
+          note: "The most this backend writes in one answer. Every pass asks "
+              + "for what it needs and is capped here; reasoning is paid for "
+              + "on top." },
+        { key: "context", label: "Context window", min: 0, max: 131072, step: 1024,
+          unit: " tok", zero: "asked",
+          note: "Prompt and answer together. Left at 0 the backend is asked "
+              + "what it is serving, which is the right answer whenever it can "
+              + "give one — set a number only to override it." },
+      ];
+    },
+
+    backendNumber(backend, field) {
+      const value = parseInt(backend[field.key], 10);
+      return Number.isFinite(value) ? value : field.min;
+    },
+
+    setBackendNumber(backend, field, raw) {
+      const value = parseInt(raw, 10);
+      if (Number.isNaN(value)) return;
+      backend[field.key] = Math.max(field.min, Math.min(field.max, value));
+    },
+
+    backendNumberLabel(backend, field) {
+      const value = this.backendNumber(backend, field);
+      return !value && field.zero ? field.zero : `${value}${field.unit || ""}`;
+    },
+
     // Sections that carry their own words rather than filling a slot: your
     // blocks, and the writing blocks that ship with the app. Both open an
     // editor when their name is tapped; everything else toggles.
@@ -3434,13 +3468,9 @@ function tavern() {
         from("top_p", "Top p"),
         // Not in the catalogue: it has no neutral value and nobody tunes it
         // for taste, so it is not one of the samplers that can be left unsent.
-        // Up to 8k: the reply ships asking for 5000, and a slider that stops
-        // at 2048 cannot express the value the app itself defaults to.
-        { key: "max_tokens", label: "Max tokens", min: 32, max: 8192, step: 32,
-          note: "How long the answer may be. Reasoning is paid for on top of "
-              + "it, and if this plus the context budget is more than the "
-              + "backend can hold, the context is trimmed to fit rather than "
-              + "the answer." },
+        // Length is not here any more: it belongs to the backend, which is
+        // the thing that has a window. See the two sliders in the backend
+        // editor. A pass still asks for what it needs and the backend caps it.
       ];
     },
 
@@ -3562,7 +3592,8 @@ function tavern() {
       const backend = {
         name: `backend-${this.settings.backends.length + 1}`,
         kind: "ollama", model: "", base_url: "", api_key: "",
-        template: "auto", timeout: 120, think: "auto", models: [],
+        template: "auto", timeout: 120, think: "auto",
+        max_tokens: 5000, context: 0, models: [],
       };
       this.applyKindDefaults(backend);
       this.settings.backends.push(backend);
@@ -3581,6 +3612,8 @@ function tavern() {
       backend.model = defaults.model ?? "";
       backend.api_key = defaults.api_key ?? "";
       backend.think = defaults.think ?? "auto";
+      backend.max_tokens = defaults.max_tokens ?? 5000;
+      backend.context = defaults.context ?? 0;
       backend.models = [];
     },
 

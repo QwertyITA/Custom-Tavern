@@ -125,15 +125,37 @@ class Provider:
     async def generate(self, request: GenRequest) -> GenResult:
         raise NotImplementedError
 
+    def cap(self, sampling: Sampling) -> int:
+        """What a pass may generate here: what it asked for, under this
+        backend's ceiling.
+
+        The pass says how much it needs — the reply wants room for eight
+        paragraphs, the expression pass wants sixty tokens — and the backend
+        says how much it has. Neither is the answer on its own, which is why
+        the ceiling lives on the backend and the request lives on the pass.
+        """
+        want = sampling.max_tokens or 0
+        ceiling = int(getattr(self.config, "max_tokens", 0) or 0)
+        if not ceiling:
+            return want
+        return min(want, ceiling) if want else ceiling
+
     async def context_limit(self) -> int | None:
         """How many tokens this backend can hold at once, prompt and reply
         together — or None when it has no way to say.
 
-        Asked rather than configured: the number is a property of the model
-        that is loaded right now, and the one place it is known for certain is
-        the backend serving it. A budget larger than this is not ambitious, it
-        is silently truncated somewhere out of sight.
+        Configured beats asked: the number set on the backend is there for the
+        backends that cannot be asked, and for the ones whose answer is wrong.
+        Otherwise it is a property of the model loaded right now, and the one
+        place it is known for certain is the backend serving it. A budget
+        larger than this is not ambitious, it is silently truncated somewhere
+        out of sight.
         """
+        configured = int(getattr(self.config, "context", 0) or 0)
+        return configured or await self._probe_context()
+
+    async def _probe_context(self) -> int | None:
+        """Ask the backend itself. Overridden by the kinds that can be asked."""
         return None
 
     async def list_models(self) -> list[str]:

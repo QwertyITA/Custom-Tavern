@@ -528,8 +528,20 @@ Layout is global, not per character: it describes how you like prompts built.
 
 ### How long a reply may be
 
-**Max tokens**, on the Reply pass under ☰ → brain → Passes → Messages →
-Sampling. It ships at **5000**: the writing blocks ask for four to eight
+Two sliders, **on the backend** — under ☰ → brain → Backends, because a window
+is a property of a machine and a model, not of a pass. A 4k phone model and a
+hosted 200k one do not have one answer between them.
+
+- **Max output** — the most this backend writes in one answer. Ships at 5000
+  (512 on Horde, which refuses more; 2000 on the on-device llama.cpp). Every
+  pass still asks for what it needs — sixty tokens for the expression pass —
+  and is capped here, so raising it does not make the cheap passes expensive.
+  Reasoning is paid for on top: the number is how long the *answer* may be.
+- **Context window** — prompt and answer together. Left at **0** the backend is
+  asked what it is serving, which is the right answer whenever it can give one.
+  Set a number to override it.
+
+5000 is the default because the writing blocks ask for four to eight
 paragraphs, the state block goes after them, and a reasoning model spends
 several hundred tokens before it writes a word. Room to spare costs nothing on
 a backend that stops when it has finished; running out costs the whole turn.

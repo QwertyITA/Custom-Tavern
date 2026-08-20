@@ -66,7 +66,7 @@ class HordeProvider(Provider):
         self._client: httpx.AsyncClient | None = None
         self.context_length = DEFAULT_CONTEXT
 
-    async def context_limit(self) -> int | None:
+    async def _probe_context(self) -> int | None:
         """Horde's own ceiling, not a model's: a worker may hold more, but the
         API refuses a request that asks for more than this."""
         return LIMITS["max_context_length"][1]
@@ -106,7 +106,7 @@ class HordeProvider(Provider):
             if name in params and isinstance(bounds, tuple):
                 params[name] = type(params[name])(_clamp(params[name], *bounds))
         params.update({
-            "max_length": int(_clamp(sampling.max_tokens, *LIMITS["max_length"])),
+            "max_length": int(_clamp(self.cap(sampling), *LIMITS["max_length"])),
             "max_context_length": int(_clamp(self.context_length, *LIMITS["max_context_length"])),
             "n": 1,
         })

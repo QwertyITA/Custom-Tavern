@@ -1452,7 +1452,11 @@ class PassScheduler:
             limit = None
         if not limit:
             return settings
-        reply = definition.sampling.max_tokens or 0
+        # What this backend will actually be asked for, not what the pass
+        # would like: a 512-token Horde worker and a 5000-token Ollama need
+        # different amounts of the window left over.
+        reply = provider.cap(definition.sampling) if hasattr(provider, "cap") else 0
+        reply = reply or definition.sampling.max_tokens or 0
         # A little back for the suffix contract and for the estimator being an
         # estimator: four characters to a token is close, never exact.
         room = limit - reply - CONTEXT_SAFETY

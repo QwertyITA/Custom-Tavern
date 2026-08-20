@@ -66,7 +66,7 @@ class OpenAICompatProvider(Provider):
             "model": self.model,
             "messages": messages,
             **samplers.params_for(self.kind, sampling),
-            "max_tokens": sampling.max_tokens,
+            "max_tokens": self.cap(sampling),
             "stream": stream,
         }
         stop = self.stop_strings(sampling)

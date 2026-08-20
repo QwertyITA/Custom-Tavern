@@ -774,6 +774,28 @@
             <p class="kind-note" x-show="b.kind !== 'echo'"
                x-text="thinkLabel(b.think || 'auto')"></p>
 
+            <!-- The two numbers that belong to a machine rather than to a
+                 pass. They used to sit under each pass's sampling, which put
+                 the same decision in five places and none of them next to the
+                 model it depends on. -->
+            <template x-for="n in backendNumbers()" :key="n.key">
+              <div class="num-field">
+                <div class="num-head">
+                  <span class="num-label" x-text="n.label"></span>
+                  <input class="num-box" type="number" :min="n.min" :max="n.max" :step="n.step"
+                         :value="backendNumber(b, n)"
+                         @input="setBackendNumber(b, n, $event.target.value)"
+                         :aria-label="`${b.name} ${n.label}`">
+                  <span class="num-unit" x-text="backendNumberLabel(b, n)"></span>
+                </div>
+                <input class="num-slider" type="range" :min="n.min" :max="n.max" :step="n.step"
+                       :value="backendNumber(b, n)"
+                       @input="setBackendNumber(b, n, $event.target.value)"
+                       :aria-label="`${b.name} ${n.label}`">
+                <p class="kind-note" x-text="n.note"></p>
+              </div>
+            </template>
+
             <label class="col-field">
               <span class="row-label wide-label">Stop at</span>
               <textarea rows="2" :value="(b.stop || []).join('\n')"
