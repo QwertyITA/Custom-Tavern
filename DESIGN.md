@@ -170,7 +170,11 @@ streams clean prose and structure rides in a suffix.
   text as a `<think>` block, or — where the backend parses it for us, as Ollama
   does — on a separate reasoning channel that never enters the stream at all.
   Both are captured; a diagnosis that reads only the stream calls the second one
-  "returned nothing".
+  "returned nothing". A third arrives with **no opening tag at all**: Ollama and
+  llama.cpp serve models whose chat template writes the `<think>` itself, so the model
+  emits only the closer and the reply begins mid-thought. A closer with nothing to
+  close therefore means everything before it was reasoning — including whatever has
+  already been streamed, which the client is told to take back off the screen.
 - **Reasoning is separated as it arrives**, not once the reply is complete.
   Inline, that is what makes "never displayed inline" true of the live stream and
   not only of the stored message: the think block used to sit in the bubble for
@@ -260,11 +264,34 @@ with the pass off nothing is ever evicted and a chat under its context budget ke
 every word it actually said. That is the right default because a summarised message
 leaves the prompt *permanently* — the stage is stored, and no later setting brings it
 back — which makes the summary the only surviving account of everything it covers.
-Written by the cheapest model in the stack, eight turns at a time, it is routinely
-wrong about the premise and about who did what, and then that is what the character
-knows. Turn it on when a chat actually outgrows its window; `memory` (§7.3) stays on
-either way, because a durable fact is worth carrying forward whether or not anything
-is being thrown away.
+Written by the cheapest model in the stack it is routinely wrong about the premise and
+about who did what, and then that is what the character knows. `memory` (§7.3) stays
+on either way, because a durable fact is worth carrying forward whether or not
+anything is being thrown away.
+
+**Everything here answers pressure, not a count.** Three rules, and each one exists
+because its absence was measured on a real chat holding 3788 tokens against a 32768
+budget — an eighth of it — that had already lost its opening message:
+
+- **The verbatim window is a floor, not a cap.** `verbatim_window` is the number of
+  recent messages kept in full *at minimum*; above it the budget decides how far back
+  the conversation goes. As a hard count it also slid by one message every turn once a
+  chat passed it, which moved the start of the conversation and took the KV cache with
+  it on every single turn.
+- **The opening message is pinned.** It is the scenario — where everyone is, what the
+  arrangement is, who these people are to each other — and nothing later in a chat
+  restates any of it. Being turn 0 it was otherwise always the first thing evicted,
+  and its absence is what turns a character into someone who does not know where they
+  are. Neither the window, the trimmer nor the ladder may take it.
+- **Nothing is evicted while the prompt still fits.** Eviction is permanent, so it
+  waits until the last assembled prompt was at 85% of the budget. A caller that cannot
+  say how full the prompt was evicts nothing.
+
+The summary pass answers the same signal: its trigger is `over_budget`, and it covers
+only messages that have actually left the window. Covering turns still in the prompt
+was worse than useless — the summary sits *above* the conversation and reads as
+established fact, so a cheap model's misreading contradicted the exchange itself a few
+hundred tokens further down.
 
 ### 7.3 Memory store (non-blocking `memory` pass)
 
@@ -306,7 +333,12 @@ not port, for reasons that are structural rather than editorial:
   reaction to.
 - **Markup by instruction.** Coloured dialogue asks the model for `<font>` tags. Here
   dialogue colour is a render-time property of the markup tokenizer (§8), themed by the
-  user, so the tags would arrive as visible text.
+  user, so the tags would arrive as visible text. What the app *does* have to state is
+  the convention itself — quotes for speech, asterisks for everything else — and that
+  is `craft:format`, the one block in the library that lives in the volatile band
+  rather than the prefix. It is the rule the renderer depends on, and a small model
+  follows the instruction it read last, which is worth the few tokens it costs to
+  recompute each turn.
 - **Refusal bypasses.** Not shipped as a default. The card's own system prompt and a
   custom block are both there.
 
@@ -330,6 +362,18 @@ Markup **nests and interleaves freely** within a message (`*action "quote" more*
 - A real **tokenizer**, not naive regex — nested and mixed runs must colour correctly.
 - **Graceful degradation** on unbalanced markup (stray/unclosed `*` or `"`, which
   models produce): fail soft, never miscolour the rest of the message.
+- **Repaired before it is stored.** Failing soft is right for rendering and wrong to
+  keep: an asterisk that could have opened or closed something and found no partner is
+  a mistake, and `clean_reply` deletes it. The rule is the tokenizer's own, so the two
+  cannot disagree, and a marker that could do neither — `2 * 3` — was never markup and
+  stays. Measured over one real chat, 26 of 47 replies carried at least one.
+- **The convention is stated in the prompt**, by the `craft:format` block, which lives
+  in the volatile band. It was a clause of the `instruction` slot's fallback, so a card
+  with its own system prompt replaced the only statement of it — and the twelve craft
+  blocks between it and the conversation contain no asterisk between them.
+- **Tags this app cannot draw are stripped**, from replies and from imported cards
+  alike. Output is rendered with `textContent`, so an `<img>` arrives on screen as its
+  own source and costs prompt tokens on every turn to do it.
 
 Custom colours attach to these parser rules. The `Message` model stores **raw text
 only** — no `segments` field.
