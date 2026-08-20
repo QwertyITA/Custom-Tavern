@@ -11,7 +11,7 @@
     "background": "horde"
   },
 
-  "_backends": "One entry per inference endpoint. `think` is Ollama-only, off | auto | on: Ollama parses a reasoning model itself and returns the thinking on its own channel, so a model left to think can spend the whole reply budget before it says a word (\u00a75.6). `auto` sends nothing and leaves the decision to the model's own template.",
+  "_backends": "One entry per inference endpoint. `think` is off | auto | on, read by the backends that have a switch for it: Ollama, which parses a reasoning model itself and returns the thinking on its own channel \u2014 so a model left to think can spend the whole reply budget before it says a word (\u00a75.6) \u2014 and the built-in `echo`, which reasons on demand so the thinking cue can be seen without a real model. `auto` sends nothing and leaves the decision to the model's own template.",
   "backends": [
     {
       "name": "ollama",

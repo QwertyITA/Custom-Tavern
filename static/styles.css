@@ -421,6 +421,164 @@ body {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* The thinking cue: the reply pass while the model is reasoning (§5.6).
+
+   A different object from the dots rather than a faster version of them,
+   because it means a different thing. The dots mean the backend has not
+   answered; this means it has, and the answer is being worked out where it
+   cannot be seen. That gap is routinely a minute long on a local reasoning
+   model, and it used to look exactly like a dead connection.
+
+   Three layers turning against each other: a ring sweeping one way, three
+   sparks orbiting the other and firing in sequence, and a core breathing
+   under them. The counter-rotation is what keeps it from settling into a
+   shape — three dots pinned in a triangle read as a face at this size, and a
+   face is not what this is about.
+
+   --think is how far into the thought we are: 0 to 1, saturating, set from
+   app.js. The ring's arc grows with it, so a thought that has been running a
+   while looks like one instead of looping identically forever. */
+.anim-thinking {
+  position: relative;
+  width: 22px;
+  height: 22px;
+}
+
+/* The ring. Continuous rotation, so `linear` is right here for the same
+   reason as the spinner and the cogs: there is no start and no end to ease
+   between, and easing a rotation makes it hesitate once a turn. */
+.anim-thinking::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    color-mix(in srgb, var(--accent) 45%, transparent) calc(30deg + var(--think) * 40deg),
+    var(--accent) calc(95deg + var(--think) * 165deg),
+    transparent calc(130deg + var(--think) * 200deg)
+  );
+  /* A ring, not a disc: the sparks live in the hole. */
+  -webkit-mask: radial-gradient(closest-side, transparent 74%, #000 80%);
+          mask: radial-gradient(closest-side, transparent 74%, #000 80%);
+  animation: think-sweep 2.6s linear infinite;
+}
+@keyframes think-sweep { to { transform: rotate(360deg); } }
+
+/* The core, breathing under everything. Small and dim on purpose: filling the
+   ring's hole with it turned the whole cue into one soft blob. */
+.anim-thinking::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  margin: -4.5px 0 0 -4.5px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle closest-side,
+    color-mix(in srgb, var(--accent) 30%, transparent),
+    transparent
+  );
+  animation: think-breathe 2.4s var(--ease-in-out) infinite;
+}
+@keyframes think-breathe {
+  0%, 100% { transform: scale(.7); opacity: .45; }
+  50%      { transform: scale(1.15); opacity: .95; }
+}
+
+/* The sparks. Each `i` is a zero-sized anchor carried round the orbit, and the
+   dot it draws is the pseudo-element — so a spark can flare without the
+   transform that positions it having to be restated in every keyframe, which
+   is how all three of them ended up sitting at the centre. */
+.anim-thinking i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  /* Where this one sits on the orbit. Stated as a static transform as well as
+     in the keyframes: with reduced motion the animation is cut to one 1ms
+     iteration and the element falls back to this, and without it all three
+     sparks fall back to the centre and stack. */
+  --a: 0deg;
+  transform: rotate(var(--a)) translateY(-5.5px);
+  animation: think-orbit 5.2s linear infinite reverse;
+}
+.anim-thinking i:nth-child(2) { --a: 120deg; }
+.anim-thinking i:nth-child(3) { --a: 240deg; }
+@keyframes think-orbit {
+  from { transform: rotate(var(--a)) translateY(-5.5px); }
+  to   { transform: rotate(calc(var(--a) + 360deg)) translateY(-5.5px); }
+}
+.anim-thinking i::before {
+  content: "";
+  position: absolute;
+  left: -1.75px;
+  top: -1.75px;
+  width: 3.5px;
+  height: 3.5px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: think-spark 1.9s var(--ease-in-out) infinite;
+}
+.anim-thinking i:nth-child(2)::before { animation-delay: .3s; }
+.anim-thinking i:nth-child(3)::before { animation-delay: .6s; }
+@keyframes think-spark {
+  0%, 62%, 100% { transform: scale(.62); opacity: .4; }
+  20%           { transform: scale(1.35); opacity: 1; }
+}
+
+/* The cue box: all three cues stacked in one square, one of them lit.
+
+   Mounted together rather than swapped with `x-show`, so waiting → thinking is
+   something you watch happen — the dots shrink away as the ring springs in —
+   rather than one glyph being replaced by another between two frames. The dark
+   ones are paused: an animation nobody can see is battery. */
+.cue {
+  /* Declared here rather than on .anim-thinking, which is where it is read:
+     a custom property set on the element itself beats the one inherited from
+     the parent, so the fallback silently pinned every thought at zero. */
+  --think: 0;
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  width: 22px;
+  height: 22px;
+}
+.cue > .anim {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(.5);
+  transition: opacity var(--dur-base) var(--ease-out),
+              transform var(--dur-base) var(--ease-back);
+}
+/* The dots keep their own height here, or a 14px box would centre them below
+   the middle of a 22px one and the bounce would run off the top. */
+.cue > .anim-typing { height: auto; }
+.cue > .anim,
+.cue > .anim::before,
+.cue > .anim::after,
+.cue > .anim > i,
+.cue > .anim > i::before { animation-play-state: paused; }
+
+.cue.is-typing > .anim-typing,
+.cue.is-thinking > .anim-thinking,
+.cue.is-cogs > .anim-cogs {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+.cue.is-typing > .anim-typing > i,
+.cue.is-thinking > .anim-thinking > i,
+.cue.is-thinking > .anim-thinking::before,
+.cue.is-thinking > .anim-thinking::after,
+.cue.is-thinking > .anim-thinking > i::before,
+.cue.is-cogs > .anim-cogs::before { animation-play-state: running; }
+
 /* background passes: ambient, no character-thinking cue */
 .anim-ambient::before {
   content: "◍";
@@ -2547,6 +2705,10 @@ input.mono {
    for the same reasons as the reduced-motion block above. */
 :root.motion-off .icon-btn.refresh.spinning,
 :root.motion-off .anim-ambient::before,
+:root.motion-off .anim-thinking::before,
+:root.motion-off .anim-thinking::after,
+:root.motion-off .anim-thinking i,
+:root.motion-off .anim-thinking i::before,
 :root.motion-off .sk-line,
 :root.motion-off .chip.working,
 :root.motion-off .composing-label {

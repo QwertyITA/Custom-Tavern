@@ -76,6 +76,26 @@ def _copy_into(source: GenResult, sink: GenResult) -> GenResult:
     return sink
 
 
+class ReasoningDelta(str):
+    """A chunk of the model *reasoning*, not of what the character said (§5.6).
+
+    Providers yield it from `stream()` in among the ordinary text deltas, for
+    the backends that hand reasoning back on a channel of its own rather than
+    inside the reply. Without it there is nothing to see while a reasoning
+    model works: no visible token arrives until it stops thinking, so a model
+    two minutes into a thought and a backend that never answered look exactly
+    the same from the client.
+
+    A `str` subclass rather than a second channel or a callback because
+    `stream()` is a bare `AsyncIterator[str]` implemented by five providers and
+    stubbed in half the tests; a wider signature would have to be threaded
+    through all of them. Every consumer is in the scheduler, and each one
+    checks for it before treating a delta as reply text.
+    """
+
+    __slots__ = ()
+
+
 class ProviderError(RuntimeError):
     """Backend failed. The scheduler decides whether to retry or fall back."""
 

@@ -465,6 +465,13 @@ function tavern() {
     composing: false,
     composingKind: "typing",
     composingLabel: "Typing…",
+    // Who is answering, kept apart from the label so the same name can be put
+    // in front of "is typing" and "is thinking" without parsing one back out
+    // of the other.
+    composingSpeaker: "",
+    // How much reasoning has arrived this turn. Only ever a count: the
+    // reasoning itself is not for the message stream (§5.6).
+    thinkChars: 0,
     turn: 0,
     hudRuns: [],
     ambient: [],
@@ -2399,8 +2406,15 @@ function tavern() {
           this.mergeRun(event.run, event.turn);
           const running = event.run.status === "running" || event.run.status === "pending";
           if (event.run.pass_id === "basic") {
-            this.composingKind = event.run.animation;
-            this.composingLabel = event.run.animation === "typing" ? "Typing…" : event.run.label;
+            // Not while it is thinking: the reply pass reports itself as
+            // running the moment it starts, which is *before* the model has
+            // said anything, so letting it through here would drop the cue
+            // back to the dots on the first status after the thought began.
+            if (!(this.composingKind === "thinking" && running)) {
+              this.composingKind = event.run.animation;
+              this.composingLabel =
+                event.run.animation === "typing" ? this.cueLabel("typing") : event.run.label;
+            }
           } else if (event.run.tier !== "blocking") {
             // ambient: a subtle indicator, never a character-thinking cue
             this.ambient = running
@@ -2429,7 +2443,7 @@ function tavern() {
           this.composingLabel = "Looking it up…";
           break;
         case "search_done":
-          this.composingLabel = event.count ? "Reading…" : "Typing…";
+          this.composingLabel = event.count ? "Reading…" : this.cueLabel("typing");
           break;
         case "state":
           this.setBands(event.state.bands || []);
@@ -2663,6 +2677,32 @@ function tavern() {
       return this.regenId === message.id && !message.text;
     },
 
+    // ---- the composing cue ----
+
+    // What the cue says. Two states, because they are two different things:
+    // the dots mean the backend has not answered yet, and the thinking cue
+    // means it has and the model is reasoning its way towards a reply. Both
+    // carry the speaker's name in a group, where "who is thinking" is a real
+    // question.
+    cueLabel(kind) {
+      const who = this.composingSpeaker;
+      if (kind === "thinking") return who ? `${who} is thinking…` : "Thinking…";
+      return who ? `${who} is typing…` : "Typing…";
+    },
+
+    // How deep into the thought, 0 → 1, saturating. Nothing knows how long a
+    // thought will run — there is no total to divide by — so this can only say
+    // "a while" and must never look like a progress bar about to finish. It
+    // rises fastest over the first few hundred characters, which is where the
+    // question is still "is it working at all", and then flattens.
+    depthFor(chars) {
+      return chars ? 1 - Math.exp(-chars / 900) : 0;
+    },
+
+    get thinkDepth() {
+      return this.depthFor(this.thinkChars);
+    },
+
     // Stops whatever is generating. The fetch is aborted, which drops the
     // connection; the server sees the reader hang up, keeps the text that had
     // already arrived and records the run as stopped.
@@ -2675,7 +2715,9 @@ function tavern() {
       this.streamAbort = new AbortController();
       this.composing = !swipeMessageId;
       this.composingKind = "typing";
-      this.composingLabel = "Typing…";
+      this.composingSpeaker = "";
+      this.thinkChars = 0;
+      this.composingLabel = this.cueLabel("typing");
       this.hudRuns = [];
 
       let target = null;
@@ -2704,10 +2746,11 @@ function tavern() {
           switch (event.type) {
             case "turn_start":
               this.turn = event.turn;
-              // Who is answering, so the typing cue carries their name rather
-              // than the chat's nominal character.
+              // Who is answering, so the cue carries their name — typing or
+              // thinking — rather than the chat's nominal character.
               if (event.speaker && this.cast.length > 1) {
-                this.composingLabel = `${event.speaker.name} is typing…`;
+                this.composingSpeaker = event.speaker.name;
+                this.composingLabel = this.cueLabel(this.composingKind);
               }
               this.messages.push(event.message);
               // Fly it up from the composer rather than having it appear in
@@ -2726,7 +2769,8 @@ function tavern() {
             case "turn_resume":
               this.turn = event.turn;
               if (event.speaker && this.cast.length > 1) {
-                this.composingLabel = `${event.speaker.name} is typing…`;
+                this.composingSpeaker = event.speaker.name;
+                this.composingLabel = this.cueLabel(this.composingKind);
               }
               this.scrollDown();
               break;
@@ -2792,6 +2836,24 @@ function tavern() {
               // as it grows, and forcing it per delta would drag the user back
               // down every token if they had scrolled up to read.
               break;
+
+            // The model is reasoning. Nothing visible arrives while it does
+            // — that is the whole reason this event exists — so the cue has
+            // to say so itself, or a minute of thinking looks like a backend
+            // that never answered.
+            case "reasoning": {
+              const chars = event.chars || 0;
+              // One of these arrives per token. Writing the count every time
+              // would restyle the cue on each one for a ring that stops moving
+              // measurably after the first few hundred characters, so it is
+              // only written when it would actually show.
+              if (!this.thinkChars || this.depthFor(chars) - this.thinkDepth >= 0.005) {
+                this.thinkChars = chars;
+              }
+              this.composingKind = "thinking";
+              this.composingLabel = this.cueLabel("thinking");
+              break;
+            }
 
             case "reply": {
               // Not before the paced text has caught up: swapping in the

@@ -4,7 +4,14 @@
 from __future__ import annotations
 
 from ..config import SETTINGS, BackendConfig, Settings
-from .base import GenRequest, GenResult, Provider, ProviderError, estimate_tokens
+from .base import (
+    GenRequest,
+    GenResult,
+    Provider,
+    ProviderError,
+    ReasoningDelta,
+    estimate_tokens,
+)
 from .echo import EchoProvider
 from .horde import HordeProvider
 from .ollama import LlamaCppProvider, OllamaProvider
@@ -55,6 +62,7 @@ __all__ = [
     "GenResult",
     "Provider",
     "ProviderError",
+    "ReasoningDelta",
     "build",
     "close_all",
     "estimate_tokens",

@@ -371,10 +371,15 @@ def test_thinking_can_be_asked_for():
     assert ollama_payload(think="on")["think"] is True
 
 
-def test_the_reasoning_is_captured_and_never_streamed():
+def test_the_reasoning_is_captured_and_kept_apart_from_the_reply():
     """It is not what the character said (§5.6), but losing it makes "it only
-    reasoned" indistinguishable from "it returned nothing"."""
-    from app.providers import GenResult
+    reasoned" indistinguishable from "it returned nothing".
+
+    It does reach the caller — a reasoning model emits no visible token until
+    it stops thinking, so the client has nothing to show otherwise — but as
+    `ReasoningDelta`, which no consumer can mistake for reply text.
+    """
+    from app.providers import GenResult, ReasoningDelta
 
     rows = [
         {"message": {"role": "assistant", "thinking": "she would ", "content": ""}},
@@ -388,13 +393,17 @@ def test_the_reasoning_is_captured_and_never_streamed():
     async def run():
         return [delta async for delta in provider.stream(GenRequest(), sink)]
 
-    assert "".join(sync(run())) == '"Sit."'
+    deltas = sync(run())
+    reply = [d for d in deltas if not isinstance(d, ReasoningDelta)]
+    thought = [d for d in deltas if isinstance(d, ReasoningDelta)]
+    assert "".join(reply) == '"Sit."'
+    assert "".join(thought) == "she would be curt"
     assert sink.thinking == "she would be curt"
     assert sink.tokens_out == 7
 
 
 def test_a_reply_that_is_all_reasoning_arrives_as_reasoning_and_not_as_silence():
-    from app.providers import GenResult
+    from app.providers import GenResult, ReasoningDelta
 
     rows = [
         {"message": {"thinking": "thinking about it", "content": ""}},
@@ -406,7 +415,9 @@ def test_a_reply_that_is_all_reasoning_arrives_as_reasoning_and_not_as_silence()
     async def run():
         return [delta async for delta in provider.stream(GenRequest(), sink)]
 
-    assert sync(run()) == []
+    deltas = sync(run())
+    assert [d for d in deltas if not isinstance(d, ReasoningDelta)] == []
+    assert [str(d) for d in deltas] == ["thinking about it"]
     assert sink.thinking == "thinking about it"
 
 
@@ -522,3 +533,46 @@ def test_thinking_is_a_backend_setting_the_gui_can_offer():
         assert KIND_DEFAULTS[kind]["think"] == default_think(kind)
     assert default_think("horde") == "off"
     assert default_think("ollama") == "auto"
+
+
+# --------------------------------------------------------------------- echo
+
+
+def echo_provider(**overrides):
+    return build(BackendConfig(name="e", kind="echo", model="echo-1", **overrides))
+
+
+def test_echo_does_not_reason_unless_it_is_asked_to():
+    """`auto` is every kind's default, and a stand-in that reasoned by default
+    would put a thinking cue in front of every reply on a fresh clone — which
+    is the one thing the cue exists to tell apart."""
+    from app.providers import ReasoningDelta
+
+    async def run(provider):
+        return [d async for d in provider.stream(GenRequest(messages=[
+            {"role": "user", "content": "hello"}]))]
+
+    for mode in ("auto", "off"):
+        assert not [d for d in sync(run(echo_provider(think=mode)))
+                    if isinstance(d, ReasoningDelta)]
+
+
+def test_echo_reasons_on_demand_and_before_it_says_anything():
+    """So the whole thinking path — provider, scheduler, cue — can be watched
+    end to end with no model and no network."""
+    from app.providers import GenResult, ReasoningDelta
+
+    provider = echo_provider(think="on")
+    sink = GenResult()
+
+    async def run():
+        return [d async for d in provider.stream(
+            GenRequest(messages=[{"role": "user", "content": "hello"}]), sink)]
+
+    deltas = sync(run())
+    kinds = [isinstance(d, ReasoningDelta) for d in deltas]
+    assert any(kinds), "it was asked to reason and did not"
+    # Every reasoning delta before every text one, which is the shape that
+    # makes the cue possible: nothing visible arrives until it stops thinking.
+    assert kinds == sorted(kinds, reverse=True)
+    assert sink.thinking == "".join(str(d) for d in deltas if isinstance(d, ReasoningDelta))

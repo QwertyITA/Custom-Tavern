@@ -12,7 +12,15 @@ from collections.abc import AsyncIterator
 import httpx
 
 from .. import samplers
-from .base import GenRequest, GenResult, Provider, ProviderError, _copy_into, estimate_tokens
+from .base import (
+    GenRequest,
+    GenResult,
+    Provider,
+    ProviderError,
+    ReasoningDelta,
+    _copy_into,
+    estimate_tokens,
+)
 
 
 class OpenAICompatProvider(Provider):
@@ -99,10 +107,26 @@ class OpenAICompatProvider(Provider):
             raw=data,
         )
 
+    @staticmethod
+    def _think_delta(delta: dict) -> str:
+        """The reasoning channel, under whichever name this server uses.
+
+        There is no standard field: DeepSeek and vLLM say `reasoning_content`,
+        OpenRouter and llama.cpp say `reasoning`. Servers that have neither put
+        the reasoning inline in a `<think>` block instead, which is split out
+        of the stream further up (§5.6).
+        """
+        for key in ("reasoning_content", "reasoning"):
+            value = delta.get(key)
+            if isinstance(value, str) and value:
+                return value
+        return ""
+
     async def stream(
         self, request: GenRequest, sink: GenResult | None = None
     ) -> AsyncIterator[str]:
         collected: list[str] = []
+        thought: list[str] = []
         usage: dict = {}
         try:
             async with self.client().stream(
@@ -124,7 +148,12 @@ class OpenAICompatProvider(Provider):
                     choices = chunk.get("choices") or []
                     if not choices:
                         continue
-                    delta = (choices[0].get("delta") or {}).get("content") or ""
+                    body = choices[0].get("delta") or {}
+                    reasoning = self._think_delta(body)
+                    if reasoning:
+                        thought.append(reasoning)
+                        yield ReasoningDelta(reasoning)
+                    delta = body.get("content") or ""
                     if delta:
                         collected.append(delta)
                         yield delta
@@ -140,6 +169,7 @@ class OpenAICompatProvider(Provider):
                     tokens_out=usage.get("completion_tokens") or estimate_tokens(text),
                     model=self.model,
                     provider=self.name,
+                    thinking="".join(thought),
                 ),
                 sink,
             )

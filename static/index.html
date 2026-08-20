@@ -384,7 +384,13 @@
         <!-- Regenerating replaces this message in place: the bubble becomes the
              typing cue rather than a second bubble appearing underneath. -->
         <div class="body regen" x-show="isRegenerating(m)" x-cloak>
-          <span class="anim anim-typing"><i></i><i></i><i></i></span>
+          <span class="cue"
+                :class="'is-' + (composingKind === 'typing' || composingKind === 'thinking' ? composingKind : 'cogs')"
+                :style="`--think: ${thinkDepth}`">
+            <span class="anim anim-typing"><i></i><i></i><i></i></span>
+            <span class="anim anim-thinking"><i></i><i></i><i></i></span>
+            <span class="anim anim-cogs"></span>
+          </span>
         </div>
         <!-- `display` only exists when a display-scope rule (§16) rewrote this
              message; `text` is always what was actually said, and it is what
@@ -493,9 +499,19 @@
         <img class="pfp pfp-over" :src="portrait" alt="" @error="$el.remove()">
       </template>
     </span>
+    <!-- Three cues in one box, cross-fading. Which one is showing says what
+         is actually happening: the dots mean the backend has not answered
+         yet, the orbit means it has and the model is reasoning (§5.6), the
+         cogs mean a custom blocking pass is running. Swapping them by
+         `x-show` alone would have each one appear and vanish between two
+         frames — they are stacked and faded instead. -->
     <div class="bubble composing">
-      <span class="anim anim-typing" x-show="composingKind === 'typing'"><i></i><i></i><i></i></span>
-      <span class="anim anim-cogs" x-show="composingKind !== 'typing'"></span>
+      <span class="cue" :class="'is-' + (composingKind === 'typing' || composingKind === 'thinking' ? composingKind : 'cogs')"
+            :style="`--think: ${thinkDepth}`">
+        <span class="anim anim-typing"><i></i><i></i><i></i></span>
+        <span class="anim anim-thinking"><i></i><i></i><i></i></span>
+        <span class="anim anim-cogs"></span>
+      </span>
       <span class="composing-label" x-text="composingLabel"></span>
     </div>
   </article>
@@ -790,7 +806,11 @@
                  of two settings on this screen that changes what the model
                  does rather than where it lives, and a select hid it among
                  the plumbing. -->
-            <div class="row seg-row" x-show="b.kind !== 'echo'">
+            <!-- Shown for `echo` too, where ON makes the stand-in reason before
+                 it answers. That is the only way to see the thinking cue on a
+                 fresh clone with no model on the other end, and the cue is the
+                 thing hardest to be sure of without watching it. -->
+            <div class="row seg-row">
               <span class="row-label">Thinking</span>
               <div class="seg" role="group" aria-label="Thinking">
                 <template x-for="t in settings.think_modes || []" :key="t">
@@ -801,8 +821,7 @@
                 </template>
               </div>
             </div>
-            <p class="kind-note" x-show="b.kind !== 'echo'"
-               x-text="thinkLabel(b.think || 'auto')"></p>
+            <p class="kind-note" x-text="thinkLabel(b.think || 'auto')"></p>
 
             <!-- The two numbers that belong to a machine rather than to a
                  pass. They used to sit under each pass's sampling, which put

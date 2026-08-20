@@ -39,9 +39,15 @@ from ..db import Database
 from ..events import BUS
 from ..markup import to_plain
 from ..models import Character, PassDef, Sampling, VariableSchema
-from ..postprocess import clean_reply, split_thinking
+from ..postprocess import ThinkStreamFilter, clean_reply, split_thinking
 from .. import worldline
-from ..providers import GenRequest, GenResult, ProviderError, provider_for_tier
+from ..providers import (
+    GenRequest,
+    GenResult,
+    ProviderError,
+    ReasoningDelta,
+    provider_for_tier,
+)
 from ..providers.base import estimate_tokens
 from ..state import SLICE_SEARCH, SLICE_SIGNALS, SLICE_VARS, slice_for
 from . import registry
@@ -54,6 +60,48 @@ from .contract import (
     signal_rank,
     split_state_suffix,
 )
+
+
+class ReasoningWatch:
+    """Reasoning as it arrives, in both shapes a backend can send it (§5.6).
+
+    Ollama and the OpenAI-shaped servers that reason parse the block themselves
+    and hand it back on a channel of its own, which reaches here as
+    `ReasoningDelta`. Everything else leaves it inline in a `<think>` block,
+    which `ThinkStreamFilter` pulls back out. Either way the reply text comes
+    out one side and the reasoning the other, and the client is told the moment
+    any of it lands — a model that reasons emits no visible token until it has
+    finished, so this is the only thing separating "thinking" from "the backend
+    never answered".
+    """
+
+    def __init__(self) -> None:
+        self._inline = ThinkStreamFilter()
+        self._parts: list[str] = []
+        self.chars = 0
+
+    def _keep(self, thought: str) -> str:
+        if thought:
+            self._parts.append(thought)
+            self.chars += len(thought)
+        return thought
+
+    def feed(self, delta: str) -> tuple[str, str]:
+        """One delta in; the reply text and the reasoning in it out."""
+        if isinstance(delta, ReasoningDelta):
+            return "", self._keep(str(delta))
+        shown, thought = self._inline.feed(delta)
+        return shown, self._keep(thought)
+
+    def finish(self) -> str:
+        """Flush the held-back tail and return the last of the reply text."""
+        shown, thought = self._inline.finish()
+        self._keep(thought)
+        return shown
+
+    @property
+    def text(self) -> str:
+        return "".join(self._parts).strip()
 
 
 @dataclass
@@ -562,10 +610,18 @@ class PassScheduler:
 
         sink = GenResult()
         suffix = SuffixStreamFilter()
+        watch = ReasoningWatch()
         collected: list[str] = []
         try:
             async for delta in provider.stream(request, sink):
-                visible = suffix.feed(delta)
+                shown, thought = watch.feed(delta)
+                # Only that it is happening, and how far in — the reasoning
+                # itself is not for the message stream (§5.6). It is enough to
+                # tell a thinking model from a silent backend, and to let the
+                # cue deepen as the thought runs on.
+                if thought:
+                    yield {"type": "reasoning", "chars": watch.chars}
+                visible = suffix.feed(shown) if shown else ""
                 if visible:
                     collected.append(visible)
                     yield {"type": "delta", "text": visible}
@@ -586,6 +642,13 @@ class PassScheduler:
                     provider=sink.provider or provider.name,
                     model=sink.model or provider.model,
                     speaker_id=ctx.character.id,
+                    # Kept for the same reason the text is (§5.6). A reply
+                    # someone stopped is one of the likeliest to be asked
+                    # about, and the reasoning behind it arrived in full long
+                    # before the stop — the sink never lands on this path, so
+                    # without this it would be the one reply that thought and
+                    # cannot say so.
+                    thinking=watch.text,
                 )
                 # So the run points at the message it produced. A stopped reply
                 # is one of the likeliest things to be asked about afterwards,
@@ -605,6 +668,15 @@ class PassScheduler:
             yield {"type": "error", "error": f"reply failed: {exc}", "pass_id": "basic"}
             return
 
+        # Whatever the think filter was still holding back when the stream
+        # ended, through the suffix filter as usual — the state suffix can be
+        # sitting in it.
+        held = watch.finish()
+        if held:
+            visible = suffix.feed(held)
+            if visible:
+                collected.append(visible)
+                yield {"type": "delta", "text": visible}
         tail, payload = suffix.finish()
         if tail:
             collected.append(tail)
@@ -612,12 +684,13 @@ class PassScheduler:
 
         raw_reply = "".join(collected)
         body, thinking = split_thinking(raw_reply)
-        # A backend that parses reasoning itself (Ollama) never puts it in the
-        # stream, so there is nothing for split_thinking to find — it arrives
-        # on the result instead (§5.6). Without this, the commonest failure a
-        # reasoning model has is reported as "returned nothing at all", which
-        # names the wrong fix.
-        thinking = thinking or sink.thinking
+        # Three places it can be, and it has to end up stored wherever it came
+        # from (§5.6): pulled out of the stream as it arrived, left inline for
+        # split_thinking to find in text that never streamed, or handed back on
+        # the result by a backend that parses the block itself. Without all
+        # three the commonest failure a reasoning model has is reported as
+        # "returned nothing at all", which names the wrong fix.
+        thinking = thinking or watch.text or sink.thinking
         # A model that ignored the suffix contract may still have emitted it
         # inside a think block or after it; check the full text once more.
         if payload is None:
@@ -1144,10 +1217,15 @@ class PassScheduler:
 
         sink = GenResult()
         suffix = SuffixStreamFilter()
+        watch = ReasoningWatch()
         collected: list[str] = []
         try:
             async for delta in provider.stream(request, sink):
-                visible = suffix.feed(delta)
+                shown, thought = watch.feed(delta)
+                # As in the reply pass: the count, never the text (§5.6).
+                if thought:
+                    yield {"type": "reasoning", "chars": watch.chars}
+                visible = suffix.feed(shown) if shown else ""
                 if visible:
                     collected.append(visible)
                     yield {"type": "delta", "text": visible}
@@ -1162,6 +1240,12 @@ class PassScheduler:
             yield {"type": "error", "error": f"continue failed: {exc}"}
             return
 
+        held = watch.finish()
+        if held:
+            visible = suffix.feed(held)
+            if visible:
+                collected.append(visible)
+                yield {"type": "delta", "text": visible}
         tail, _payload = suffix.finish()
         if tail:
             collected.append(tail)
@@ -1263,10 +1347,15 @@ class PassScheduler:
 
         sink = GenResult()
         suffix = SuffixStreamFilter()
+        watch = ReasoningWatch()
         collected: list[str] = []
         try:
             async for delta in provider.stream(request, sink):
-                visible = suffix.feed(delta)
+                shown, thought = watch.feed(delta)
+                # As in the reply pass: the count, never the text (§5.6).
+                if thought:
+                    yield {"type": "reasoning", "chars": watch.chars}
+                visible = suffix.feed(shown) if shown else ""
                 if visible:
                     collected.append(visible)
                     yield {"type": "delta", "text": visible}
@@ -1277,13 +1366,19 @@ class PassScheduler:
             yield {"type": "error", "error": f"swipe failed: {exc}"}
             return
 
+        held = watch.finish()
+        if held:
+            visible = suffix.feed(held)
+            if visible:
+                collected.append(visible)
+                yield {"type": "delta", "text": visible}
         tail, payload = suffix.finish()
         if tail:
             collected.append(tail)
             yield {"type": "delta", "text": tail}
 
         body, thinking = split_thinking("".join(collected))
-        thinking = thinking or sink.thinking
+        thinking = thinking or watch.text or sink.thinking
         if payload is None:
             body, payload = split_state_suffix(body)
         reply = self._rewrite_reply(
@@ -1418,6 +1513,10 @@ class PassScheduler:
         sink = GenResult()
         try:
             async for delta in provider.stream(request, sink):
+                # Impersonation writes *your* line, so a backend that reasons
+                # out loud on its own channel has nothing to contribute to it.
+                if isinstance(delta, ReasoningDelta):
+                    continue
                 collected.append(delta)
                 yield {"type": "delta", "text": delta}
         except (ProviderError, asyncio.TimeoutError, OSError) as exc:

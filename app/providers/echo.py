@@ -19,7 +19,7 @@ from collections.abc import AsyncIterator
 
 from ..models import SIGNAL_LEVELS
 from ..passes.contract import MARKER
-from .base import GenRequest, GenResult, Provider, _copy_into, estimate_tokens
+from .base import GenRequest, GenResult, Provider, ReasoningDelta, _copy_into, estimate_tokens
 
 _WEATHER = ["clear", "overcast", "light rain", "windy", "still and cold"]
 _TIME = ["early morning", "late morning", "early afternoon", "dusk", "late night"]
@@ -145,6 +145,25 @@ class EchoProvider(Provider):
     async def list_models(self) -> list[str]:
         return ["echo-1"]
 
+    def _thinks(self, request: GenRequest) -> bool:
+        """Only when asked for outright.
+
+        `auto` is the default for every kind, and a stand-in that reasoned by
+        default would put a thinking cue in front of every reply on a fresh
+        clone — which is exactly the thing the cue is supposed to distinguish.
+        """
+        if request.think is not None:
+            return request.think
+        return getattr(self.config, "think", "auto") == "on"
+
+    def _reasoning(self, request: GenRequest) -> str:
+        user = self._last_user(request).strip() or "…"
+        return (
+            f'They said "{user}". Read it twice: the surface ask, then what '
+            "they are actually after. Answer in character, keep it short, "
+            "and do not warm up faster than the scene has earned."
+        )
+
     async def generate(self, request: GenRequest) -> GenResult:
         if self.delay:
             await asyncio.sleep(self.delay)
@@ -155,6 +174,7 @@ class EchoProvider(Provider):
             tokens_out=estimate_tokens(text),
             model=self.model or "echo-1",
             provider=self.name,
+            thinking=self._reasoning(request) if self._thinks(request) else "",
         )
 
     async def stream(
@@ -163,6 +183,15 @@ class EchoProvider(Provider):
         result = await self.generate(request)
         if sink is not None:
             _copy_into(result, sink)
+        # A backend that reasons hands it back on a channel of its own, and it
+        # all arrives before a single visible token (§5.6) — the shape the
+        # thinking cue is drawn from, and the only way to watch it work end to
+        # end without a real model on the other end. Slower per word than the
+        # reply, because thinking is the slow part.
+        for chunk in re.findall(r"\S+\s*", result.thinking):
+            if self.delay:
+                await asyncio.sleep(self.delay / 8)
+            yield ReasoningDelta(chunk)
         # Word-at-a-time so the client's streaming path is genuinely exercised.
         for chunk in re.findall(r"\S+\s*", result.text):
             if self.delay:

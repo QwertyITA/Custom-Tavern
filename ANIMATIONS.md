@@ -336,6 +336,36 @@ stopped, since a frozen gradient leaves the text painted with whatever slice it
 halted on. Verified: transparent fill and a 2s sweep normally, solid muted text
 with the animation stopped under `reduce`.
 
+### 2.2a The cue that says *which* kind of waiting
+
+The shimmer says something is happening. It cannot say what, and for a
+reasoning model the difference matters more than anywhere else in the app: no
+visible token arrives until the model stops thinking, which on a local one is
+routinely a minute, and three bouncing dots for a minute read as a dead
+connection.
+
+**Built.** The dots now mean only "the backend has not answered". Once
+reasoning starts arriving the cue becomes a different object — a ring sweeping
+one way, three sparks orbiting the other and firing in sequence, a core
+breathing underneath — and the label becomes "Thinking…". The two are stacked
+in one box and cross-fade, so the change is something you watch happen rather
+than a glyph swapped between two frames, and the hidden one is paused rather
+than left running where nobody can see it.
+
+The ring's arc is driven by `--think`, a 0→1 saturating measure of how much
+reasoning has landed. Saturating on purpose: nothing knows how long a thought
+will run, so it must never look like a progress bar about to complete. It says
+"a while", not "80%".
+
+Counter-rotation earns its place: three dots pinned in a triangle read as a
+face at 22px, and the first version did. Two more notes for anyone touching it.
+The sparks state their orbit position as a static transform as well as in the
+keyframes — under reduced motion the animation is cut to one 1ms iteration and
+the element falls back to its unanimated state, which without that put all
+three at the centre in a pile. And `--think` is declared on the cue box, not on
+the element that reads it: a custom property set on an element beats the one it
+would inherit, so the fallback silently pinned every thought at zero.
+
 ### 2.3 Switching chats has no transition and no loading state
 
 `openChat()` replaces `messages` wholesale. The old conversation vanishes and

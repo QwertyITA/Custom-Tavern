@@ -24,7 +24,15 @@ import httpx
 from ..models import Sampling
 from . import templates
 from .. import samplers
-from .base import GenRequest, GenResult, Provider, ProviderError, _copy_into, estimate_tokens
+from .base import (
+    GenRequest,
+    GenResult,
+    Provider,
+    ProviderError,
+    ReasoningDelta,
+    _copy_into,
+    estimate_tokens,
+)
 
 
 # How much room a model that reasons is given for the reasoning, on top of the
@@ -294,6 +302,10 @@ class OllamaProvider(Provider):
                 reasoning = self._think_delta(chunk)
                 if reasoning:
                     thought.append(reasoning)
+                    # Out to the caller as well as into the sink: the sink only
+                    # arrives at the end, and the whole point of watching a
+                    # model think is that it is happening now (§5.6).
+                    yield ReasoningDelta(reasoning)
                 delta = self._delta(chunk)
                 if delta:
                     collected.append(delta)
