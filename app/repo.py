@@ -82,6 +82,10 @@ def list_characters(db: Database) -> list[dict]:
                 "name": row["name"],
                 "version": row["version"],
                 "pfp": pfp_set.get("neutral") or next(iter(pfp_set.values()), ""),
+                # Every list that draws a face needs the shape it is drawn in,
+                # or the roster frames a standing figure as a square while the
+                # conversation beside it does not.
+                "pfp_shape": "square" if card.get("pfp_shape") == "square" else "portrait",
                 "chats": counts.get(row["id"], 0),
                 "favourite": bool(row["favourite"]),
             }

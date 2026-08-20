@@ -120,6 +120,10 @@
     </g>
     <g id="i-check"><path d="M4.8 12.6 9.6 17.4 19.2 6.6"/></g>
     <g id="i-close"><path d="M6 6l12 12M18 6 6 18"/></g>
+    <!-- Four corners opening outwards: the one shape everyone reads as
+         "fill the screen", and the same glyph turned inwards would be a
+         second icon for a control that does not exist here. -->
+    <g id="i-expand"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/></g>
     <g id="i-back"><path d="M14.6 5.4 8 12l6.6 6.6"/></g>
     <g id="i-plus"><path d="M12 5v14M5 12h14"/></g>
     <!-- Reordering a prompt section. Chevrons rather than filled triangles:
@@ -350,13 +354,27 @@
              been permanently marked broken, and stayed blank after one was
              added while newer rows showed it. And a picture that will not load
              now falls back to the placeholder by simply going away. -->
-        <span class="pfp-slot">
+        <span class="pfp-slot"
+              :class="{ ['shape-' + portraitShape(m)]: true, big: bigPfp === m.id,
+                        tappable: !!portraitFor(m) }"
+              role="button" :tabindex="portraitFor(m) ? 0 : -1"
+              :aria-label="bigPfp === m.id ? 'Shrink the portrait' : 'Enlarge the portrait'"
+              :aria-expanded="bigPfp === m.id"
+              @click="togglePfp(m)" @keydown.enter.prevent="togglePfp(m)"
+              @keydown.space.prevent="togglePfp(m)">
           <span class="pfp pfp-blank" aria-hidden="true">
             <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
           </span>
           <template x-if="portraitFor(m)">
             <img class="pfp pfp-over" :src="portraitFor(m)" alt="" @error="$el.remove()">
           </template>
+          <!-- Only once it is big: at 34px a button over the face would be
+               most of the face. -->
+          <button class="pfp-full" x-show="bigPfp === m.id && portraitFor(m)" x-cloak
+                  @click.stop="openPfpFull(portraitFor(m), portraitShape(m))"
+                  aria-label="Fill the screen with this picture">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-expand"/></svg>
+          </button>
         </span>
       </template>
       <!-- Swipe the message itself to change variant: left forward, right back
@@ -515,6 +533,68 @@
       <span class="composing-label" x-text="composingLabel"></span>
     </div>
   </article>
+
+  <!-- Choosing what part of a picture becomes the portrait. A card is a whole
+       drawing and the app shows a small frame of it; which frame is a decision
+       nobody should have to make in an image editor first. -->
+  <div class="crop-layer" x-show="crop.open" x-cloak
+       @keydown.escape.window="cancelCrop()"
+       x-transition:enter="crop-enter" x-transition:enter-start="crop-from"
+       x-transition:enter-end="crop-to"
+       x-transition:leave="crop-leave" x-transition:leave-start="crop-to"
+       x-transition:leave-end="crop-from">
+    <div class="crop-sheet" @click.stop>
+      <div class="crop-head">
+        <span class="crop-title">Choose the picture</span>
+        <div class="seg" role="group" aria-label="Portrait shape">
+          <button class="seg-btn" :class="{ on: crop.shape === 'portrait' }"
+                  @click="setCropShape('portrait')"
+                  :aria-pressed="crop.shape === 'portrait'">Rectangle</button>
+          <button class="seg-btn" :class="{ on: crop.shape === 'square' }"
+                  @click="setCropShape('square')"
+                  :aria-pressed="crop.shape === 'square'">Square</button>
+        </div>
+      </div>
+
+      <!-- The frame is dragged and resized over the picture rather than typed
+           in as numbers. `touch-action: none` so a drag on it is a drag and
+           not a scroll of the sheet underneath. -->
+      <div class="crop-stage" x-ref="cropStage">
+        <img class="crop-image" x-ref="cropImage" :src="crop.src" alt=""
+             @load="cropLoaded($event)" draggable="false">
+        <div class="crop-box" x-show="crop.nat.w" :style="cropBoxStyle()"
+             @pointerdown.prevent="cropDown($event, 'move')">
+          <span class="crop-handle" @pointerdown.prevent.stop="cropDown($event, 'size')"></span>
+        </div>
+      </div>
+
+      <p class="kind-note crop-note">
+        Drag the frame to move it, the corner to resize. The shape is
+        remembered for this character.
+      </p>
+
+      <div class="btn-row crop-actions">
+        <button class="wide" @click="cancelCrop()">Cancel</button>
+        <button class="wide primary" @click="confirmCrop()" :disabled="crop.busy"
+                x-text="crop.busy ? 'Saving…' : 'Use this'"></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- The picture, filling the screen and nothing else on it. Mounted for the
+       length of the leave animation, like every other overlay here. -->
+  <div class="pfp-full-layer" x-show="pfpFull.src" x-cloak
+       :class="{ leaving: pfpFullLeaving }"
+       @click="closePfpFull()"
+       @keydown.escape.window="closePfpFull()"
+       x-transition:enter="pfp-full-enter" x-transition:enter-start="pfp-full-from"
+       x-transition:enter-end="pfp-full-to">
+    <img class="pfp-full-image" :class="'shape-' + pfpFull.shape"
+         :src="pfpFull.src" alt="" @click.stop>
+    <button class="pfp-full-close" @click.stop="closePfpFull()" aria-label="Close">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg>
+    </button>
+  </div>
 
   <!-- A turn whose reply failed leaves the transcript ending on a question
        nobody answered. Sending it again would put the same words in twice, and
@@ -1615,8 +1695,13 @@
                 <svg class="char-pfp-generic" viewBox="0 0 24 24" aria-hidden="true">
                   <use href="#i-person"/>
                 </svg>
+                <!-- Through pfpUrl like everywhere else. Hardcoding the
+                     bundled path put an uploaded portrait, which is already a
+                     URL, at /static/characters//avatars/… — so the roster was
+                     blank for every character whose picture had been chosen
+                     here or had come in on a card. -->
                 <template x-if="c.pfp">
-                  <img :src="`/static/characters/${c.pfp}`" alt=""
+                  <img :src="pfpUrl(c.pfp)" alt=""
                        @error="$el.style.display = 'none'">
                 </template>
               </span>
@@ -1739,7 +1824,8 @@
              all before, which made every conversation with one a column of
              blank squares. -->
         <div class="pfp-edit">
-          <span class="pfp-slot pfp-slot-large">
+          <span class="pfp-slot pfp-slot-large"
+                :class="'shape-' + (draftCharacter.pfp_shape || 'portrait')">
             <span class="pfp pfp-large pfp-blank" aria-hidden="true">
               <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
             </span>

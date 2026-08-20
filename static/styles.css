@@ -632,16 +632,28 @@ body {
 .msg .pfp-slot { margin-top: 2px; }
 .msg.user { justify-content: flex-end; }
 
+/* One width and one ratio decide every picture in the app. A card drawn as a
+   standing figure is ruined by a square crop and a face shot is wasted in a
+   tall one, so the shape belongs to the character (§models.pfp_shape) and
+   everything that draws it reads the same two numbers. */
 .pfp-slot {
+  --pfp-w: 34px;
+  --pfp-ratio: 1.5;          /* 2:3, the shape a character card is drawn in */
   flex: none;
   position: relative;
-  width: 34px; height: 34px;
+  width: var(--pfp-w);
+  height: calc(var(--pfp-w) * var(--pfp-ratio));
+  /* Growing and shrinking is the whole interaction below, and a face that
+     jumps between two sizes reads as a glitch rather than as a movement. */
+  transition: width var(--dur-slow) var(--ease-in-out),
+              height var(--dur-slow) var(--ease-in-out);
 }
-.pfp-slot-large { width: 72px; height: 72px; }
+.pfp-slot.shape-square { --pfp-ratio: 1; }
+.pfp-slot-large { --pfp-w: 72px; }
 /* The picture, over the placeholder that is always underneath it. */
 .pfp-over { position: absolute; inset: 0; }
 .pfp {
-  width: 34px; height: 34px;
+  width: 100%; height: 100%;
   border-radius: 8px;
   object-fit: cover;
   background: var(--panel-2);
@@ -667,9 +679,205 @@ body {
   stroke-linejoin: round;
 }
 
+/* ---------------------------------------------------- choosing a portrait */
+
+/* A card is a whole drawing and the app shows a small frame of it. Which
+   frame is a real decision, and it used to be made for you by object-fit —
+   dead centre, whatever was there. */
+.crop-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: color-mix(in srgb, #000 62%, transparent);
+}
+.crop-enter { transition: opacity var(--dur-base) var(--ease-in-out); }
+.crop-leave { transition: opacity var(--dur-panel-leave) var(--ease-in-out); }
+.crop-from { opacity: 0; }
+.crop-to { opacity: 1; }
+.crop-from .crop-sheet { transform: translateY(14px) scale(.98); }
+.crop-to .crop-sheet { transform: none; }
+
+.crop-sheet {
+  width: 100%;
+  max-width: 520px;
+  max-height: 92vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
+  background: var(--surface);
+  border-top-left-radius: 18px;
+  border-top-right-radius: 18px;
+  border-top: 1px solid var(--line);
+  transition: transform var(--dur-base) var(--ease-in-out);
+}
+/* Stacked rather than side by side: "Rectangle" and "Square" need the whole
+   width to be read at a phone's size, and squeezed next to a title the first
+   of them was clipped by the second. */
+.crop-head { display: flex; flex-direction: column; gap: 8px; }
+.crop-title { font-weight: 600; }
+.crop-head .seg { width: 100%; }
+.crop-note { margin: 0; }
+.crop-actions { margin-top: 2px; }
+
+.crop-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-height: 56vh;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--panel-2);
+  /* The frame is dragged over this, so the drag must not also scroll it. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.crop-image {
+  display: block;
+  max-width: 100%;
+  max-height: 56vh;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.crop-box {
+  position: absolute;
+  border: 2px solid #fff;
+  border-radius: 4px;
+  /* Everything outside the frame goes dark, in one shadow rather than four
+     dimming panels that have to be kept in agreement with it. */
+  box-shadow: 0 0 0 9999px color-mix(in srgb, #000 55%, transparent);
+  cursor: move;
+  touch-action: none;
+}
+.crop-handle {
+  position: absolute;
+  right: -13px;
+  bottom: -13px;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  border: 2px solid #fff;
+  background: var(--accent);
+  cursor: nwse-resize;
+  touch-action: none;
+}
+
+/* Tappable, and it says so the way every other control here does: a press
+   scales it down, because it is small enough for that to read (§conventions). */
+.pfp-slot.tappable { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.pfp-slot.tappable:active { transform: scale(.94); }
+.pfp-slot.tappable {
+  transition: width var(--dur-slow) var(--ease-in-out),
+              height var(--dur-slow) var(--ease-in-out),
+              transform var(--dur-fast) var(--ease-out);
+}
+.pfp-slot.tappable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 10px;
+}
+
+/* Enlarged. The bubble beside it gives up the width — that is the trade, and
+   the reason this is a tap rather than a hover: at 34px a portrait is
+   punctuation, and sometimes you want to look at the person. */
+.pfp-slot.big { --pfp-w: 148px; }
+.pfp-slot.big .pfp { border-radius: 12px; }
+.msg:has(.pfp-slot.big) .bubble {
+  max-width: calc(var(--bubble-max) - 130px);
+  transition: max-width var(--dur-slow) var(--ease-in-out);
+}
+.bubble { transition: max-width var(--dur-slow) var(--ease-in-out); }
+
+/* The way out of "big" and into "the whole screen". */
+.pfp-full {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  color: #fff;
+  background: color-mix(in srgb, #000 52%, transparent);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  animation: pfp-full-btn var(--dur-base) var(--ease-out) both;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.pfp-full:active { transform: scale(.9); }
+.pfp-full .icon { width: 17px; height: 17px; }
+@keyframes pfp-full-btn {
+  from { opacity: 0; transform: scale(.7); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Full screen: the picture and nothing else. */
+.pfp-full-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: color-mix(in srgb, #000 88%, transparent);
+  animation: pfp-layer-in var(--dur-base) var(--ease-in-out) both;
+}
+.pfp-full-layer.leaving { animation: pfp-layer-in var(--dur-panel-leave) var(--ease-in-out) reverse both; }
+@keyframes pfp-layer-in { from { opacity: 0; } to { opacity: 1; } }
+
+.pfp-full-image {
+  /* Fills the screen rather than merely fitting on it: a portrait stored at
+     640px would otherwise sit at 640px in the middle of a phone, which is
+     smaller than the enlarged one it was opened from on a dense screen. */
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
+  object-fit: contain;
+  animation: pfp-image-in var(--dur-slow) var(--ease-in-out) both;
+}
+.leaving .pfp-full-image {
+  animation: pfp-image-in var(--dur-panel-leave) var(--ease-in-out) reverse both;
+}
+@keyframes pfp-image-in {
+  from { opacity: 0; transform: scale(.86); }
+  to   { opacity: 1; transform: none; }
+}
+
+.pfp-full-close {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  right: 12px;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  color: #fff;
+  background: color-mix(in srgb, #fff 14%, transparent);
+  transition: transform var(--dur-fast) var(--ease-out),
+              background var(--dur-fast) var(--ease-out);
+}
+.pfp-full-close:active { transform: scale(.9); }
+.pfp-full-close .icon { width: 22px; height: 22px; }
+
 /* The editor's copy, big enough to see what you chose. */
 .pfp-edit { display: flex; gap: 12px; align-items: center; margin: 4px 0 12px; }
-.pfp-large { width: 72px; height: 72px; border-radius: 12px; }
+.pfp-large { border-radius: 12px; }
 .pfp-large.pfp-blank svg { width: 34px; height: 34px; }
 .pfp-edit-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
 /* A file input is unstyleable, so the label is the button and the input hides
@@ -788,7 +996,9 @@ body {
   padding: 0 6px;
 }
 .link:disabled { opacity: .4; text-decoration: none; }
-.variants { display: inline-flex; gap: 6px; align-items: center; }
+/* `1 / 3` is one thing to read, not three. Without this it wraps to three
+   lines the moment the bubble gives up width to an enlarged portrait. */
+.variants { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
 .edited { opacity: .45; font-size: 12px; padding-left: 4px; }
 
 .edit-box {

@@ -66,20 +66,31 @@ def members(db: Database, chat_id: str) -> list[dict[str, Any]]:
             # the expression slice is per chat, not per member, and a list of
             # faces nobody is showing is a list of files to load.
             "pfp": _neutral_pfp(row["data"]),
+            # And the shape it is drawn in: two members of one group can be
+            # framed differently, and each row has to know which.
+            "pfp_shape": _pfp_shape(row["data"]),
         }
         for row in rows
     ]
 
 
-def _neutral_pfp(raw: Any) -> str:
+def _card(raw: Any) -> dict:
     try:
         card = json.loads(raw or "{}")
     except (TypeError, ValueError):
-        return ""
-    pfp_set = card.get("pfp_set") or {}
+        return {}
+    return card if isinstance(card, dict) else {}
+
+
+def _neutral_pfp(raw: Any) -> str:
+    pfp_set = _card(raw).get("pfp_set") or {}
     if not isinstance(pfp_set, dict):
         return ""
     return str(pfp_set.get("neutral") or next(iter(pfp_set.values()), "") or "")
+
+
+def _pfp_shape(raw: Any) -> str:
+    return "square" if _card(raw).get("pfp_shape") == "square" else "portrait"
 
 
 def is_group(db: Database, chat_id: str) -> bool:

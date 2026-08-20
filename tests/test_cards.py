@@ -213,3 +213,70 @@ def test_prose_that_merely_contains_an_angle_bracket_is_left_alone():
 
     card = {"spec": "chara_card_v2", "data": {"name": "Wren", "description": "3 < 5 always"}}
     assert from_card_json(card).persona == "3 < 5 always"
+
+
+# ------------------------------------------------ the card is its own picture
+
+
+def png_card(payload: dict) -> bytes:
+    """A minimal PNG carrying a card in a tEXt chunk, the way a real one does."""
+    import base64
+    import json
+    import struct
+    import zlib
+
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(body))
+            + kind
+            + body
+            + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF)
+        )
+
+    text = b"chara\x00" + base64.b64encode(json.dumps(payload).encode())
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+        + chunk(b"tEXt", text)
+        + chunk(b"IEND", b"")
+    )
+
+
+def test_importing_a_png_card_keeps_the_picture(client, isolated_settings, tmp_path):
+    """The JSON lives in a tEXt chunk of a PNG that *is* the portrait. Reading
+    the chunk and dropping the file left every imported card faceless."""
+    from app import config, repo
+    from app.db import get_db
+
+    config.AVATAR_DIR = tmp_path / "avatars"
+    data = png_card({"spec": "chara_card_v2", "data": {"name": "Wren", "description": "A ferryman."}})
+    response = client.post("/api/characters/import?filename=wren.png", content=data)
+    assert response.status_code == 200
+
+    character = repo.get_character(get_db(), response.json()["id"])
+    assert character.pfp_set.get("neutral", "").startswith("/avatars/")
+    saved = config.AVATAR_DIR / character.pfp_set["neutral"].rsplit("/", 1)[-1]
+    assert saved.read_bytes() == data
+
+
+def test_a_json_card_imports_without_a_picture(client, isolated_settings):
+    import json
+
+    from app import repo
+    from app.db import get_db
+
+    card = {"spec": "chara_card_v2", "data": {"name": "Wren", "description": "A ferryman."}}
+    response = client.post(
+        "/api/characters/import?filename=wren.json", content=json.dumps(card).encode()
+    )
+    character = repo.get_character(get_db(), response.json()["id"])
+    assert character.pfp_set == {}
+
+
+def test_the_portrait_shape_round_trips_through_a_card():
+    from app.cards import from_card_json, to_card_json
+    from app.models import Character
+
+    character = Character(id="c", name="Wren", pfp_shape="square")
+    assert from_card_json(to_card_json(character)).pfp_shape == "square"
+    assert Character(id="c", name="Wren").pfp_shape == "portrait"

@@ -391,6 +391,8 @@ async def update_character(character_id: str, payload: dict = Body(...)) -> dict
     for field in editable:
         if field in payload:
             setattr(character, field, str(payload[field] or ""))
+    if payload.get("pfp_shape") in ("portrait", "square"):
+        character.pfp_shape = payload["pfp_shape"]
     if "pfp_set" in payload:
         # Names and URLs only. A value from the editor is a path under
         # /avatars; one from a card is a filename that shipped beside it.
@@ -468,8 +470,34 @@ async def import_character(request: Request, filename: str = Query("card.json"))
         character = cards.from_bytes(payload, filename)
     except cards.CardError as exc:
         raise HTTPException(400, str(exc)) from exc
+    # A V2 card *is* its portrait: the JSON lives in a tEXt chunk of a PNG that
+    # is the picture. Reading the chunk and dropping the file left every
+    # imported card faceless, which is not a missing feature — it is the whole
+    # image sitting in the bytes we already have.
+    if not character.pfp_set and payload.startswith(cards.PNG_SIGNATURE):
+        saved = _store_avatar(payload, f"{character.name or 'card'}.png")
+        if saved:
+            character.pfp_set = {"neutral": saved}
     repo.save_character(get_db(), character)
     return {"id": character.id, "name": character.name}
+
+
+def _store_avatar(payload: bytes, filename: str) -> str:
+    """Write an uploaded image beside the portraits and hand back its URL.
+
+    Returns "" rather than raising: a card that arrives without a usable
+    picture is still a card, and losing the import over the portrait would be
+    the worse failure.
+    """
+    if len(payload) > config.MAX_AVATAR_BYTES:
+        return ""
+    config.AVATAR_DIR.mkdir(parents=True, exist_ok=True)
+    name = _safe_upload_name(filename, set(config.user_avatars()), "portrait")
+    try:
+        (config.AVATAR_DIR / name).write_bytes(payload)
+    except OSError:
+        return ""
+    return f"/avatars/{name}"
 
 
 def _card_filename(name: str) -> str:
@@ -1171,13 +1199,10 @@ async def upload_avatar(request: Request, filename: str = Query(...)) -> dict:
         limit = config.MAX_AVATAR_BYTES // (1024 * 1024)
         raise HTTPException(400, f"image is larger than {limit} MB")
 
-    config.AVATAR_DIR.mkdir(parents=True, exist_ok=True)
-    name = _safe_upload_name(filename, set(config.user_avatars()), "avatar")
-    try:
-        (config.AVATAR_DIR / name).write_bytes(payload)
-    except OSError as exc:
-        raise HTTPException(500, f"could not save image: {exc}") from exc
-    return {"name": name, "url": f"/avatars/{name}"}
+    url = _store_avatar(payload, filename)
+    if not url:
+        raise HTTPException(500, "could not save image")
+    return {"name": url.rsplit("/", 1)[-1], "url": url}
 
 
 # -------------------------------------------------------------- backdrops

@@ -140,6 +140,11 @@ function pfpUrl(file) {
 // How much slower the text is shown than the model produced it. A local model
 // on a good card arrives faster than anyone reads, and a reply that lands in a
 // lump is one you scroll back through rather than watch.
+// The widest a stored portrait is written at. It is drawn at 148px at most and
+// on a 3x screen that is 444, so this is generous; a 4MB card sent whole would
+// be 4MB down the wire on every load, on the phone doing the loading.
+const PORTRAIT_MAX_PX = 640;
+
 const STREAM_PACE = 0.6;
 // Once the model has finished, whatever is still queued is cleared inside this
 // — a paced tail is pleasant, a paced tail four seconds after the backend went
@@ -482,6 +487,22 @@ function tavern() {
     // in front of "is typing" and "is thinking" without parsing one back out
     // of the other.
     composingSpeaker: "",
+    // Which message's portrait is currently blown up, and the picture filling
+    // the screen if one is. Two states rather than one: enlarged is still part
+    // of the conversation, full screen is not.
+    bigPfp: "",
+    // Choosing which part of a picture becomes the portrait. The box is held
+    // in the image's own pixels, not the screen's: the stage resizes with the
+    // sheet and with rotation, and a box stored in display pixels would move
+    // every time it did.
+    crop: {
+      open: false, src: "", file: null, shape: "portrait", busy: false,
+      nat: { w: 0, h: 0 },
+      box: { x: 0, y: 0, w: 0, h: 0 },
+      drag: null,
+    },
+    pfpFull: { src: "", shape: "portrait" },
+    pfpFullLeaving: false,
     // How much reasoning has arrived this turn. Only ever a count: the
     // reasoning itself is not for the message stream (§5.6).
     thinkChars: 0,
@@ -697,6 +718,43 @@ function tavern() {
       return pfpUrl(set[this.expression] || set.neutral || "");
     },
 
+    // How this speaker's picture is framed. Per character, because it is a
+    // property of the drawing rather than of the app (§models.pfp_shape).
+    portraitShape(message) {
+      if (message && message.speaker_id && this.cast.length > 1) {
+        const who = this.cast.find((m) => m.character_id === message.speaker_id);
+        if (who && who.pfp_shape) return who.pfp_shape;
+      }
+      return (this.character && this.character.pfp_shape) || "portrait";
+    },
+
+    // Tap to look at it, tap again to put it back. The bubble beside it gives
+    // up the width, which is the point: at 34px a portrait is punctuation, and
+    // this is for when you actually want to see who you are talking to.
+    togglePfp(message) {
+      if (!message || !this.portraitFor(message)) return;
+      this.bigPfp = this.bigPfp === message.id ? "" : message.id;
+      buzz(4);
+    },
+
+    openPfpFull(src, shape) {
+      if (!src) return;
+      this.pfpFullLeaving = false;
+      this.pfpFull = { src, shape: shape || "portrait" };
+      buzz(6);
+    },
+
+    // Kept mounted until the shrink has finished — an overlay that vanishes on
+    // the frame you release it never appears to have gone anywhere.
+    closePfpFull() {
+      if (!this.pfpFull.src || this.pfpFullLeaving) return;
+      this.pfpFullLeaving = true;
+      setTimeout(() => {
+        this.pfpFull = { src: "", shape: "portrait" };
+        this.pfpFullLeaving = false;
+      }, PANEL_LEAVE_MS());
+    },
+
     // The face for one message. In a solo chat that is the character, with
     // whatever expression the last pass chose; in a group it is whoever spoke,
     // at rest, because the expression slice belongs to the chat and not to
@@ -719,6 +777,8 @@ function tavern() {
     },
 
     async openChat(id) {
+      // A portrait left enlarged in one chat has nothing to do with the next.
+      this.bigPfp = "";
       // The transcript comes off a SQLite database on a phone, so this is a
       // real wait rather than a hypothetical one. It used to cut: the old
       // conversation vanished, nothing stood in for it, and the new one
@@ -1404,26 +1464,167 @@ function tavern() {
     // avatars use — one upload path, one size limit, one set of allowed types
     // — and the URL it returns is stored rather than a bare filename, so it
     // can be told apart from the file an imported card brought with it.
-    async uploadCharacterPfp(event) {
+    // The file is not uploaded here any more: it opens the cropper, and what
+    // gets uploaded is the frame chosen there. A whole card squeezed into a
+    // 34px box by object-fit is a picture of somebody's midriff.
+    uploadCharacterPfp(event) {
       const file = (event.target.files || [])[0];
+      event.target.value = "";
       if (!file) return;
-      this.uploadingPfp = true;
       this.charError = "";
+      if (this.crop.src) URL.revokeObjectURL(this.crop.src);
+      this.crop = {
+        ...this.crop,
+        open: true,
+        busy: false,
+        file,
+        src: URL.createObjectURL(file),
+        shape: this.draftCharacter.pfp_shape || "portrait",
+        nat: { w: 0, h: 0 },
+        box: { x: 0, y: 0, w: 0, h: 0 },
+        drag: null,
+      };
+    },
+
+    // ---- the cropper ----
+
+    // Widest box of the wanted shape that fits, centred. Recomputed rather than
+    // scaled when the shape changes, so switching back and forth cannot walk
+    // the frame off the edge one rounding error at a time.
+    cropFit(shape) {
+      const { w, h } = this.crop.nat;
+      const ratio = shape === "square" ? 1 : 2 / 3;   // width ÷ height
+      let width = Math.min(w, h * ratio);
+      let height = width / ratio;
+      if (height > h) { height = h; width = height * ratio; }
+      return { x: (w - width) / 2, y: (h - height) / 2, w: width, h: height };
+    },
+
+    cropLoaded(event) {
+      const img = event.target;
+      this.crop.nat = { w: img.naturalWidth || 1, h: img.naturalHeight || 1 };
+      this.crop.box = this.cropFit(this.crop.shape);
+    },
+
+    setCropShape(shape) {
+      if (this.crop.shape === shape) return;
+      this.crop.shape = shape;
+      if (this.crop.nat.w) this.crop.box = this.cropFit(shape);
+      buzz(4);
+    },
+
+    // Image pixels per screen pixel. The stage letterboxes the picture, so the
+    // rendered box is measured rather than assumed.
+    cropScale() {
+      const img = this.$refs.cropImage;
+      if (!img || !img.clientWidth || !this.crop.nat.w) return 1;
+      return this.crop.nat.w / img.clientWidth;
+    },
+
+    cropBoxStyle() {
+      const img = this.$refs.cropImage;
+      const stage = this.$refs.cropStage;
+      if (!img || !stage || !this.crop.nat.w) return "display: none";
+      const scale = this.cropScale();
+      // The picture is centred in the stage; the frame is drawn against the
+      // stage, so its offset has to come back.
+      const left = (stage.clientWidth - img.clientWidth) / 2;
+      const top = (stage.clientHeight - img.clientHeight) / 2;
+      const b = this.crop.box;
+      return `left: ${left + b.x / scale}px; top: ${top + b.y / scale}px;`
+        + ` width: ${b.w / scale}px; height: ${b.h / scale}px`;
+    },
+
+    cropDown(event, mode) {
+      event.target.setPointerCapture?.(event.pointerId);
+      this.crop.drag = {
+        mode,
+        id: event.pointerId,
+        x: event.clientX,
+        y: event.clientY,
+        box: { ...this.crop.box },
+      };
+      const move = (e) => this.cropMove(e);
+      const up = (e) => {
+        this.crop.drag = null;
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        window.removeEventListener("pointercancel", up);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+      window.addEventListener("pointercancel", up);
+    },
+
+    cropMove(event) {
+      const drag = this.crop.drag;
+      if (!drag || event.pointerId !== drag.id) return;
+      const scale = this.cropScale();
+      const dx = (event.clientX - drag.x) * scale;
+      const dy = (event.clientY - drag.y) * scale;
+      const { w: nw, h: nh } = this.crop.nat;
+      const ratio = this.crop.shape === "square" ? 1 : 2 / 3;
+
+      if (drag.mode === "move") {
+        this.crop.box = {
+          ...drag.box,
+          x: Math.min(Math.max(0, drag.box.x + dx), nw - drag.box.w),
+          y: Math.min(Math.max(0, drag.box.y + dy), nh - drag.box.h),
+        };
+        return;
+      }
+      // Resize from the far corner, keeping the shape. The larger of the two
+      // movements wins, so a diagonal drag does what it looks like it does.
+      const wanted = Math.max(drag.box.w + dx, (drag.box.h + dy) * ratio);
+      const limit = Math.min(nw - drag.box.x, (nh - drag.box.y) * ratio);
+      const width = Math.min(Math.max(28, wanted), Math.max(28, limit));
+      this.crop.box = { ...drag.box, w: width, h: width / ratio };
+    },
+
+    cancelCrop() {
+      if (this.crop.src) URL.revokeObjectURL(this.crop.src);
+      this.crop = { ...this.crop, open: false, src: "", file: null, drag: null };
+    },
+
+    // Drawn to a canvas at the size it will be shown at rather than uploaded
+    // whole: a 4MB card behind a 34px frame is 4MB down the wire on every
+    // load, and the phone is the thing loading it.
+    async confirmCrop() {
+      if (!this.crop.file || !this.crop.nat.w) return this.cancelCrop();
+      this.crop.busy = true;
       try {
+        const b = this.crop.box;
+        const width = Math.min(PORTRAIT_MAX_PX, Math.round(b.w));
+        const height = Math.round(width * (b.h / b.w));
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const image = this.$refs.cropImage;
+        canvas.getContext("2d").drawImage(
+          image, b.x, b.y, b.w, b.h, 0, 0, width, height,
+        );
+        const blob = await new Promise((resolve) =>
+          canvas.toBlob(resolve, "image/png"));
+        if (!blob) throw new Error("could not read that image");
+
+        this.uploadingPfp = true;
+        const name = (this.crop.file.name || "portrait").replace(/\.[^.]+$/, "") + ".png";
         const response = await fetch(
-          `/api/avatars?filename=${encodeURIComponent(file.name)}`,
-          { method: "POST", body: file },
+          `/api/avatars?filename=${encodeURIComponent(name)}`,
+          { method: "POST", body: blob },
         );
         if (!response.ok) throw await apiError(response);
         const saved = await response.json();
         this.draftCharacter.pfp_set = {
           ...(this.draftCharacter.pfp_set || {}), neutral: saved.url,
         };
+        this.draftCharacter.pfp_shape = this.crop.shape;
+        this.cancelCrop();
       } catch (e) {
         this.charError = String(e.message || e);
       } finally {
         this.uploadingPfp = false;
-        event.target.value = "";
+        this.crop.busy = false;
       }
     },
 
@@ -2070,6 +2271,7 @@ function tavern() {
           alternate_greetings: this.altGreetings,
           stop_strings: this.stopStrings,
           pfp_set: draft.pfp_set || {},
+          pfp_shape: draft.pfp_shape || "portrait",
         });
         this.characters = await api.get("/api/characters");
         // The open chat holds its own copy of the card, and the header reads

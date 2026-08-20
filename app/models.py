@@ -212,6 +212,11 @@ class Character(BaseModel):
     # writing, a scene break they overuse.
     stop_strings: list[str] = Field(default_factory=list)
     pfp_set: dict[str, str] = Field(default_factory=dict)  # emotion -> image
+    # How the picture is framed, and it belongs to the character rather than to
+    # the app: a card drawn as a standing figure is ruined by a square crop, and
+    # a face shot is wasted in a tall one. Cropped to this on the way in, drawn
+    # to it everywhere after.
+    pfp_shape: Literal["portrait", "square"] = "portrait"
     backgrounds: list[dict[str, Any]] = Field(default_factory=list)  # {img, metadata}
     state_schema: dict[str, VariableSchema] = Field(default_factory=dict)
     # Rule-based keyword/regex nudges, applied before any model pass (§6).
