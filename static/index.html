@@ -947,9 +947,11 @@
                     <h4>What reaches the model</h4>
 
         <p class="note">
-          How much of the conversation reaches the model. Messages are only
-          dropped once the summary <em>and</em> the memory pass have covered
-          them, so nothing is lost by lowering these.
+          How much of the conversation reaches the model. The budget is what
+          decides: a chat that fits is sent whole, and only what no longer fits
+          falls outside it. Nothing is thrown away for good until the summary
+          <em>and</em> the memory pass have both covered it, and the opening
+          message — the scenario — is never thrown away at all.
         </p>
         <template x-for="n in numberFields('basic')" :key="n.key">
           <div class="num-field">

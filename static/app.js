@@ -3635,7 +3635,8 @@ function tavern() {
             unit: " tok",
             note: "Prompt the reply is built from. Match your model's window — past it, the far end is dropped anyway. 32k is what a local model on a PC usually has." },
           { key: "verbatim_window", label: "Messages kept in full", min: 4, max: 60,
-            note: "Recent messages quoted word for word. Older ones survive as summary and memory." },
+            note: "The fewest recent messages sent word for word. Above this the context "
+                + "budget decides, so a chat with room to spare is sent whole." },
           { key: "memory_max_injected", label: "Memories recalled", min: 0, max: 12,
             note: "Extracted facts added to a prompt at most. Zero turns recall off." },
         ],
