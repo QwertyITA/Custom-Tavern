@@ -58,14 +58,10 @@ MEMORY_NEVER = -1
 # Nothing leaves while there is room for it.
 EVICTION_PRESSURE = 0.85
 
-# The most messages the window will look at, however much budget there is. A
-# thousand-message chat should not cost a thousand token estimates per turn on
-# a phone, and at four hundred messages the budget has decided long before.
-WINDOW_SCAN_CAP = 400
-
-# What the window leaves for the volatile band — state bands, setting, toggle
-# injections, the card's last word — before it starts counting messages.
-VOLATILE_RESERVE = 400
+# Left over the top of the budget for what assembly cannot see: the output
+# contract, which the scheduler appends after this runs, and four characters to
+# a token being close rather than exact.
+BUDGET_SLACK = 320
 
 
 @dataclass
@@ -308,21 +304,15 @@ def build_reply_context(
         and (upto_turn is None or m["turn"] <= upto_turn)
     ]
     verbatim = [m for m in history if m["stage"] == "verbatim"]
-    # `reinserted` is true only when the opening had to be *put back* over a
-    # gap. Whether it is there at all is a different question, and the answer to
-    # that is what the trimmer must not undo.
-    window, reinserted = _window(
-        verbatim, settings, spent=assembled.sections.get("prefix", 0)
-    )
-    opening_present = bool(window) and window[0]["id"] == verbatim[0]["id"]
-    # Where the conversation now starts, which is what the summary pass covers
-    # up to. A re-inserted opening does not count: it is still in the prompt,
-    # and summarising it would be describing a message the model can read.
-    body = window[1:] if reinserted else window
-    assembled.window_from = body[0]["turn"] if body else 0
-    recent_texts = [m["text"] for m in window]
+    # The conversation is sized last, once every other section has been built
+    # and its cost is known — "as much of the story as the budget allows,
+    # without losing anything else". Nothing here needs the window to be
+    # decided first: lore is scanned over the newest few messages by its own
+    # setting, and everything else reads the newest turn.
+    current_turn = verbatim[-1]["turn"] if verbatim else 0
+    recent_texts = [m["text"] for m in verbatim[-max(1, settings.lorebook_scan_depth) :]]
     latest_user = next(
-        (m["text"] for m in reversed(window) if m["role"] == "user"), ""
+        (m["text"] for m in reversed(verbatim) if m["role"] == "user"), ""
     )
 
     middle_order = prompt_layout.order_for(layout, "middle")
@@ -364,6 +354,58 @@ def build_reply_context(
         if summary["text"]:
             middle_parts["summary"] = f"## Story so far\n{summary['text']}"
             _section(assembled, "summary", summary["text"])
+
+    # ---- the volatile band, built early and appended last ----------------
+    #
+    # It goes at the end of the prompt (the cache rule, §7.1) but its size has
+    # to be known before the conversation is sized, or the conversation would
+    # be filled with room the state block is about to need.
+    values = current_values(db, chat["id"], schema, character.id)
+    bands = render_bands(schema, values)
+    volatile_parts: dict[str, str] = {
+        "state": f"## {character.name}'s current state\n{bands}" if bands else "",
+        "setting": f"## Setting\n{scene}" if (scene := scene_line(db, chat["id"])) else "",
+        "search": search_block(db, chat["id"], current_turn),
+        "toggles": "\n\n".join(toggle_injections or []),
+        "event": f"## Something is happening\n{event}\n"
+        "Work it into your reply as it happens. Do not resolve it in one line."
+        if (event := pending_event(db, chat["id"]))
+        else "",
+        # The card's own last word. It belongs after the history — that is the
+        # whole point of the field, and where a card puts the instruction it
+        # wants obeyed over whatever the conversation has drifted into.
+        "final": expand(character.post_history_instructions).strip()
+        if character.post_history_instructions.strip()
+        else "",
+    }
+    volatile_order = prompt_layout.order_for(layout, "volatile")
+    volatile_text = {
+        s["id"]: (
+            block_text(s) if prompt_layout.has_text(s) else volatile_parts.get(s["id"], "")
+        )
+        for s in volatile_order
+    }
+    volatile_cost = sum(estimate_tokens(t) for t in volatile_text.values() if t)
+
+    # ---- the conversation, filling whatever is left ----------------------
+    middle_cost = sum(
+        estimate_tokens(
+            block_text(s) if prompt_layout.has_text(s) else middle_parts.get(s["id"], "")
+        )
+        for s in middle_order
+        if s["id"] != "conversation"
+    )
+    spent = assembled.sections.get("prefix", 0) + middle_cost + volatile_cost
+    # `reinserted` is true only when the opening had to be *put back* over a
+    # gap. Whether it is there at all is a different question, and the answer to
+    # that is what the trimmer must not undo.
+    window, reinserted = _window(verbatim, settings, spent=spent)
+    opening_present = bool(window) and window[0]["id"] == verbatim[0]["id"]
+    # Where the conversation now starts, which is what the summary pass covers
+    # up to. A re-inserted opening does not count: it is still in the prompt,
+    # and summarising it would be describing a message the model can read.
+    body = window[1:] if reinserted else window
+    assembled.window_from = body[0]["turn"] if body else 0
 
     # Everything before the conversation goes into one system message; anything
     # a user has dragged *below* it follows the transcript. Being able to put a
@@ -467,32 +509,9 @@ def build_reply_context(
         )
 
     # ---- volatile suffix (LAST — the cache rule) -------------------------
-    values = current_values(db, chat["id"], schema, character.id)
-    bands = render_bands(schema, values)
-    volatile_parts: dict[str, str] = {
-        "state": f"## {character.name}'s current state\n{bands}" if bands else "",
-        "setting": f"## Setting\n{scene}" if (scene := scene_line(db, chat["id"])) else "",
-        "search": search_block(db, chat["id"], current_turn),
-        "toggles": "\n\n".join(toggle_injections or []),
-        "event": f"## Something is happening\n{event}\n"
-        "Work it into your reply as it happens. Do not resolve it in one line."
-        if (event := pending_event(db, chat["id"]))
-        else "",
-        # The card's own last word. It belongs after the history — that is the
-        # whole point of the field, and where a card puts the instruction it
-        # wants obeyed over whatever the conversation has drifted into.
-        "final": expand(character.post_history_instructions).strip()
-        if character.post_history_instructions.strip()
-        else "",
-    }
-    volatile = [
-        _part(
-            assembled,
-            s,
-            block_text(s) if prompt_layout.has_text(s) else volatile_parts.get(s["id"], ""),
-        )
-        for s in prompt_layout.order_for(layout, "volatile")
-    ]
+    # Built further up, where its size could still be counted; recorded and
+    # appended here, where it belongs in the prompt.
+    volatile = [_part(assembled, s, volatile_text[s["id"]]) for s in volatile_order]
 
     assembled.volatile = "\n\n".join(v for v in volatile if v)
     if assembled.volatile:
@@ -501,22 +520,6 @@ def build_reply_context(
 
     _trim_to_budget(assembled, settings, protect=1 if opening_present else 0)
     return assembled
-
-
-def _reserve(settings: Settings) -> int:
-    """Room to leave for everything that is not the conversation.
-
-    Lore, memories and the summary are all capped by their own settings, and
-    the volatile band is a state block and a few injections. Over-reserving is
-    safe — `_trim_to_budget` is still the last word — and under-reserving is
-    not, so each of these is the ceiling rather than the average.
-    """
-    return (
-        settings.lorebook_total_budget
-        + settings.summary_budget
-        + settings.memory_max_injected * 40
-        + VOLATILE_RESERVE
-    )
 
 
 def _window(
@@ -528,7 +531,12 @@ def _window(
     holding 3.8k tokens against a 32k budget still sent only its last 24
     messages and lost the beginning of its own story to make room that was
     never needed. It is a floor now — that many always, however tight things
-    are — and above it the budget decides.
+    are — and above it the only limit is the budget.
+
+    `spent` is what the rest of the prompt actually costs, measured rather than
+    guessed: every other section is built before this runs, so the conversation
+    gets all the room they leave and no more. There is no cap on the number of
+    messages. A message that fits is sent.
 
     The opening message is always included wherever it has got to. It is the
     scenario, nothing later restates it, and it is the one message whose
@@ -537,12 +545,11 @@ def _window(
     if not verbatim:
         return [], False
     floor = max(0, settings.verbatim_window)
-    scan = verbatim[-WINDOW_SCAN_CAP:]
-    room = settings.token_budget - spent - _reserve(settings)
+    room = settings.token_budget - spent - BUDGET_SLACK
 
     kept: list[dict] = []
     total = 0
-    for message in reversed(scan):
+    for message in reversed(verbatim):
         cost = estimate_tokens(message["text"])
         if len(kept) >= floor and (room <= 0 or total + cost > room):
             break

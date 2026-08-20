@@ -4063,6 +4063,20 @@ function tavern() {
       return pass.label || pass.id;
     },
 
+    // Four words for when a pass runs, for the row that is always visible.
+    // The long version lives on the spacing control inside the fold.
+    passWhen(pass) {
+      if (!pass.enabled) return "off";
+      const n = this.passEvery(pass);
+      const type = (pass.trigger || {}).type;
+      if (type === "over_budget") return "when the context fills";
+      if (n > 1) return `every ${n} messages`;
+      if (type === "chance") return `${Math.round((pass.trigger.probability || 0) * 100)}% of turns`;
+      if (type === "every_n" && pass.trigger.n > 1) return `every ${pass.trigger.n} turns`;
+      if (type === "on_signal") return "when something moves";
+      return "every turn";
+    },
+
     async togglePass(pass) {
       pass.enabled = !pass.enabled;
       try {

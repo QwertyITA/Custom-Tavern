@@ -896,6 +896,25 @@
             </div>
             <p class="kind-note" x-text="g.note"></p>
 
+            <!-- Which passes are in this group, and whether each one is on.
+                 Above the fold on purpose: "is the summary running" is the
+                 question someone opens this panel with, and it was three taps
+                 down inside a numeric field before. -->
+            <div class="pass-list" x-show="passesIn(g.tier).length && g.tier !== 'blocking'">
+              <template x-for="p in spacedPasses(g.tier)" :key="`sw-${p.id}`">
+                <div class="pass-line" :class="{ off: !p.enabled }">
+                  <span class="pass-line-name" x-text="p.label || p.id"></span>
+                  <span class="pass-line-when" x-text="passWhen(p)"></span>
+                  <button class="p-switch" :class="{ on: p.enabled }"
+                          @click="togglePass(p)" :aria-pressed="p.enabled"
+                          :aria-label="`${p.label || p.id}: ${p.enabled ? 'on' : 'off'}`"
+                          :title="p.enabled ? 'Switch this pass off' : 'Switch this pass on'">
+                    <span class="p-knob"></span>
+                  </button>
+                </div>
+              </template>
+            </div>
+
             <div class="fold" :class="{ open: openTier === g.tier }">
               <div class="fold-clip">
                 <label class="row"><span class="row-label">Backend</span>
@@ -917,15 +936,6 @@
                   <div class="num-field">
                     <div class="num-head">
                       <span class="num-label" x-text="everyLabel(p)"></span>
-                      <!-- One pass at a time, next to what it costs. The group
-                           switch above is all or nothing, and "I want the
-                           scene tracker but not the summary" is a real thing
-                           to want. -->
-                      <button class="p-switch" :class="{ on: p.enabled }"
-                              @click="togglePass(p)" :aria-pressed="p.enabled"
-                              :title="p.enabled ? 'Switch this pass off' : 'Switch this pass on'">
-                        <span class="p-knob"></span>
-                      </button>
                       <input class="num-box" type="number" min="1" max="50" step="1"
                              :value="passEvery(p)" @input="setPassEvery(p, $event.target.value)"
                              :disabled="!p.enabled" :aria-label="everyLabel(p)">

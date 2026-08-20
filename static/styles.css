@@ -2098,6 +2098,37 @@ input.mono {
 .p-body .kind-note { margin: 0; font-size: 11px; }
 
 /* The switch travels; it does not cut between two pictures of itself. */
+/* The passes in a group, listed where they can be seen without opening
+   anything. "Is the summary running" is the question this panel is opened
+   with, and the answer used to be three taps down inside a numeric field.
+
+   Each row is at least 44px tall, which is also what makes the switch's
+   invisible 44×44 target safe here: without it the targets of two stacked
+   rows would overlap and the wrong pass would take the tap. */
+.pass-list {
+  margin: 6px 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.pass-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 4px 10px;
+  border-top: 1px solid var(--line);
+  transition: opacity var(--dur-base) var(--ease-out);
+}
+.pass-line:first-child { border-top: 0; }
+.pass-line.off { opacity: .62; }
+.pass-line-name { flex: 1; min-width: 0; }
+.pass-line-when {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+}
+
 .p-switch {
   flex: none;
   width: 40px;

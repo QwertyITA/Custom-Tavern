@@ -468,3 +468,42 @@ def test_the_speaker_label_is_a_name_not_a_card_title(db, chat, character):
     )
     assert "Kutra: hello" in text
     assert "your assigned" not in text
+
+
+def test_there_is_no_cap_on_how_many_messages_are_sent(db, chat, character):
+    """Only the budget decides. A big window on a big context should send
+    hundreds of messages, not stop at a number written in the source."""
+    for i in range(600):
+        repo.add_message(db, chat["id"], "user", f"m{i} " + "word " * 20)
+    assembled = assembly.build_reply_context(
+        db, chat, character, Settings(token_budget=131072, prompt_sections=bare_layout())
+    )
+    kept = [m for m in assembled.messages if m["role"] in ("user", "assistant")]
+    assert len(kept) == 600
+
+
+def test_the_conversation_takes_the_room_the_rest_of_the_prompt_leaves(db, chat, character):
+    """Measured, not guessed: every other section is built before the window is
+    sized, so the conversation gets what they leave and the budget is actually
+    used. It must not push any of them out to do it."""
+    for i in range(400):
+        repo.add_message(db, chat["id"], "user", f"m{i} " + "word " * 30)
+    settings = Settings(token_budget=16000)
+    assembled = assembly.build_reply_context(db, chat, character, settings)
+
+    assert 0.90 < assembled.total_tokens / settings.token_budget <= 1.0
+    # the bands that are not the conversation all survived
+    assert assembled.sections.get("prefix")
+    assert assembled.sections.get("volatile")
+
+
+def test_a_smaller_budget_sends_fewer_messages(db, chat, character):
+    for i in range(400):
+        repo.add_message(db, chat["id"], "user", f"m{i} " + "word " * 30)
+    counts = []
+    for budget in (8000, 16000, 32768):
+        assembled = assembly.build_reply_context(
+            db, chat, character, Settings(token_budget=budget)
+        )
+        counts.append(len([m for m in assembled.messages if m["role"] == "user"]))
+    assert counts == sorted(counts) and counts[0] < counts[-1]
