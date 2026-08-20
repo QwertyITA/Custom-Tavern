@@ -197,13 +197,16 @@ def bare_layout() -> list[dict]:
 
 
 def test_token_budget_trims_the_oldest_messages_first(db, chat, character):
+    """Oldest first — but never the opening, which is pinned and is the one
+    message whose absence leaves a character not knowing where they are."""
     for i in range(30):
         repo.add_message(db, chat["id"], "user", f"message number {i} " + "padding " * 40)
     tight = Settings(token_budget=900, verbatim_window=30, prompt_sections=bare_layout())
     assembled = assembly.build_reply_context(db, chat, character, tight)
     assert assembled.trimmed > 0
     kept = [m["content"] for m in assembled.messages if m["role"] == "user"]
-    assert not any("message number 0 " in c for c in kept)
+    assert any("message number 0 " in c for c in kept), "the opening is pinned"
+    assert not any("message number 1 " in c for c in kept), "the next oldest goes first"
     assert any("message number 29 " in c for c in kept)
 
 
@@ -217,31 +220,93 @@ def test_budget_never_cuts_the_prefix_or_the_suffix(db, chat, character):
     assert assembled.messages[-1]["content"] == assembled.volatile
 
 
-def test_verbatim_window_caps_message_count(db, chat, character):
+def test_the_window_is_a_floor_and_the_budget_is_the_cap(db, chat, character):
+    """It used to be a hard count, so a chat holding an eighth of its context
+    budget still sent only its last few messages. With room to spare the story
+    is sent whole; the setting is what survives when there is no room."""
     for i in range(20):
         repo.add_message(db, chat["id"], "user", f"m{i}")
-    assembled = assembly.build_reply_context(
+
+    roomy = assembly.build_reply_context(
         db, chat, character, Settings(verbatim_window=5, token_budget=100000)
     )
-    assert len([m for m in assembled.messages if m["role"] in ("user", "assistant")]) == 5
+    assert len([m for m in roomy.messages if m["role"] in ("user", "assistant")]) == 20
+
+
+def test_a_tight_budget_still_sends_the_recent_messages(db, chat, character):
+    """The floor is what survives when the budget has nothing left to give."""
+    body = "word " * 200  # ~250 tokens each
+    for i in range(20):
+        repo.add_message(db, chat["id"], "user", f"m{i} {body}")
+    tight = assembly.build_reply_context(
+        db, chat, character,
+        Settings(verbatim_window=3, token_budget=3000, prompt_sections=bare_layout()),
+    )
+    kept = [m for m in tight.messages if m["role"] in ("user", "assistant")]
+    assert 3 <= len(kept) < 20
+    assert kept[-1]["content"].startswith("m19")
+
+
+def test_a_long_chat_keeps_its_opening(db, chat, character):
+    """The first message is the scenario. Under the old count-based window it
+    was the first thing to go, whatever the budget."""
+    body = "word " * 200
+    repo.add_message(db, chat["id"], "assistant", "the-scenario", turn=0)
+    for i in range(40):
+        repo.add_message(db, chat["id"], "user", f"m{i} {body}")
+    assembled = assembly.build_reply_context(
+        db, chat, character,
+        Settings(verbatim_window=3, token_budget=3000, prompt_sections=bare_layout()),
+    )
+    body = "".join(m["content"] for m in assembled.messages)
+    assert "the-scenario" in body
+    assert "m39" in body and "m5" not in body
 
 
 # --------------------------------------------------------- eviction ladder
+
+# Eviction is permanent — a summarized message is out of the prompt for good —
+# so every one of these has to say how full the prompt was. `squeezed` is a
+# prompt at its budget; the default of nothing at all evicts nothing.
+
+SQUEEZED = {"prompt_tokens": 10**6}
 
 
 def test_nothing_is_evicted_before_the_summary_covers_it(db, chat, character):
     for i in range(10):
         repo.add_message(db, chat["id"], "user", f"m{i}")
-    result = assembly.apply_eviction(db, chat["id"], Settings(verbatim_window=2))
+    result = assembly.apply_eviction(
+        db, chat["id"], Settings(verbatim_window=2), **SQUEEZED
+    )
     assert result == {"summarized": 0, "dropped": 0}
+
+
+def test_nothing_is_evicted_while_the_prompt_still_fits(db, chat, character):
+    """The bug this exists to stop: a chat at an eighth of its context budget
+    losing its opening to make room nobody needed. Eviction answers pressure."""
+    for i in range(10):
+        repo.add_message(db, chat["id"], "user", f"m{i}")
+    repo.set_summary(db, chat["id"], "a summary", covered_turn=10)
+    assembly.set_memory_covered_turn(db, chat["id"], 10)
+    settings = Settings(verbatim_window=2, token_budget=32768)
+
+    assert assembly.apply_eviction(db, chat["id"], settings, prompt_tokens=3788) == {
+        "summarized": 0,
+        "dropped": 0,
+    }
+    assert assembly.apply_eviction(db, chat["id"], settings, prompt_tokens=31000)[
+        "summarized"
+    ]
 
 
 def test_covered_messages_outside_the_window_become_summarized(db, chat, character):
     for i in range(10):
         repo.add_message(db, chat["id"], "user", f"m{i}")
     repo.set_summary(db, chat["id"], "a summary", covered_turn=10)
-    result = assembly.apply_eviction(db, chat["id"], Settings(verbatim_window=2))
-    assert result["summarized"] == 8
+    result = assembly.apply_eviction(
+        db, chat["id"], Settings(verbatim_window=2), **SQUEEZED
+    )
+    assert result["summarized"] == 7  # the opening is pinned, so not that one
     assert result["dropped"] == 0  # memory has not looked at them yet
 
 
@@ -251,12 +316,51 @@ def test_dropping_waits_for_the_memory_pass(db, chat, character):
         repo.add_message(db, chat["id"], "user", f"m{i}")
     repo.set_summary(db, chat["id"], "a summary", covered_turn=10)
     settings = Settings(verbatim_window=2)
-    assembly.apply_eviction(db, chat["id"], settings)
+    assembly.apply_eviction(db, chat["id"], settings, **SQUEEZED)
 
     assembly.set_memory_covered_turn(db, chat["id"], 10)
-    result = assembly.apply_eviction(db, chat["id"], settings)
-    assert result["dropped"] == 8
-    assert len(repo.list_messages(db, chat["id"], include_dropped=False)) == 2
+    result = assembly.apply_eviction(db, chat["id"], settings, **SQUEEZED)
+    assert result["dropped"] == 7
+    # the window, plus the opening that is never evicted
+    assert len(repo.list_messages(db, chat["id"], include_dropped=False)) == 3
+
+
+def test_a_memory_pass_that_never_ran_does_not_count_as_covering_turn_zero(
+    db, chat, character
+):
+    """"Never run" and "covered turn 0" were the same stored number, and turn 0
+    is the opening message every time — so the one message carrying the premise
+    was droppable on a chat where the memory pass had never run once."""
+    repo.add_message(db, chat["id"], "assistant", "the scenario", turn=0)
+    for i in range(10):
+        repo.add_message(db, chat["id"], "user", f"m{i}")
+    repo.set_summary(db, chat["id"], "a summary", covered_turn=10)
+    settings = Settings(verbatim_window=2)
+
+    assert assembly.memory_covered_turn(db, chat["id"]) == assembly.MEMORY_NEVER
+    assembly.apply_eviction(db, chat["id"], settings, **SQUEEZED)
+    result = assembly.apply_eviction(db, chat["id"], settings, **SQUEEZED)
+    assert result["dropped"] == 0
+
+
+def test_the_opening_message_is_never_evicted(db, chat, character):
+    """It is the scenario — where everyone is, what the arrangement is, who
+    these people are to each other — and nothing later in the chat restates any
+    of it. Being turn 0 it was also always the first thing out of the door."""
+    opening = repo.add_message(db, chat["id"], "assistant", "the-scenario", turn=0)
+    for i in range(20):
+        repo.add_message(db, chat["id"], "user", f"m{i}")
+    repo.set_summary(db, chat["id"], "a summary", covered_turn=20)
+    assembly.set_memory_covered_turn(db, chat["id"], 20)
+    settings = Settings(verbatim_window=2)
+
+    assembly.apply_eviction(db, chat["id"], settings, **SQUEEZED)
+    assembly.apply_eviction(db, chat["id"], settings, **SQUEEZED)
+
+    stages = {m["id"]: m["stage"] for m in repo.list_messages(db, chat["id"])}
+    assert stages[opening["id"]] == "verbatim"
+    assembled = assembly.build_reply_context(db, chat, character, settings)
+    assert "the-scenario" in "".join(m["content"] for m in assembled.messages)
 
 
 def test_dropped_messages_leave_the_prompt(db, chat, character):
@@ -265,12 +369,12 @@ def test_dropped_messages_leave_the_prompt(db, chat, character):
     repo.set_summary(db, chat["id"], "a summary", covered_turn=10)
     assembly.set_memory_covered_turn(db, chat["id"], 10)
     settings = Settings(verbatim_window=2)
-    assembly.apply_eviction(db, chat["id"], settings)
-    assembly.apply_eviction(db, chat["id"], settings)
+    assembly.apply_eviction(db, chat["id"], settings, **SQUEEZED)
+    assembly.apply_eviction(db, chat["id"], settings, **SQUEEZED)
 
     assembled = assembly.build_reply_context(db, chat, character, settings)
     body = "".join(m["content"] for m in assembled.messages)
-    assert "unique-marker-0" not in body
+    assert "unique-marker-1" not in body
     assert "unique-marker-9" in body
 
 

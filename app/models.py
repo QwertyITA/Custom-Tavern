@@ -18,7 +18,7 @@ class Trigger(BaseModel):
     """When a pass is eligible to run (§5.2)."""
 
     type: Literal[
-        "every_turn", "every_n", "on_signal", "timer", "manual", "chance"
+        "every_turn", "every_n", "on_signal", "timer", "manual", "chance", "over_budget"
     ] = "every_turn"
     n: int = 1
     signal: str = ""

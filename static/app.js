@@ -4031,8 +4031,28 @@ function tavern() {
       return pass.label || pass.id;
     },
 
+    async togglePass(pass) {
+      pass.enabled = !pass.enabled;
+      try {
+        await api.put(`/api/passes/${pass.id}`, pass);
+      } catch (e) {
+        pass.enabled = !pass.enabled;
+        this.error = String(e.message || e);
+      }
+    },
+
     everyNote(pass) {
+      if (!pass.enabled) return "Off. It will not run at all.";
+      // A pass that waits for the context to fill is not on a timetable, and
+      // saying "whenever it has something to do" of it is how the summary
+      // ended up being read as free.
       const n = this.passEvery(pass);
+      if (pass.trigger && pass.trigger.type === "over_budget") {
+        return n <= 1
+          ? "Only once the prompt has run out of room, over the messages that "
+            + "have left it. Nothing is summarised while there is space to keep it."
+          : `Only once the prompt is full, and at most once every ${n} messages.`;
+      }
       if (n <= 1) return "Whenever it has something to do.";
       return `At most once every ${n} messages, however often it would fire.`;
     },

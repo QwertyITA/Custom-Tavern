@@ -45,6 +45,28 @@ Message = dict[str, str]
 
 MEMORY_COVERED_KEY = "memory_covered:{chat_id}"
 
+# "The memory pass has never run", as distinct from "it has covered turn 0".
+# Those were the same number, and turn 0 is the opening message — the scenario,
+# every time — so the one message carrying the premise was droppable on a chat
+# where memory had never run once. No test caught it because `add_message`
+# numbers turns from 1 and nothing but the greeting is ever turn 0.
+MEMORY_NEVER = -1
+
+# How full the prompt has to be before anything is thrown out of it. Eviction
+# used to be driven by a message count alone, so a chat sitting at an eighth of
+# its context budget still lost its opening to make room that was not needed.
+# Nothing leaves while there is room for it.
+EVICTION_PRESSURE = 0.85
+
+# The most messages the window will look at, however much budget there is. A
+# thousand-message chat should not cost a thousand token estimates per turn on
+# a phone, and at four hundred messages the budget has decided long before.
+WINDOW_SCAN_CAP = 400
+
+# What the window leaves for the volatile band — state bands, setting, toggle
+# injections, the card's last word — before it starts counting messages.
+VOLATILE_RESERVE = 400
+
 
 @dataclass
 class Assembled:
@@ -55,6 +77,10 @@ class Assembled:
     lore_hits: list[str] = field(default_factory=list)
     memories: list[dict] = field(default_factory=list)
     trimmed: int = 0  # messages cut by the token budget this turn
+    # The turn of the oldest message actually sent, not counting the pinned
+    # opening. Everything before it has left the prompt, and that — rather than
+    # a turn count — is what the summary pass is for.
+    window_from: int = 0
     # Base64 images from the newest turn's attachments (§19). Filled only when
     # the backend that will receive this can actually see them.
     images: list[str] = field(default_factory=list)
@@ -277,7 +303,11 @@ def build_reply_context(
         and (upto_turn is None or m["turn"] <= upto_turn)
     ]
     verbatim = [m for m in history if m["stage"] == "verbatim"]
-    window = verbatim[-settings.verbatim_window :] if settings.verbatim_window else verbatim
+    window = _window(verbatim, settings, spent=assembled.sections.get("prefix", 0))
+    # Whether the opening is in there because it was pinned rather than because
+    # it was recent — if so the trimmer must not take it back out again.
+    pinned_opening = bool(window) and window[0]["id"] == verbatim[0]["id"] and len(window) > 1
+    assembled.window_from = window[1 if pinned_opening else 0]["turn"] if window else 0
     recent_texts = [m["text"] for m in window]
     latest_user = next(
         (m["text"] for m in reversed(window) if m["role"] == "user"), ""
@@ -457,28 +487,81 @@ def build_reply_context(
         assembled.messages.append({"role": "system", "content": assembled.volatile})
         _section(assembled, "volatile", assembled.volatile)
 
-    _trim_to_budget(assembled, settings)
+    _trim_to_budget(assembled, settings, protect=1 if pinned_opening else 0)
     return assembled
 
 
-def _trim_to_budget(assembled: Assembled, settings: Settings) -> None:
+def _reserve(settings: Settings) -> int:
+    """Room to leave for everything that is not the conversation.
+
+    Lore, memories and the summary are all capped by their own settings, and
+    the volatile band is a state block and a few injections. Over-reserving is
+    safe — `_trim_to_budget` is still the last word — and under-reserving is
+    not, so each of these is the ceiling rather than the average.
+    """
+    return (
+        settings.lorebook_total_budget
+        + settings.summary_budget
+        + settings.memory_max_injected * 40
+        + VOLATILE_RESERVE
+    )
+
+
+def _window(verbatim: list[dict], settings: Settings, *, spent: int) -> list[dict]:
+    """The messages sent in full: the setting as a floor, then whatever else fits.
+
+    `verbatim_window` used to be a hard cap, and a count-based one, so a chat
+    holding 3.8k tokens against a 32k budget still sent only its last 24
+    messages and lost the beginning of its own story to make room that was
+    never needed. It is a floor now — that many always, however tight things
+    are — and above it the budget decides.
+
+    The opening message is always included wherever it has got to. It is the
+    scenario, nothing later restates it, and it is the one message whose
+    absence turns a character into someone who does not know where they are.
+    """
+    if not verbatim:
+        return []
+    floor = max(0, settings.verbatim_window)
+    scan = verbatim[-WINDOW_SCAN_CAP:]
+    room = settings.token_budget - spent - _reserve(settings)
+
+    kept: list[dict] = []
+    total = 0
+    for message in reversed(scan):
+        cost = estimate_tokens(message["text"])
+        if len(kept) >= floor and (room <= 0 or total + cost > room):
+            break
+        kept.append(message)
+        total += cost
+    kept.reverse()
+
+    opening = verbatim[0]
+    if kept and kept[0]["id"] != opening["id"]:
+        kept.insert(0, opening)
+    return kept
+
+
+def _trim_to_budget(assembled: Assembled, settings: Settings, *, protect: int = 0) -> None:
     """Drop the oldest verbatim messages until the budget is met.
 
     Only the middle gives way: the prefix is what the cache is built on and the
     suffix is what the model needs to act correctly this turn.
+
+    `protect` is how many of the oldest messages are not the trimmer's to take
+    — one, for the pinned opening, which is the scenario and is worth more than
+    any single exchange that would be kept in its place.
     """
     budget = settings.token_budget
     if budget <= 0:
         return
     while assembled.total_tokens > budget:
-        index = next(
-            (
-                i
-                for i, m in enumerate(assembled.messages)
-                if m["role"] in ("user", "assistant")
-            ),
-            None,
-        )
+        turns = [
+            i for i, m in enumerate(assembled.messages) if m["role"] in ("user", "assistant")
+        ]
+        # The oldest one the trimmer is allowed to take. When the protected
+        # ones are all that is left there is nothing more it can do.
+        index = turns[protect] if len(turns) > protect else None
         if index is None:
             break
         removed = assembled.messages.pop(index)
@@ -521,25 +604,59 @@ def build_pass_context(
 
 
 def memory_covered_turn(db: Database, chat_id: str) -> int:
-    return int(repo.get_meta(db, MEMORY_COVERED_KEY.format(chat_id=chat_id), "0") or 0)
+    """The last turn the memory pass looked at, or MEMORY_NEVER if it never has."""
+    stored = repo.get_meta(db, MEMORY_COVERED_KEY.format(chat_id=chat_id), "")
+    if not stored:
+        return MEMORY_NEVER
+    try:
+        return int(stored)
+    except ValueError:
+        return MEMORY_NEVER
 
 
 def set_memory_covered_turn(db: Database, chat_id: str, turn: int) -> None:
     repo.set_meta(db, MEMORY_COVERED_KEY.format(chat_id=chat_id), str(turn))
 
 
-def apply_eviction(db: Database, chat_id: str, settings: Settings) -> dict[str, int]:
+def under_pressure(prompt_tokens: int, settings: Settings) -> bool:
+    """Whether the prompt is close enough to its budget to start throwing away.
+
+    `prompt_tokens` is what the last assembled turn actually cost. Nothing is
+    known about the next one, and that is fine: eviction is permanent, so the
+    right time to do it is once rather than early.
+    """
+    budget = settings.token_budget
+    if budget <= 0:
+        return False
+    return prompt_tokens >= budget * EVICTION_PRESSURE
+
+
+def apply_eviction(
+    db: Database, chat_id: str, settings: Settings, *, prompt_tokens: int = 0
+) -> dict[str, int]:
     """Advance messages down the ladder. Never drops uncovered messages.
 
-    verbatim → summarized  once the summary pass has covered the turn and the
-                           message has fallen out of the verbatim window
+    verbatim → summarized  once the prompt is near its budget, the summary pass
+                           has covered the turn, and the message has fallen out
+                           of the verbatim window
     summarized → dropped   only once the memory pass has covered it too, so a
                            durable fact was given its chance to be promoted
+
+    Both steps are permanent — a summarized message is out of the prompt for
+    good, and no later setting brings it back — so neither happens while the
+    prompt still fits comfortably. Passing no `prompt_tokens` therefore evicts
+    nothing, which is the safe way round for a caller that does not know.
+
+    The opening message is never touched. It is the scenario: it says where
+    everyone is, what the arrangement is and who these people are to each
+    other, and nothing later in the chat restates any of it. It was also, being
+    turn 0, always the first thing out of the door.
     """
     messages = repo.list_messages(db, chat_id)
-    if not messages:
+    if not messages or not under_pressure(prompt_tokens, settings):
         return {"summarized": 0, "dropped": 0}
 
+    opening = messages[0]["id"]
     window_ids = {
         m["id"] for m in [m for m in messages if m["stage"] == "verbatim"][-settings.verbatim_window :]
     }
@@ -551,12 +668,16 @@ def apply_eviction(db: Database, chat_id: str, settings: Settings) -> dict[str, 
         for m in messages
         if m["stage"] == "verbatim"
         and m["id"] not in window_ids
+        and m["id"] != opening
         and m["turn"] <= summary_covered
     ]
     to_drop = [
         m["id"]
         for m in messages
-        if m["stage"] == "summarized" and m["turn"] <= min(summary_covered, memory_covered)
+        if m["stage"] == "summarized"
+        and m["id"] != opening
+        and memory_covered != MEMORY_NEVER
+        and m["turn"] <= min(summary_covered, memory_covered)
     ]
 
     if to_summarize or to_drop:
@@ -577,13 +698,25 @@ def apply_eviction(db: Database, chat_id: str, settings: Settings) -> dict[str, 
     return {"summarized": len(to_summarize), "dropped": len(to_drop)}
 
 
-def pending_summary_text(db: Database, chat_id: str, character_name: str) -> tuple[str, int]:
-    """Messages the summary pass has not folded in yet, and the turn they reach."""
+def pending_summary_text(
+    db: Database, chat_id: str, character_name: str, *, before_turn: int = 0
+) -> tuple[str, int]:
+    """Messages the summary pass has not folded in yet, and the turn they reach.
+
+    `before_turn` is where the verbatim window now starts, and it is what stops
+    the summary describing turns the model can still read for itself. Covering
+    them was worse than useless: the summary sits *above* the conversation and
+    reads as established fact, so a cheap model's misreading of an exchange
+    contradicted the exchange itself a few hundred tokens further down. It also
+    made the summary permanent far too early, since a covered message is one
+    the eviction ladder may take.
+    """
     summary = repo.get_summary(db, chat_id)
     messages = [
         m
         for m in repo.list_messages(db, chat_id, include_dropped=False)
         if m["turn"] > summary["covered_turn"]
+        and (before_turn <= 0 or m["turn"] < before_turn)
     ]
     if not messages:
         return "", summary["covered_turn"]

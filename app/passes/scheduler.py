@@ -117,6 +117,13 @@ class TurnContext:
     signals: dict[str, str] = field(default_factory=dict)
     toggle_states: dict[str, bool] = field(default_factory=dict)
     reply_text: str = ""
+    # What this turn's prompt actually cost. Eviction is permanent, so it only
+    # happens under real pressure (§7.2) — and this is the only measurement of
+    # that pressure anyone has.
+    prompt_tokens: int = 0
+    # Where the verbatim window starts. The summary pass covers what is before
+    # it and nothing after, so it never describes a turn the model can read.
+    window_from: int = 0
 
     @property
     def chat_id(self) -> str:
@@ -305,6 +312,13 @@ class PassScheduler:
             return True
         if trigger.type == "every_n":
             return trigger.n > 0 and ctx.turn % trigger.n == 0
+        if trigger.type == "over_budget":
+            # Only once the prompt has actually run out of room. A summary is
+            # the only account of everything it covers — a covered message
+            # leaves the prompt for good — so it is worth paying for when there
+            # is no longer space to keep the messages themselves, and worth
+            # nothing before that.
+            return assembly.under_pressure(ctx.prompt_tokens, self.settings)
         if trigger.type == "chance":
             # Free: a dice roll, no model call. The whole point of gating a pass
             # this way is that it costs nothing on the turns it does not fire.
@@ -574,6 +588,8 @@ class PassScheduler:
             sees_images=provider.sees_images,
         )
 
+        ctx.prompt_tokens = assembled.total_tokens
+        ctx.window_from = assembled.window_from
         contract = _suffix_instructions(ctx)
         system = assembled.system + "\n\n" + contract
         request = GenRequest(
@@ -989,7 +1005,7 @@ class PassScheduler:
             )
         elif definition.id == "summary":
             pending, covered = assembly.pending_summary_text(
-                self.db, ctx.chat_id, character.name
+                self.db, ctx.chat_id, character.name, before_turn=ctx.window_from
             )
             if not pending:
                 return "", [], None
@@ -1107,7 +1123,9 @@ class PassScheduler:
             if not text:
                 return False
             repo.set_summary(self.db, ctx.chat_id, text, covered_turn)
-            assembly.apply_eviction(self.db, ctx.chat_id, self.settings)
+            assembly.apply_eviction(
+                self.db, ctx.chat_id, self.settings, prompt_tokens=ctx.prompt_tokens
+            )
             self._emit(
                 ctx.chat_id,
                 {"type": "summary", "text": text, "covered_turn": covered_turn},
@@ -1131,7 +1149,9 @@ class PassScheduler:
             # Coverage advances even when nothing was extracted: the pass looked
             # at those turns, so the eviction ladder may now move past them.
             assembly.set_memory_covered_turn(self.db, ctx.chat_id, covered_turn)
-            assembly.apply_eviction(self.db, ctx.chat_id, self.settings)
+            assembly.apply_eviction(
+                self.db, ctx.chat_id, self.settings, prompt_tokens=ctx.prompt_tokens
+            )
             if inserted:
                 self._emit(
                     ctx.chat_id,
@@ -1195,6 +1215,8 @@ class PassScheduler:
             toggle_injections=injections,
             exclude_message_id=message_id,
         )
+        ctx.prompt_tokens = assembled.total_tokens
+        ctx.window_from = assembled.window_from
         messages = list(assembled.messages)
         messages.append({"role": "assistant", "content": existing})
         request = GenRequest(
@@ -1329,6 +1351,8 @@ class PassScheduler:
             exclude_message_id=message_id,
             sees_images=provider.sees_images,
         )
+        ctx.prompt_tokens = assembled.total_tokens
+        ctx.window_from = assembled.window_from
         contract = _suffix_instructions(ctx)
         request = GenRequest(
             system=assembled.system + "\n\n" + contract,

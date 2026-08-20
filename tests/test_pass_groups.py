@@ -17,6 +17,13 @@ from app.passes.scheduler import PassScheduler
 from .conftest import sync, turn
 
 
+def _ctx(sched, chat, character, *, turn: int):
+    """A turn context standing still, for asking a trigger a direct question."""
+    from app.passes.scheduler import TurnContext
+
+    return TurnContext(chat=chat, character=character, settings=sched.settings, turn=turn)
+
+
 def statuses(sched) -> dict:
     return {
         r["pass_id"]: r["status"]
@@ -142,3 +149,35 @@ def test_spacing_is_stored_only_when_it_is_not_the_default():
 
 def test_an_absurd_spacing_is_clamped():
     assert saved(pass_every={"scene": 9999}).pass_every["scene"] == 50
+
+
+# ------------------------------------- the summary waits for the context to fill
+
+
+def test_the_summary_waits_for_the_prompt_to_fill(db, chat, character, sched):
+    """It used to run every eight turns whatever the context was doing. A
+    summary replaces messages permanently, so it is worth paying for when there
+    is no longer room to keep them and worth nothing at all before that."""
+    from app.passes import registry
+
+    definition = registry.get_pass(db, "summary")
+    assert definition.trigger.type == "over_budget"
+
+    ctx = _ctx(sched, chat, character, turn=8)
+    ctx.prompt_tokens = 3788  # an eighth of the default budget
+    assert sched.trigger_fires(definition, ctx) is False
+
+    ctx.prompt_tokens = int(sched.settings.token_budget * 0.95)
+    assert sched.trigger_fires(definition, ctx) is True
+
+
+def test_a_switched_off_pass_never_runs(db, chat, character, sched):
+    from app.passes import registry
+
+    definition = registry.get_pass(db, "scene")
+    ctx = _ctx(sched, chat, character, turn=1)
+    ctx.signals = {"scene_change": "major"}
+    assert sched.eligible([definition], ctx, set())
+
+    definition.enabled = False
+    assert sched.eligible([definition], ctx, set()) == []

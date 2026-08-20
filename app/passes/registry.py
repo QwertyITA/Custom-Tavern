@@ -163,25 +163,47 @@ CANONICAL_PASSES: list[PassDef] = [
         label="Summary",
         # Off until asked for. A summary is not free context — it is the *only*
         # account of everything it covers, because a covered message leaves the
-        # prompt for good (§7.2). Written by the cheapest model in the stack,
-        # eight turns at a time, it routinely gets the premise and the standing
-        # facts wrong, and then that is what the character knows. Nothing is
-        # evicted while it is off, so a chat under its context budget keeps
-        # every word it actually said.
+        # prompt for good (§7.2). Written by the cheapest model in the stack it
+        # routinely gets the premise and the standing facts wrong, and then that
+        # is what the character knows. Nothing is evicted while it is off, so a
+        # chat under its context budget keeps every word it actually said.
         enabled=False,
         blocking=False,
         model_tier="background",
-        trigger=Trigger(type="every_n", n=8),
+        # Not a turn count. It used to fire every eight turns whatever the
+        # context was doing, so a chat at an eighth of its budget was being
+        # summarised — and each firing covered turns still sitting in the
+        # window, where the summary contradicted the transcript underneath it.
+        # Now it runs when the prompt has actually run out of room, over the
+        # messages that have actually left it.
+        trigger=Trigger(type="over_budget"),
         sampling=Sampling(temp=0.3, top_p=0.9, max_tokens=400),
         output=PassOutput(type="state_modifier", target="summary"),
         writes_slice="summary",
+        # Written against the way the old one failed. It lost the premise —
+        # who these people are to each other and what the standing arrangement
+        # is — because nothing later in the chat restates it, so a model told to
+        # "drop what has been superseded" drops it. It also reversed who said
+        # what, and recorded an agreement where there had been a refusal.
         prompt=(
-            "You maintain a rolling summary of a roleplay conversation.\n"
-            "Fold the new messages into the existing summary. Keep what still matters, "
-            "drop what has been superseded, and stay under the stated budget.\n"
+            "You maintain a rolling summary of a roleplay conversation. It replaces "
+            "messages that have left the context window, so anything you leave out is "
+            "gone for good.\n"
+            "Fold the new messages into the existing summary, and keep, in this order "
+            "of priority:\n"
+            "1. The premise — who these people are to each other, where they are, and "
+            "any standing arrangement, debt, threat or promise between them. Carry it "
+            "forward every time. It is stated once, at the start, and never repeated, "
+            "so it is the thing most easily lost.\n"
+            "2. What is unresolved: an open question, a demand not yet answered, a "
+            "refusal that still stands.\n"
+            "3. What changed between them, and what either of them decided.\n"
+            "Drop only detail that later events have genuinely settled.\n"
             'Reply with JSON only: {"summary": "<the merged summary>"}\n'
-            "Write it as terse third-person narration of what happened and what changed "
-            "between the characters."
+            "Terse third-person narration, under the stated budget. Name who did and "
+            "said each thing; never attribute one speaker's words to the other. Do not "
+            "record an agreement that was not given — a refusal, a threat and a bargain "
+            "struck are three different endings and the difference is the whole point."
         ),
     ),
     PassDef(
