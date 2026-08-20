@@ -255,6 +255,17 @@ dropped           → only after important facts are promoted to Memory (§7.3)
 The summary pass is what makes eviction safe: durable facts leave the verbatim window
 as memories, not as loss.
 
+**It ships switched off.** The ladder starts at "the summary has covered this turn", so
+with the pass off nothing is ever evicted and a chat under its context budget keeps
+every word it actually said. That is the right default because a summarised message
+leaves the prompt *permanently* — the stage is stored, and no later setting brings it
+back — which makes the summary the only surviving account of everything it covers.
+Written by the cheapest model in the stack, eight turns at a time, it is routinely
+wrong about the premise and about who did what, and then that is what the character
+knows. Turn it on when a chat actually outgrows its window; `memory` (§7.3) stays on
+either way, because a durable fact is worth carrying forward whether or not anything
+is being thrown away.
+
 ### 7.3 Memory store (non-blocking `memory` pass)
 
 A background pass extracts durable facts ("user's sister is Anna", "character promised

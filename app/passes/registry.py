@@ -161,6 +161,14 @@ CANONICAL_PASSES: list[PassDef] = [
         id="summary",
         kind="canonical",
         label="Summary",
+        # Off until asked for. A summary is not free context — it is the *only*
+        # account of everything it covers, because a covered message leaves the
+        # prompt for good (§7.2). Written by the cheapest model in the stack,
+        # eight turns at a time, it routinely gets the premise and the standing
+        # facts wrong, and then that is what the character knows. Nothing is
+        # evicted while it is off, so a chat under its context budget keeps
+        # every word it actually said.
+        enabled=False,
         blocking=False,
         model_tier="background",
         trigger=Trigger(type="every_n", n=8),
@@ -279,7 +287,15 @@ def seed(db: Database) -> None:
             conn.execute(
                 "INSERT INTO pass_defs(id, kind, enabled, data) VALUES(?,?,?,?) "
                 "ON CONFLICT(id) DO NOTHING",
-                (definition.id, definition.kind, 1, definition.model_dump_json()),
+                # From the definition, not a hardcoded 1: the column is what the
+                # scheduler reads, so a canonical pass that ships switched off
+                # was seeded on regardless of what it said about itself.
+                (
+                    definition.id,
+                    definition.kind,
+                    int(definition.enabled),
+                    definition.model_dump_json(),
+                ),
             )
         for toggle in CANONICAL_TOGGLES:
             conn.execute(

@@ -281,3 +281,39 @@ def test_pending_summary_only_covers_new_turns(db, chat, character):
     text, covered = assembly.pending_summary_text(db, chat["id"], character.name)
     assert "fresh news" in text and "old news" not in text
     assert covered == 2
+
+
+# ------------------------------------------------- the summary ships off (§7.2)
+
+
+def test_the_summary_pass_ships_switched_off(db):
+    """It is not free context: a message the summary covers leaves the prompt
+    for good, so the summary becomes the *only* account of it — written by the
+    cheapest model in the stack, eight turns at a time. Off until asked for."""
+    from app.passes import registry
+
+    by_id = {p.id: p for p in registry.all_passes(db)}
+    assert by_id["summary"].enabled is False
+    assert by_id["memory"].enabled is True, "durable facts still get carried forward"
+
+
+def test_a_pass_that_ships_off_is_seeded_off(db):
+    """The enabled column is what the scheduler reads. It was seeded as a
+    hardcoded 1, so a canonical pass could not ship switched off at all."""
+    from app.passes import registry
+
+    rows = {
+        row["id"]: row["enabled"]
+        for row in db.query("SELECT id, enabled FROM pass_defs")
+    }
+    assert rows["summary"] == 0
+    assert rows["basic"] == 1
+
+
+def test_nothing_is_evicted_while_the_summary_is_off(db, chat, character):
+    """The eviction ladder starts at "the summary has covered this turn", so
+    with no summary running a chat keeps every word it actually said."""
+    for i in range(30):
+        repo.add_message(db, chat["id"], "user", f"m{i}")
+    result = assembly.apply_eviction(db, chat["id"], Settings(verbatim_window=4))
+    assert result == {"summarized": 0, "dropped": 0}
