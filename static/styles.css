@@ -469,8 +469,12 @@ body {
 }
 
 .msg { display: flex; gap: 8px; align-items: flex-start; }
+/* The face sits level with the first line of what they said, not with the
+   middle of a six-paragraph bubble. */
+.msg .pfp-slot { margin-top: 2px; }
 .msg.user { justify-content: flex-end; }
 
+.pfp-slot { flex: none; }
 .pfp {
   width: 34px; height: 34px;
   border-radius: 8px;
@@ -478,6 +482,26 @@ body {
   background: var(--panel-2);
   flex: none;
 }
+/* Holds the same 34px whether or not there is a picture, so adding one later
+   does not move the whole conversation sideways. */
+.pfp-blank {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.pfp-blank svg { width: 20px; height: 20px; fill: currentColor; }
+.pfp-slot.blank .pfp { visibility: hidden; }
+
+/* The editor's copy, big enough to see what you chose. */
+.pfp-edit { display: flex; gap: 12px; align-items: center; margin: 4px 0 12px; }
+.pfp-large { width: 72px; height: 72px; border-radius: 12px; }
+.pfp-large.pfp-blank svg { width: 34px; height: 34px; }
+.pfp-edit-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+/* A file input is unstyleable, so the label is the button and the input hides
+   behind it. */
+.file-link { cursor: pointer; }
 
 /* messages as rectangles (§12) */
 .bubble {

@@ -371,10 +371,13 @@ async def create_character(payload: dict = Body(default={})) -> dict:
 async def update_character(character_id: str, payload: dict = Body(...)) -> dict:
     """Edit the written parts of a card.
 
-    Merged onto the stored character rather than replacing it: portraits,
-    backgrounds, lorebook, state schema and nudges come from the card and are
-    not editable here, and a PUT that dropped them would quietly destroy the
-    parts of an imported character the editor cannot show.
+    Merged onto the stored character rather than replacing it: backgrounds,
+    lorebook, state schema and nudges come from the card and are not editable
+    here, and a PUT that dropped them would quietly destroy the parts of an
+    imported character the editor cannot show.
+
+    The picture is editable, because a character written here rather than
+    imported had no way to have one at all.
     """
     db = get_db()
     character = repo.get_character(db, character_id)
@@ -388,6 +391,17 @@ async def update_character(character_id: str, payload: dict = Body(...)) -> dict
     for field in editable:
         if field in payload:
             setattr(character, field, str(payload[field] or ""))
+    if "pfp_set" in payload:
+        # Names and URLs only. A value from the editor is a path under
+        # /avatars; one from a card is a filename that shipped beside it.
+        raw = payload["pfp_set"]
+        if not isinstance(raw, dict):
+            raise HTTPException(400, "pfp_set must be an object")
+        character.pfp_set = {
+            str(key): str(value)
+            for key, value in raw.items()
+            if isinstance(value, str) and _safe_pfp(value)
+        }
     if "stop_strings" in payload:
         try:
             character.stop_strings = config.parse_stop_strings(payload["stop_strings"])
@@ -412,6 +426,20 @@ async def update_character(character_id: str, payload: dict = Body(...)) -> dict
 
     repo.save_character(db, character)
     return json.loads(character.model_dump_json())
+
+
+def _safe_pfp(value: str) -> bool:
+    """A filename or a path we serve, and nothing that leaves either.
+
+    The value is written into an `src`, so `javascript:`, a remote host and
+    `../` all have to be refused here rather than in the browser.
+    """
+    value = value.strip()
+    if not value or ".." in value or "\\" in value:
+        return False
+    if value.startswith("/"):
+        return value.startswith(("/avatars/", "/static/")) and "//" not in value[1:]
+    return "/" not in value and ":" not in value
 
 
 @app.post("/api/characters/{character_id}/favourite")

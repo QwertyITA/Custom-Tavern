@@ -77,17 +77,19 @@ CANONICAL_PASSES: list[PassDef] = [
         output=PassOutput(type="gui_panel", target="scene"),
         writes_slice=SLICE_SCENE,
         prompt=(
-            "You track the physical setting of a roleplay scene.\n"
-            "From the recent exchange, report where the scene is, the weather, and the "
-            "time of day. Each answer is a label, not a description.\n"
-            'Reply with JSON only: {"place": "<1-3 words>", "weather": "<one word>", '
-            '"time": "<one word>"}\n'
-            "place: no article. 'Tavern', 'Back room', 'Harbour road'.\n"
-            "weather: one word for the sky. 'Rainy', 'Clear', 'Snowy', 'Windy', "
-            "'Foggy', 'Cold', 'Hot'.\n"
-            "time: exactly one of Dawn, Morning, Midday, Afternoon, Dusk, Evening, "
-            "Night, Midnight. Never a clock reading.\n"
-            "If something is unchanged or unknown, repeat the current value."
+            "You label the setting of a roleplay scene. One word per field.\n"
+            "These are labels for a status bar, not descriptions: no articles, "
+            "no adjectives, no phrases, nothing after a comma.\n"
+            'Reply with JSON only: {"place": "", "weather": "", "time": ""}\n'
+            "place: the room or the ground underfoot, in one word. Tavern. "
+            "Cellar. Road. Kitchen. Forest. Never where it is in relation to "
+            "something else — 'Tavern', never 'Room by a window'.\n"
+            "weather: the sky, in one word. Rainy. Clear. Snowy. Windy. Foggy. "
+            "Cold. Hot. Indoors, it is still whatever it is outside.\n"
+            "time: exactly one of Dawn, Morning, Midday, Afternoon, Dusk, "
+            "Evening, Night, Midnight. Never a clock reading.\n"
+            "Unchanged or unknown: repeat the value you were given.\n"
+            'Example: {"place": "Tavern", "weather": "Rainy", "time": "Evening"}'
         ),
     ),
     PassDef(

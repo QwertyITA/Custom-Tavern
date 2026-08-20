@@ -88,6 +88,19 @@ _ARTICLES = ("the ", "a ", "an ")
 # Where a place description stops being the place and starts being a sentence
 # about it. Cutting here turns "a tavern, warm and loud" into "Tavern".
 _TAIL = re.compile(r"\s*[,;:—–(].*$")
+# And where it stops being the place and starts saying where the place is. A
+# phrase cut at a word count reads as a sentence someone interrupted — "the
+# room by a window" became "Room by a", which is not a place, not English, and
+# was on screen for a whole conversation. Cut at the joint instead.
+_JOINERS = (
+    "by", "of", "in", "on", "at", "near", "beside", "behind", "under", "over",
+    "with", "without", "inside", "outside", "next", "across", "along",
+    "between", "beneath", "above", "past", "through", "towards", "toward",
+    "against", "around", "off", "from", "for", "and", "where", "that", "which",
+    "while", "as",
+)
+# Words a label may not end on, whatever the reason it ended there.
+_DANGLING = _JOINERS + ("the", "a", "an", "its", "his", "her", "their", "some")
 _PLACE_WORDS = 3
 
 
@@ -106,14 +119,24 @@ def _unarticled(text: str) -> str:
 
 
 def shorten_place(value: object) -> str:
-    """"A tavern" → "Tavern". Three words at the outside."""
+    """"A tavern" → "Tavern". "The room by a window" → "Room"."""
     text = _clean(value)
     if not text:
         return ""
     text = _unarticled(_TAIL.sub("", text))
     words = text.split()
+
+    # Stop at the first joining word: what follows locates the place rather
+    # than naming it, and the name is the part that fits on the line.
+    for index, word in enumerate(words):
+        if index and word.lower().strip(",.") in _JOINERS:
+            words = words[:index]
+            break
     if len(words) > _PLACE_WORDS:
         words = words[:_PLACE_WORDS]
+    # Never end on a word that was expecting another one.
+    while words and words[-1].lower().strip(",.") in _DANGLING:
+        words.pop()
     text = " ".join(words)
     # Only the first letter: "the Long Wait" keeps its own capitals, and a
     # title-cased "Tavern Common Room" reads as a proper noun it is not.

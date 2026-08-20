@@ -337,9 +337,19 @@
       <!-- x-if for the same reason as the rows below, and one worse: an empty
            `src` is not "no image", it is the current page, which the browser
            re-fetches once per bubble. -->
-      <template x-if="m.role === 'assistant' && portrait">
-        <img class="pfp" :src="portrait" alt=""
-             @error="$el.style.visibility = 'hidden'">
+      <!-- Always, on every reply: a column of faces is what makes a transcript
+           read as people talking rather than as alternating boxes, and it has
+           to be there whether or not this card came with a picture. The
+           placeholder holds the same space, so nothing shifts sideways when
+           one is added. -->
+      <template x-if="m.role === 'assistant'">
+        <span class="pfp-slot">
+          <img class="pfp" x-show="portraitFor(m)" :src="portraitFor(m)" alt=""
+               @error="$el.closest('.pfp-slot').classList.add('blank')">
+          <span class="pfp pfp-blank" x-show="!portraitFor(m)" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
+          </span>
+        </span>
       </template>
       <!-- Swipe the message itself to change variant: left forward, right back
            (§9). touch-action: pan-y leaves vertical scrolling to the chat. -->
@@ -464,9 +474,12 @@
   <!-- Only for a brand-new reply. Regenerating shows the cue inside the
        existing bubble instead, so nothing appears underneath it. -->
   <article class="msg assistant" x-show="composing && !regenId" x-cloak>
-    <template x-if="portrait">
-      <img class="pfp" :src="portrait" alt="">
-    </template>
+    <span class="pfp-slot">
+      <img class="pfp" x-show="portrait" :src="portrait" alt="">
+      <span class="pfp pfp-blank" x-show="!portrait" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
+      </span>
+    </span>
     <div class="bubble composing">
       <span class="anim anim-typing" x-show="composingKind === 'typing'"><i></i><i></i><i></i></span>
       <span class="anim anim-cogs" x-show="composingKind !== 'typing'"></span>
@@ -661,7 +674,7 @@
             <!-- Collapsed until asked for. Four of these open at once is a
                  screen and a half of connection fields between the top of the
                  panel and everything else on it. -->
-            <button class="backend-summary" @click="openBackend = openBackend === i ? -1 : i"
+            <button class="backend-summary" @click="toggleBackend(i, b)"
                     :aria-expanded="openBackend === i">
               <svg class="disclose-arrow" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-back"/></svg>
               <span class="backend-title" x-text="b.name"></span>
@@ -688,17 +701,19 @@
             <p class="kind-note" x-show="kindNote(b.kind)" x-text="kindNote(b.kind)"></p>
 
             <label class="row"><span class="row-label">Model</span>
-              <!-- datalist, not select: the options are what the backend reports,
-                   but a model you are about to pull must still be typeable. -->
-              <input x-model="b.model" :list="`models-${i}`" placeholder="llama3.1:8b"
-                     autocomplete="off" spellcheck="false">
-              <datalist :id="`models-${i}`">
-                <template x-for="m in (models[b.name] || [])" :key="m">
-                  <option :value="m"></option>
+              <!-- A list, not a box. Typing a model name from memory is the
+                   easiest way to misconfigure a backend, and the mistake
+                   surfaces much later as a confusing error from the provider.
+                   The list is what the backend says it can serve; it loads
+                   itself when this opens. -->
+              <select x-model="b.model">
+                <option value="" x-show="!modelOptions(b).length">— load the list —</option>
+                <template x-for="m in modelOptions(b)" :key="m">
+                  <option :value="m" x-text="m"></option>
                 </template>
-              </datalist>
+              </select>
               <button class="link" @click.prevent="loadModels(b)" :disabled="loadingModels === b.name">
-                <span x-text="loadingModels === b.name ? '…' : 'Load'"></span>
+                <span x-text="loadingModels === b.name ? '…' : 'Reload'"></span>
               </button>
             </label>
             <p class="kind-note" x-show="modelHint(b.name)" x-text="modelHint(b.name)"></p>
@@ -1661,9 +1676,30 @@
     <template x-if="panel === 'character'">
       <div>
         <p class="note" x-show="draftCharacter.id">
-          Portraits, backgrounds, lorebook and state schema come from the card and
-          are kept as they are — editing here only rewrites the text below.
+          Backgrounds, lorebook and state schema come from the card and are kept
+          as they are — editing here rewrites the picture and the text below.
         </p>
+
+        <!-- The picture. A card that arrived with one keeps it until this
+             replaces it; a character written here had no way to have one at
+             all before, which made every conversation with one a column of
+             blank squares. -->
+        <div class="pfp-edit">
+          <img class="pfp pfp-large" x-show="draftPortrait()" :src="draftPortrait()" alt="">
+          <span class="pfp pfp-large pfp-blank" x-show="!draftPortrait()" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
+          </span>
+          <div class="pfp-edit-actions">
+            <label class="link file-link">
+              <span x-text="uploadingPfp ? 'Uploading…' : (draftPortrait() ? 'Replace picture' : 'Add a picture')"></span>
+              <input type="file" accept="image/*" @change="uploadCharacterPfp($event)" hidden>
+            </label>
+            <button class="link danger" x-show="draftPortrait()"
+                    @click="clearCharacterPfp()">Remove</button>
+            <span class="kind-note">Shown beside every one of their messages.</span>
+          </div>
+        </div>
+
         <label class="row col-row"><span class="row-label wide-label">Name</span>
           <input x-model="draftCharacter.name" placeholder="Name"></label>
         <label class="col-field"><span class="row-label wide-label">Persona</span>

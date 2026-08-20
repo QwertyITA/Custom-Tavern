@@ -128,6 +128,15 @@ const WHEEL_SETTLE_MS = 340 + 34 * 5;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// A card's picture, wherever it came from. An imported card names a file that
+// shipped with it; one uploaded here is stored with the persona avatars and
+// arrives as a path. Anything starting with a slash is already a URL.
+function pfpUrl(file) {
+  const name = String(file || "").trim();
+  if (!name) return "";
+  return name.startsWith("/") ? name : `/static/characters/${name}`;
+}
+
 // How much slower the text is shown than the model produced it. A local model
 // on a good card arrives faster than anyone reads, and a reply that lands in a
 // lump is one you scroll back through rather than watch.
@@ -432,6 +441,7 @@ function tavern() {
     personaMsg: "",
     personaError: "",
     uploadingAvatar: false,
+    uploadingPfp: false,
     confirmPersona: "",
     savingCharacter: false,
     charMsg: "",
@@ -517,6 +527,7 @@ function tavern() {
     // neither. A mouse skips the rule, having no scroll to conflict with.
     guardSliders() {
       const SLOP = 8;      // travel before the direction counts as decided
+      const TAP_MS = 350;  // a still, brief press is a tap, not a held scroll
 
       const sliderUnder = (event) => {
         const field = event.target?.closest?.(".num-field, .num-box");
@@ -552,7 +563,8 @@ function tavern() {
         if (!el) return;
         const mouse = event.pointerType === "mouse";
         this._slide = {
-          el, id: event.pointerId, x: event.clientX, y: event.clientY, claimed: mouse,
+          el, id: event.pointerId, x: event.clientX, y: event.clientY,
+          at: performance.now(), claimed: mouse,
         };
         // A mouse press is unambiguous, so it acts immediately — click to
         // position, drag to adjust, exactly as the native control behaves.
@@ -584,7 +596,11 @@ function tavern() {
         if (!slide || (event.pointerId != null && event.pointerId !== slide.id)) return;
         this._slide = null;
         slide.el.closest(".num-field")?.classList.remove("sliding");
-        if (slide.claimed && event.clientX != null) setFromX(slide.el, event.clientX);
+        if (slide.claimed && event.clientX != null) return setFromX(slide.el, event.clientX);
+        // Never moved and let go quickly: a tap on a slider is a deliberate
+        // way to set it, and a scroll is not still.
+        const still = Math.hypot(event.clientX - slide.x, event.clientY - slide.y) < SLOP;
+        if (still && performance.now() - slide.at < TAP_MS) setFromX(slide.el, event.clientX);
       };
       document.addEventListener("pointerup", release);
       document.addEventListener("pointercancel", release);
@@ -658,8 +674,20 @@ function tavern() {
     get portrait() {
       if (!this.character) return "";
       const set = this.character.pfp_set || {};
-      const file = set[this.expression] || set.neutral || "";
-      return file ? `/static/characters/${file}` : "";
+      return pfpUrl(set[this.expression] || set.neutral || "");
+    },
+
+    // The face for one message. In a solo chat that is the character, with
+    // whatever expression the last pass chose; in a group it is whoever spoke,
+    // at rest, because the expression slice belongs to the chat and not to
+    // each member of it.
+    portraitFor(message) {
+      if (!message || message.role !== "assistant") return "";
+      if (message.speaker_id && this.cast.length > 1) {
+        const who = this.cast.find((m) => m.character_id === message.speaker_id);
+        if (who) return pfpUrl(who.pfp || "");
+      }
+      return this.portrait;
     },
 
     async newChat(characterId) {
@@ -1352,6 +1380,44 @@ function tavern() {
       }
     },
 
+    // A picture for the character being edited. The same endpoint the persona
+    // avatars use — one upload path, one size limit, one set of allowed types
+    // — and the URL it returns is stored rather than a bare filename, so it
+    // can be told apart from the file an imported card brought with it.
+    async uploadCharacterPfp(event) {
+      const file = (event.target.files || [])[0];
+      if (!file) return;
+      this.uploadingPfp = true;
+      this.charError = "";
+      try {
+        const response = await fetch(
+          `/api/avatars?filename=${encodeURIComponent(file.name)}`,
+          { method: "POST", body: file },
+        );
+        if (!response.ok) throw await apiError(response);
+        const saved = await response.json();
+        this.draftCharacter.pfp_set = {
+          ...(this.draftCharacter.pfp_set || {}), neutral: saved.url,
+        };
+      } catch (e) {
+        this.charError = String(e.message || e);
+      } finally {
+        this.uploadingPfp = false;
+        event.target.value = "";
+      }
+    },
+
+    clearCharacterPfp() {
+      const set = { ...(this.draftCharacter.pfp_set || {}) };
+      delete set.neutral;
+      this.draftCharacter.pfp_set = set;
+    },
+
+    draftPortrait() {
+      const set = this.draftCharacter.pfp_set || {};
+      return pfpUrl(set.neutral || Object.values(set)[0] || "");
+    },
+
     // ---- composer actions ----
 
     composerActions() {
@@ -1696,14 +1762,17 @@ function tavern() {
 
     // ---- theme presets ----
 
-    // Whole palettes rather than one colour at a time. Each is the two or
-    // three tokens that actually carry a look; the rest follow from them.
+    // Whole palettes rather than one colour at a time — and *whole* means the
+    // markup colours as well. They were left out of everything but Night, so
+    // the amber preset drew its dialogue in the rose palette's pink: the three
+    // colours a reader actually looks at were the three the preset did not
+    // touch. Every palette states all of them now.
     themePresets() {
       return [
         {
           id: "rose", label: "Rose",
           swatch: "background: linear-gradient(135deg,#fdf7f9,#c2617f)",
-          theme: {},   // the stylesheet's own defaults
+          theme: {},   // the stylesheet's own defaults, which are the full set
         },
         {
           id: "slate", label: "Slate",
@@ -1712,6 +1781,8 @@ function tavern() {
             "--bg": "#f5f7f9", "--panel": "#ffffff", "--panel-2": "#eceff3",
             "--line": "#dbe1e8", "--text": "#2b3138", "--muted": "#78828d",
             "--accent": "#4c6b8a", "--user-bubble": "#e9eef4", "--ai-bubble": "#ffffff",
+            "--c-default": "#2f353c", "--c-dialogue": "#2f5f8a", "--c-action": "#2f6f6a",
+            "--c-strong": "#7a5a2a",
           },
         },
         {
@@ -1721,6 +1792,19 @@ function tavern() {
             "--bg": "#fdf8f0", "--panel": "#fffdf9", "--panel-2": "#f6ecdc",
             "--line": "#ecdcc2", "--text": "#38301f", "--muted": "#8a7c64",
             "--accent": "#b1762a", "--user-bubble": "#f7ecd9", "--ai-bubble": "#fffdf9",
+            "--c-default": "#3a3222", "--c-dialogue": "#96541c", "--c-action": "#5d6630",
+            "--c-strong": "#9c3d24",
+          },
+        },
+        {
+          id: "moss", label: "Moss",
+          swatch: "background: linear-gradient(135deg,#f5f8f3,#4a7a55)",
+          theme: {
+            "--bg": "#f4f8f3", "--panel": "#ffffff", "--panel-2": "#e9f0e8",
+            "--line": "#d5e2d3", "--text": "#26302a", "--muted": "#6f7d72",
+            "--accent": "#4a7a55", "--user-bubble": "#e6f0e6", "--ai-bubble": "#ffffff",
+            "--c-default": "#2a352d", "--c-dialogue": "#2f6b4f", "--c-action": "#5e5a8a",
+            "--c-strong": "#8a6520",
           },
         },
         {
@@ -1965,6 +2049,7 @@ function tavern() {
           post_history_instructions: draft.post_history_instructions,
           alternate_greetings: this.altGreetings,
           stop_strings: this.stopStrings,
+          pfp_set: draft.pfp_set || {},
         });
         this.characters = await api.get("/api/characters");
         // The open chat holds its own copy of the card, and the header reads
@@ -3642,6 +3727,27 @@ function tavern() {
       delete this.tests[backend.name];
       delete this.models[backend.name];
       delete this.modelErrors[backend.name];
+    },
+
+    // Open one backend, and ask it what it serves while it opens. The list is
+    // the only way to choose a model now, so an empty one is a dead end — and
+    // the answer takes a moment, which is a moment better spent while the fold
+    // is still moving.
+    toggleBackend(index, backend) {
+      this.openBackend = this.openBackend === index ? -1 : index;
+      if (this.openBackend !== index) return;
+      if (backend.kind === "echo") return;
+      if (this.models[backend.name] || this.loadingModels === backend.name) return;
+      this.loadModels(backend);
+    },
+
+    // What the model list offers: whatever the backend reported, plus whatever
+    // is configured — a model that has been pulled since, or one this backend
+    // cannot enumerate, must not vanish from its own setting.
+    modelOptions(backend) {
+      const found = this.models[backend.name] || [];
+      const current = (backend.model || "").trim();
+      return current && !found.includes(current) ? [current, ...found] : found;
     },
 
     // Ask the backend what it can serve. Typing a model name from memory is

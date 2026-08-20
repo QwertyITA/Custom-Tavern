@@ -14,6 +14,15 @@ from app import worldline
 
 
 @pytest.mark.parametrize("given,want", [
+    # Reported from a real header: "Room by a", which is not a place, is not
+    # English, and stayed on screen for a whole conversation. A phrase cut at a
+    # word count reads as a sentence someone interrupted.
+    ("Room by a window", "Room"),
+    ("the room by a window", "Room"),
+    ("the road outside the tavern", "Road"),
+    ("a cellar under the kitchen", "Cellar"),
+    ("room where the fire is", "Room"),
+    ("the harbour road", "Harbour road"),
     ("A tavern", "Tavern"),
     ("the tavern common room", "Tavern common room"),
     ("An inn", "Inn"),

@@ -21,6 +21,8 @@ have the others talk as if the room were empty.
 
 from __future__ import annotations
 
+import json
+
 import random
 import re
 import sqlite3
@@ -48,7 +50,7 @@ REPEAT_PENALTY = 0.25
 def members(db: Database, chat_id: str) -> list[dict[str, Any]]:
     """Everyone in this chat, in join order, with their card details."""
     rows = db.query(
-        "SELECT m.character_id, m.muted, m.talkativeness, m.joined_at, c.name "
+        "SELECT m.character_id, m.muted, m.talkativeness, m.joined_at, c.name, c.data "
         "FROM chat_members m JOIN characters c ON c.id = m.character_id "
         "WHERE m.chat_id=? ORDER BY m.joined_at, m.rowid",
         (chat_id,),
@@ -60,9 +62,24 @@ def members(db: Database, chat_id: str) -> list[dict[str, Any]]:
             "muted": bool(row["muted"]),
             "talkativeness": float(row["talkativeness"]),
             "joined_at": row["joined_at"],
+            # So a row in a group chat can carry the right face. Neutral only:
+            # the expression slice is per chat, not per member, and a list of
+            # faces nobody is showing is a list of files to load.
+            "pfp": _neutral_pfp(row["data"]),
         }
         for row in rows
     ]
+
+
+def _neutral_pfp(raw: Any) -> str:
+    try:
+        card = json.loads(raw or "{}")
+    except (TypeError, ValueError):
+        return ""
+    pfp_set = card.get("pfp_set") or {}
+    if not isinstance(pfp_set, dict):
+        return ""
+    return str(pfp_set.get("neutral") or next(iter(pfp_set.values()), "") or "")
 
 
 def is_group(db: Database, chat_id: str) -> bool:

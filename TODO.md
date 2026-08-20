@@ -11,13 +11,13 @@ Reported in one batch, in the order they are being done. Ticked items are on
       backend should open by itself.
 - [x] **3. The second pencil** in the message tools does nothing. Remove it.
 - [x] **4. An empty band appears under the composer** when the keyboard opens.
-- [ ] **5. World info reads as nonsense** — "Room by a". The place shortener
+- [x] **5. World info reads as nonsense** — "Room by a". The place shortener
       cuts at three words rather than at the end of the phrase, and the prompt
       needs to ask for one word per field.
-- [ ] **6. Theme presets do not change the text colour** — pink text on the
+- [x] **6. Theme presets do not change the text colour** — pink text on the
       yellow preset.
-- [ ] **7. The model field is a text box.** It should be a list of what the
+- [x] **7. The model field is a text box.** It should be a list of what the
       backend actually serves.
-- [ ] **8. No way to give a character a picture.** Upload one.
-- [ ] **9. The picture belongs to the left of every one of their messages**,
+- [x] **8. No way to give a character a picture.** Upload one.
+- [x] **9. The picture belongs to the left of every one of their messages**,
       with a generic one when there is none.
