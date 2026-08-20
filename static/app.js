@@ -3336,8 +3336,10 @@ function tavern() {
     // Sending "***" back means "keep it", so an untouched key survives a save
     // without the browser ever having seen it.
 
-    settings: { backends: [], tiers: {}, tier_names: [], kinds: [], templates: [],
-                think_modes: [],
+    openTier: "",
+    openBackend: "",
+    settings: { backends: [], tiers: {}, tier_names: [], tier_groups: [], kinds: [],
+                templates: [], think_modes: [], tiers_off: [], pass_every: {},
                 kind_defaults: {}, theme_tokens: [], theme: {},
                 backgrounds: [], background: "none", background_dim: 70, path: "" },
     thought: null,
@@ -3541,6 +3543,8 @@ function tavern() {
         // see to retype.
         search_key: this.settings.search_key === MASK_DISPLAY
           ? "***" : this.settings.search_key,
+        tiers_off: [...(this.settings.tiers_off || [])],
+        pass_every: { ...(this.settings.pass_every || {}) },
         backends: this.settings.backends.map((b) => ({
           ...b,
           api_key: b.api_key === MASK_DISPLAY ? "***" : b.api_key,
@@ -3713,6 +3717,76 @@ function tavern() {
       const t = this.tests[name];
       if (!t) return "";
       return t.ok ? `ok — ${t.model} in ${t.latency_ms}ms` : `failed — ${t.error}`;
+    },
+
+    // ---- the three groups of passes (§3) ----
+    //
+    // The tiers are named for *when* they run, which is the wrong question for
+    // someone opening the panel. Grouped and named for what they are for, each
+    // one owns its backend, its switch and its own settings.
+
+    tierOn(tier) {
+      return !(this.settings.tiers_off || []).includes(tier);
+    },
+
+    toggleTier(group) {
+      if (group.required) {
+        return this.flashHint(`${group.label} is what makes it a conversation`);
+      }
+      const off = [...(this.settings.tiers_off || [])];
+      const at = off.indexOf(group.tier);
+      if (at >= 0) off.splice(at, 1);
+      else off.push(group.tier);
+      this.settings.tiers_off = off;
+    },
+
+    passesIn(tier) {
+      return (this.passes || []).filter((p) => p.model_tier === tier);
+    },
+
+    // "3 passes · ollama", so a collapsed group still answers the two things
+    // worth knowing about it.
+    tierSummary(group) {
+      const count = this.passesIn(group.tier).length;
+      const backend = (this.settings.tiers || {})[group.tier] || "—";
+      if (!this.tierOn(group.tier)) return "off";
+      return `${count} · ${backend}`;
+    },
+
+    // Passes whose answer keeps between turns, and which are therefore worth
+    // spacing out. A pass gated on a signal already runs only when something
+    // happened; one gated on a count is being paid for on a timetable.
+    spacedPasses(tier) {
+      return this.passesIn(tier).filter((p) => p.output && p.output.type !== "reply");
+    },
+
+    passEvery(pass) {
+      return (this.settings.pass_every || {})[pass.id] || 1;
+    },
+
+    setPassEvery(pass, raw) {
+      const value = Math.max(1, Math.min(50, parseInt(raw, 10) || 1));
+      const every = { ...(this.settings.pass_every || {}) };
+      if (value <= 1) delete every[pass.id];
+      else every[pass.id] = value;
+      this.settings.pass_every = every;
+    },
+
+    everyLabel(pass) {
+      return pass.label || pass.id;
+    },
+
+    everyNote(pass) {
+      const n = this.passEvery(pass);
+      if (n <= 1) return "Whenever it has something to do.";
+      return `At most once every ${n} messages, however often it would fire.`;
+    },
+
+    backendSummary(backend) {
+      const tiers = Object.entries(this.settings.tiers || {})
+        .filter(([, name]) => name === backend.name).length;
+      const model = backend.model || backend.kind;
+      return tiers ? `${model} · ${tiers} in use` : model;
     },
 
     // ---- cost dashboard (§14) ----

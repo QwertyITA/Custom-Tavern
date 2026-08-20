@@ -43,7 +43,10 @@ CANONICAL_PASSES: list[PassDef] = [
         kind="canonical",
         label="State auditor",
         blocking=False,
-        model_tier="background",
+        # The Refiner group (§3): it reads the reply back and corrects what the
+        # reply guessed about state and narrative drive. Mid-latency rather
+        # than background, because its answer changes the *next* prompt.
+        model_tier="foreground",
         # Only worth paying for when pass 1 says something actually moved.
         trigger=Trigger(type="on_signal", signal="emotional_shift", op=">=", threshold="minor"),
         sampling=Sampling(temp=0.2, top_p=0.9, rep_penalty=1.05, max_tokens=300),
@@ -89,7 +92,9 @@ CANONICAL_PASSES: list[PassDef] = [
         kind="canonical",
         label="Expression",
         blocking=False,
-        model_tier="background",
+        # Refiner as well: the portrait should change while the reply is still
+        # on screen, not two turns later.
+        model_tier="foreground",
         trigger=Trigger(type="on_signal", signal="emotional_shift", op=">=", threshold="minor"),
         sampling=Sampling(temp=0.1, top_p=0.9, max_tokens=60),
         output=PassOutput(type="gui_panel", target="expression"),
@@ -283,6 +288,37 @@ def seed(db: Database) -> None:
             )
 
     db.write_sync(_seed)
+    _regroup(db)
+
+
+# Passes that moved between tiers after they had already been seeded. Seeding
+# never clobbers a stored definition, so without this an install from before
+# the three groups were named keeps its auditor in the background group — and
+# the panel then offers a Refiner with nothing in it.
+REGROUPED = {"state_auditor": "foreground", "expression": "foreground"}
+
+
+def _regroup(db: Database) -> None:
+    def _fix(conn: sqlite3.Connection) -> None:
+        for pass_id, tier in REGROUPED.items():
+            row = conn.execute(
+                "SELECT data FROM pass_defs WHERE id=?", (pass_id,)
+            ).fetchone()
+            if row is None:
+                continue
+            try:
+                definition = PassDef.model_validate_json(row["data"])
+            except ValueError:
+                continue
+            if definition.model_tier == tier:
+                continue
+            definition.model_tier = tier
+            conn.execute(
+                "UPDATE pass_defs SET data=? WHERE id=?",
+                (definition.model_dump_json(), pass_id),
+            )
+
+    db.write_sync(_fix)
 
 
 def all_passes(db: Database) -> list[PassDef]:

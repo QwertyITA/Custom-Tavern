@@ -461,6 +461,31 @@ it is already on screen, and storing it once per turn would grow the database
 with the square of the chat. For the same reason only the last 20 turns keep
 their breakdown; older messages say so rather than showing a guess.
 
+### Passes
+
+Under ☰ → brain, below the backends. Three groups of work, each with its own
+backend, its own switch and its own settings inside it:
+
+- **Messages** — writes the reply. The model you hear, and the only one the
+  story cannot do without, so its switch says so rather than being hidden.
+  What reaches the model — the context budget and the rest — lives here.
+- **Refiner** — secondary, and not mandatory. It reads each reply back and
+  corrects what the reply only guessed at: how far things actually moved,
+  whether the story has drive or is idling, which expression to show. Off, the
+  replies still work and the state behind them drifts.
+- **Secondary info generator** — place, weather and hour, the rolling summary,
+  the memories, the backdrop, and the world interrupting now and then. Also
+  optional. Worth having on with a second backend or a strong one; on a metered
+  plan it is several extra calls a turn for things nobody is waiting on.
+
+Each pass in the last two groups has a **how often** control: at most once
+every *n* messages, whatever its own trigger says. The trigger answers "is
+there anything to do", this answers "is it worth paying for yet" — a scene that
+changes on every turn of a chase still only needs writing down every third one.
+
+Backends are collapsed until tapped: one that is set up is one nobody needs to
+look at.
+
 ### What goes into the prompt
 
 Under ☰ → brain. The prompt is built in three groups, always in this order:

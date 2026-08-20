@@ -207,14 +207,39 @@ class PassScheduler:
         self, definitions: list[PassDef], ctx: TurnContext, disabled: set[str]
     ) -> list[PassDef]:
         out: list[PassDef] = []
+        off = set(getattr(self.settings, "tiers_off", []) or [])
+        spacing = getattr(self.settings, "pass_every", {}) or {}
         for definition in definitions:
             if definition.id == "basic" or not definition.enabled:
                 continue
             if definition.id in disabled:
                 continue
+            # A whole group switched off in the panel (§3). Cheaper than
+            # disabling its passes one at a time, and it is the switch someone
+            # reaches for when a metered backend is doing the answering.
+            if definition.model_tier in off:
+                continue
+            if not self._spaced_out(definition, ctx, spacing):
+                continue
             if self.trigger_fires(definition, ctx):
                 out.append(definition)
         return out
+
+    @staticmethod
+    def _spaced_out(definition: PassDef, ctx: TurnContext, spacing: dict) -> bool:
+        """A floor on how often a pass may run, over and above its trigger.
+
+        The trigger answers "is there anything to do"; this answers "is it
+        worth paying for yet". Kept separate because they disagree usefully: a
+        scene that changed on every turn of a chase still only needs writing
+        down every third one.
+        """
+        every = spacing.get(definition.id, 1)
+        try:
+            every = int(every)
+        except (TypeError, ValueError):
+            return True
+        return every <= 1 or ctx.turn % every == 0
 
     def trigger_fires(self, definition: PassDef, ctx: TurnContext) -> bool:
         trigger = definition.trigger

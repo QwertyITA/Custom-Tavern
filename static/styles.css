@@ -1755,6 +1755,37 @@ body {
   font-weight: 600;
 }
 
+/* A group of passes: the same box as a prompt band, with a switch and a fold. */
+.pass-group .p-band-head { gap: 8px; }
+.pass-group .disclose { margin: 0; flex: 1; min-width: 0; }
+.pass-group h4 {
+  margin: 14px 0 2px;
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* A backend, closed. The summary is the whole control until it is opened. */
+.backend-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 2px;
+  background: none;
+  border: 0;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--radius);
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.backend-summary:active { background: var(--surface-2); }
+.backend-summary .disclose-arrow { transition: transform var(--dur-base) var(--ease-out); }
+.backend:not(.folded) .backend-summary .disclose-arrow { transform: rotate(270deg); }
+.backend-title { font-weight: 600; flex: 1; min-width: 0; }
+
 /* ------------------------------------------------------ template editor */
 
 .col-field.tight { margin-bottom: 8px; }

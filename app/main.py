@@ -144,6 +144,7 @@ async def get_settings() -> dict:
         "templates": list(config.VALID_TEMPLATES),
         "think_modes": list(config.VALID_THINK),
         "tier_names": list(config.TIERS),
+        "tier_groups": [dict(g) for g in config.TIER_GROUPS],
         "kind_defaults": config.kind_defaults(),
         "theme_tokens": config.theme_tokens(),
         "template_fields": _template_fields(),

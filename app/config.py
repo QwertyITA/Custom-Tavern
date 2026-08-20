@@ -34,6 +34,42 @@ VALID_TEMPLATES = ("auto", "messages", "chatml", "llama3", "mistral", "plain", "
 VALID_THINK = ("on", "auto", "off")
 TIERS = ("blocking", "foreground", "background")
 
+# The three tiers as the panel presents them (§3). "Blocking / foreground /
+# background" says when a pass runs; these say what it is *for*, which is the
+# question someone opening the panel actually has. One group per tier, so the
+# switch, the backend and the settings all sit in the same box.
+TIER_GROUPS: tuple[dict[str, Any], ...] = (
+    {
+        "tier": "blocking",
+        "label": "Messages",
+        "required": True,
+        "note": "Writes the reply. This is the model you hear, and the only "
+                "one the story cannot do without.",
+    },
+    {
+        "tier": "foreground",
+        "label": "Refiner",
+        "required": False,
+        "note": "Secondary, and not mandatory. It reads each reply back and "
+                "corrects what the reply only guessed at — how far things "
+                "actually moved, whether the story has drive or is idling, "
+                "which expression to show. Switch it off and replies still "
+                "work; the state behind them just drifts.",
+    },
+    {
+        "tier": "background",
+        "label": "Secondary info generator",
+        "required": False,
+        "note": "Sets the place, the weather and the hour, keeps the rolling "
+                "summary and the memories, swaps the backdrop and lets the "
+                "world interrupt now and then. Not mandatory. Worth having on "
+                "with a second backend or a strong one — on a metered plan it "
+                "is several extra calls a turn for things nobody is waiting "
+                "on, and the frequencies below are there to make it cheaper "
+                "rather than off.",
+    },
+)
+
 # Sensible starting values per backend kind. The settings screen fills these in
 # when you pick a kind, so a new backend is one field away from working instead
 # of a blank form you have to know the answers for. Single source of truth: the
@@ -259,6 +295,15 @@ class Settings:
             "background": "echo",
         }
     )
+    # Which of the three groups of passes are allowed to run at all (§3).
+    # The reply's own tier is not in here: a chat with no reply is not a chat.
+    # Empty means everything is on, which is what an older settings file says.
+    tiers_off: list[str] = field(default_factory=list)
+    # The floor on how often a pass may run, in turns, over and above its own
+    # trigger. `{"scene": 3}` is "the weather at most every third message".
+    # Absent or 1 means "whenever its trigger says", which is the default.
+    pass_every: dict[str, int] = field(default_factory=dict)
+
     backends: list[BackendConfig] = field(
         default_factory=lambda: [BackendConfig(name="echo", kind="echo", model="echo-1")]
     )
@@ -588,6 +633,12 @@ def build_settings(payload: dict[str, Any], current: Settings) -> Settings:
     if not 0 <= amount <= 100:
         raise SettingsError("glass_amount must be between 0 and 100")
     settings.glass_amount = amount
+    settings.tiers_off = _tiers_off(
+        payload["tiers_off"] if "tiers_off" in payload else current.tiers_off
+    )
+    settings.pass_every = _pass_every(
+        payload["pass_every"] if "pass_every" in payload else current.pass_every
+    )
     settings.prompt_sections = _prompt_sections(
         payload["prompt_sections"] if "prompt_sections" in payload else current.prompt_sections
     )
@@ -626,6 +677,30 @@ def _regex_rules(raw: Any) -> list[dict[str, Any]]:
         except regex_rules.RuleError as exc:
             raise SettingsError(f"rule {rule['label']!r}: {exc}") from exc
     return rules
+
+
+def _tiers_off(raw: Any) -> list[str]:
+    """Which tiers are switched off. Never the reply's: a chat with no reply is
+    not a chat, and a settings file that says otherwise is answered rather than
+    obeyed."""
+    if not isinstance(raw, list):
+        return []
+    return [t for t in TIERS if t in raw and t != "blocking"]
+
+
+def _pass_every(raw: Any) -> dict[str, int]:
+    """Per-pass turn spacing. 1 is the default and is not worth storing."""
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, int] = {}
+    for key, value in raw.items():
+        try:
+            n = int(value)
+        except (TypeError, ValueError):
+            continue
+        if n > 1:
+            out[str(key)] = min(n, 50)
+    return out
 
 
 def _prompt_sections(raw: Any) -> list[dict[str, Any]]:

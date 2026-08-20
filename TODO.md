@@ -28,8 +28,8 @@ if a session is cut off mid-way, the next one starts from the first unticked box
 
 ## The brain panel, rebuilt
 
-- [ ] **10. Backends first**, existing ones collapsed.
-- [ ] **11. Tiers become "Passes"**, three of them, each expandable, each with
+- [x] **10. Backends first**, existing ones collapsed.
+- [x] **11. Tiers become "Passes"**, three of them, each expandable, each with
       the settings that belong to it moved inside:
       - **Messages** — writes the reply. Not optional.
       - **Refiner** *(the foreground tier)* — secondary, can be switched off,
@@ -37,5 +37,5 @@ if a session is cut off mid-way, the next one starts from the first unticked box
       - **Secondary info generator** *(the background tier)* — weather, time,
         place, summaries, memory. Can be switched off entirely. Recommended
         only with a second backend or a strong one, since it costs usage.
-- [ ] **12. Frequency controls** for the secondary passes — run the world every
+- [x] **12. Frequency controls** for the secondary passes — run the world every
       *n* messages, summarise every *m*.
