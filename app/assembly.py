@@ -308,11 +308,18 @@ def build_reply_context(
         and (upto_turn is None or m["turn"] <= upto_turn)
     ]
     verbatim = [m for m in history if m["stage"] == "verbatim"]
-    window = _window(verbatim, settings, spent=assembled.sections.get("prefix", 0))
-    # Whether the opening is in there because it was pinned rather than because
-    # it was recent — if so the trimmer must not take it back out again.
-    pinned_opening = bool(window) and window[0]["id"] == verbatim[0]["id"] and len(window) > 1
-    assembled.window_from = window[1 if pinned_opening else 0]["turn"] if window else 0
+    # `reinserted` is true only when the opening had to be *put back* over a
+    # gap. Whether it is there at all is a different question, and the answer to
+    # that is what the trimmer must not undo.
+    window, reinserted = _window(
+        verbatim, settings, spent=assembled.sections.get("prefix", 0)
+    )
+    opening_present = bool(window) and window[0]["id"] == verbatim[0]["id"]
+    # Where the conversation now starts, which is what the summary pass covers
+    # up to. A re-inserted opening does not count: it is still in the prompt,
+    # and summarising it would be describing a message the model can read.
+    body = window[1:] if reinserted else window
+    assembled.window_from = body[0]["turn"] if body else 0
     recent_texts = [m["text"] for m in window]
     latest_user = next(
         (m["text"] for m in reversed(window) if m["role"] == "user"), ""
@@ -492,7 +499,7 @@ def build_reply_context(
         assembled.messages.append({"role": "system", "content": assembled.volatile})
         _section(assembled, "volatile", assembled.volatile)
 
-    _trim_to_budget(assembled, settings, protect=1 if pinned_opening else 0)
+    _trim_to_budget(assembled, settings, protect=1 if opening_present else 0)
     return assembled
 
 
@@ -512,7 +519,9 @@ def _reserve(settings: Settings) -> int:
     )
 
 
-def _window(verbatim: list[dict], settings: Settings, *, spent: int) -> list[dict]:
+def _window(
+    verbatim: list[dict], settings: Settings, *, spent: int
+) -> tuple[list[dict], bool]:
     """The messages sent in full: the setting as a floor, then whatever else fits.
 
     `verbatim_window` used to be a hard cap, and a count-based one, so a chat
@@ -526,7 +535,7 @@ def _window(verbatim: list[dict], settings: Settings, *, spent: int) -> list[dic
     absence turns a character into someone who does not know where they are.
     """
     if not verbatim:
-        return []
+        return [], False
     floor = max(0, settings.verbatim_window)
     scan = verbatim[-WINDOW_SCAN_CAP:]
     room = settings.token_budget - spent - _reserve(settings)
@@ -544,7 +553,8 @@ def _window(verbatim: list[dict], settings: Settings, *, spent: int) -> list[dic
     opening = verbatim[0]
     if kept and kept[0]["id"] != opening["id"]:
         kept.insert(0, opening)
-    return kept
+        return kept, True
+    return kept, False
 
 
 def _trim_to_budget(assembled: Assembled, settings: Settings, *, protect: int = 0) -> None:
@@ -721,7 +731,7 @@ def speaker_label(name: str) -> str:
 
 
 def pending_summary_text(
-    db: Database, chat_id: str, character_name: str, *, before_turn: int = 0
+    db: Database, chat_id: str, character_name: str, *, before_turn: int | None = None
 ) -> tuple[str, int]:
     """Messages the summary pass has not folded in yet, and the turn they reach.
 
@@ -738,7 +748,7 @@ def pending_summary_text(
         m
         for m in repo.list_messages(db, chat_id, include_dropped=False)
         if m["turn"] > summary["covered_turn"]
-        and (before_turn <= 0 or m["turn"] < before_turn)
+        and (before_turn is None or m["turn"] < before_turn)
     ]
     if not messages:
         return "", summary["covered_turn"]

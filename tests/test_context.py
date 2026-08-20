@@ -421,3 +421,50 @@ def test_nothing_is_evicted_while_the_summary_is_off(db, chat, character):
         repo.add_message(db, chat["id"], "user", f"m{i}")
     result = assembly.apply_eviction(db, chat["id"], Settings(verbatim_window=4))
     assert result == {"summarized": 0, "dropped": 0}
+
+
+def test_the_summary_covers_nothing_while_the_whole_story_fits(db, chat, character):
+    """`window_from` is where the conversation now starts. When everything is
+    still in the prompt there is nothing for a summary to be the account of,
+    and covering those turns would make them evictable while they are on
+    screen — the summary describing what the model can read for itself."""
+    repo.add_message(db, chat["id"], "assistant", "the-scenario", turn=0)
+    for i in range(6):
+        repo.add_message(db, chat["id"], "user", f"m{i}")
+    assembled = assembly.build_reply_context(db, chat, character, Settings())
+
+    assert assembled.window_from == 0
+    text, covered = assembly.pending_summary_text(
+        db, chat["id"], character.name, before_turn=assembled.window_from
+    )
+    assert text == ""
+
+
+def test_the_summary_covers_what_has_left_the_window(db, chat, character):
+    body = "word " * 200
+    repo.add_message(db, chat["id"], "assistant", "the-scenario", turn=0)
+    for i in range(30):
+        repo.add_message(db, chat["id"], "user", f"m{i} {body}")
+    settings = Settings(verbatim_window=3, token_budget=3000, prompt_sections=bare_layout())
+    assembled = assembly.build_reply_context(db, chat, character, settings)
+
+    assert assembled.window_from > 1
+    text, covered = assembly.pending_summary_text(
+        db, chat["id"], character.name, before_turn=assembled.window_from
+    )
+    # everything it describes is gone from the prompt, and nothing that is in it
+    sent = "".join(m["content"] for m in assembled.messages)
+    assert "m0 " in text and "m0 " not in sent
+    assert f"m{29} " not in text and "m29 " in sent
+    assert covered < assembled.window_from
+
+
+def test_the_speaker_label_is_a_name_not_a_card_title(db, chat, character):
+    """Every line of the transcript the summary reads began with the card's
+    full title, which is a sentence about the reader rather than a name."""
+    repo.add_message(db, chat["id"], "assistant", "hello", turn=1)
+    text, _ = assembly.pending_summary_text(
+        db, chat["id"], "Kutra - your assigned Coboldgirl"
+    )
+    assert "Kutra: hello" in text
+    assert "your assigned" not in text
