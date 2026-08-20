@@ -3,14 +3,14 @@
 Reported in one batch, in the order they are being done. Ticked items are on
 `claude/develop-this-tgypnk` and can be pulled.
 
-- [ ] **1. Slider under a scrolling finger still moves.** The first attempt
+- [x] **1. Slider under a scrolling finger still moves.** The first attempt
       relied on `preventDefault` on pointerdown, which a range input on Android
       ignores. Scroll must never move a slider; moving a slider must never
       scroll.
-- [ ] **2. The backend editor closes while you type in it**, and a newly added
+- [x] **2. The backend editor closes while you type in it**, and a newly added
       backend should open by itself.
-- [ ] **3. The second pencil** in the message tools does nothing. Remove it.
-- [ ] **4. An empty band appears under the composer** when the keyboard opens.
+- [x] **3. The second pencil** in the message tools does nothing. Remove it.
+- [x] **4. An empty band appears under the composer** when the keyboard opens.
 - [ ] **5. World info reads as nonsense** — "Room by a". The place shortener
       cuts at three words rather than at the end of the phrase, and the prompt
       needs to ask for one word per field.

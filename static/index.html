@@ -2,7 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<!-- interactive-widget=resizes-content is what makes the on-screen keyboard
+     shorten the layout viewport rather than sliding the page up behind it.
+     Without it 100dvh stays the height of the whole screen, the composer is
+     pushed off the bottom, and the gap between it and the keyboard is the part
+     of the page the keyboard is covering. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, interactive-widget=resizes-content">
 <meta name="theme-color" content="#fdf7f9">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -432,9 +437,6 @@
                   <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-back"/></svg>
                 </button>
               </span>
-              <span class="edited" x-show="m.edited" title="Edited">
-                <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-edit"/></svg>
-              </span>
             </div>
           </template>
           <template x-if="editing === m.id">
@@ -655,18 +657,18 @@
           is a backend nobody needs to look at.
         </p>
         <template x-for="(b, i) in settings.backends" :key="i">
-          <div class="backend" :class="{ folded: openBackend !== b.name }">
+          <div class="backend" :class="{ folded: openBackend !== i }">
             <!-- Collapsed until asked for. Four of these open at once is a
                  screen and a half of connection fields between the top of the
                  panel and everything else on it. -->
-            <button class="backend-summary" @click="openBackend = openBackend === b.name ? '' : b.name"
-                    :aria-expanded="openBackend === b.name">
+            <button class="backend-summary" @click="openBackend = openBackend === i ? -1 : i"
+                    :aria-expanded="openBackend === i">
               <svg class="disclose-arrow" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-back"/></svg>
               <span class="backend-title" x-text="b.name"></span>
               <span class="p-count" x-text="backendSummary(b)"></span>
             </button>
 
-            <div class="fold" :class="{ open: openBackend === b.name }">
+            <div class="fold" :class="{ open: openBackend === i }">
              <div class="fold-clip">
             <div class="backend-head">
               <!-- Not x-model: the rename has to see the old name to move the

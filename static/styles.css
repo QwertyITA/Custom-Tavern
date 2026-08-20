@@ -1386,11 +1386,17 @@ body {
   accent-color: var(--accent);
   height: 44px;
   background: none;
-  /* Vertical belongs to the panel, horizontal to the slider. The press itself
-     is taken away from the control until the drag is clearly sideways — see
-     guardSliders in app.js; this is the half of it the browser handles. */
-  touch-action: pan-y;
+  /* The control never receives a pointer: guardSliders drives it, so it
+     cannot move unless that code moves it. On Android a range input acts on
+     the raw touch sequence, which `preventDefault` on pointerdown does not
+     suppress — the first attempt at this left a scroll still dragging the
+     value with it. */
+  pointer-events: none;
 }
+/* Vertical belongs to the scroller until a drag commits to being horizontal;
+   once it has, the panel must hold still under it. */
+.num-field { touch-action: pan-y; }
+.num-field.sliding { touch-action: none; }
 .num-field .kind-note { margin: 3px 0 0; }
 .num-field .kind-note:empty { display: none; }
 

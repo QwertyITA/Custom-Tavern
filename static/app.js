@@ -501,20 +501,34 @@ function tavern() {
 
     // ---- sliders that do not answer a scroll ----
     //
-    // A range input sets its value the moment a finger lands on it. Every
-    // panel here is a tall scroller full of them, so a scroll that started
-    // with a thumb over a slider changed a setting on the way past — and the
-    // setting it changed was whichever one happened to be under the finger,
-    // to whatever value the finger happened to be at.
+    // A range input sets its value the moment a finger lands on it, and every
+    // panel here is a tall scroller full of them, so a scroll that began with
+    // a thumb over one changed a setting on the way past.
     //
-    // `touch-action: pan-y` alone does not fix it: the browser still hands the
-    // input the initial touch and only takes the gesture away once it has
-    // moved. So the press is taken away from the control instead, and given
-    // back only once the drag is clearly sideways — the same claim rule the
-    // message swipe uses, for the same reason.
+    // The first attempt at this called `preventDefault` on pointerdown, which
+    // works for a mouse and does nothing at all on Android: the control is
+    // driven by the touch sequence directly, not by the compatibility mouse
+    // events that flag suppresses. So the input does not receive pointers at
+    // all now (`pointer-events: none` in the stylesheet) and this drives it —
+    // which means it cannot move unless the code below moves it.
+    //
+    // The claim rule is the message swipe's: vertical belongs to the scroller,
+    // horizontal to the slider, and until the drag has committed to one it is
+    // neither. A mouse skips the rule, having no scroll to conflict with.
     guardSliders() {
-      const SLOP = 8;         // movement before the direction counts as decided
-      const TAP_MS = 350;     // a stationary press this short is a deliberate tap
+      const SLOP = 8;      // travel before the direction counts as decided
+
+      const sliderUnder = (event) => {
+        const field = event.target?.closest?.(".num-field, .num-box");
+        const el = field?.querySelector('input[type="range"]');
+        if (!el) return null;
+        // Only when the press is actually on the slider's band. The field is
+        // taller than the track: it holds the label and the note as well, and
+        // a press on those is not a press on this.
+        const rect = el.getBoundingClientRect();
+        const within = event.clientY >= rect.top && event.clientY <= rect.bottom;
+        return within ? el : null;
+      };
 
       const setFromX = (el, clientX) => {
         const rect = el.getBoundingClientRect();
@@ -524,27 +538,26 @@ function tavern() {
         const step = parseFloat(el.step || "1") || 1;
         const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
         const raw = min + ratio * (max - min);
-        // Snapped to the step and then rounded, or a 0.05 step arrives as
+        // Snapped to the step and rounded, or a 0.05 step arrives as
         // 0.30000000000000004 and the number beside it says so.
         const value = parseFloat((Math.round(raw / step) * step).toFixed(4));
         if (String(value) === el.value) return;
         el.value = String(value);
-        // Alpine binds these with x-model, which listens for `input`.
         el.dispatchEvent(new Event("input", { bubbles: true }));
       };
 
       document.addEventListener("pointerdown", (event) => {
-        const el = event.target?.closest?.('input[type="range"]');
-        // A mouse has no scroll conflict and keeps its native behaviour.
-        if (!el || event.pointerType === "mouse" || !event.isPrimary) return;
-        // Stops the control acting on the press. Scrolling is governed by
-        // touch-action, so the panel can still be dragged from here.
-        event.preventDefault();
+        if (!event.isPrimary) return;
+        const el = sliderUnder(event);
+        if (!el) return;
+        const mouse = event.pointerType === "mouse";
         this._slide = {
-          el, id: event.pointerId, x: event.clientX, y: event.clientY,
-          at: performance.now(), claimed: false,
+          el, id: event.pointerId, x: event.clientX, y: event.clientY, claimed: mouse,
         };
-      }, { passive: false });
+        // A mouse press is unambiguous, so it acts immediately — click to
+        // position, drag to adjust, exactly as the native control behaves.
+        if (mouse) setFromX(el, event.clientX);
+      });
 
       document.addEventListener("pointermove", (event) => {
         const slide = this._slide;
@@ -553,25 +566,28 @@ function tavern() {
           const dx = event.clientX - slide.x;
           const dy = event.clientY - slide.y;
           // Vertical wins outright: that is a scroll, and this press is over.
+          // The scroller is already handling it — `touch-action: pan-y` on the
+          // field never let it stop.
           if (Math.abs(dy) > Math.abs(dx)) { this._slide = null; return; }
           if (Math.abs(dx) < SLOP) return;
           slide.claimed = true;
-          try { slide.el.setPointerCapture(event.pointerId); } catch (_) { /* gone */ }
+          // From here the panel must not scroll under the drag, which is what
+          // the class switches off.
+          slide.el.closest(".num-field")?.classList.add("sliding");
         }
         setFromX(slide.el, event.clientX);
-      });
+        event.preventDefault();
+      }, { passive: false });
 
       const release = (event) => {
         const slide = this._slide;
-        if (!slide || event.pointerId !== slide.id) return;
+        if (!slide || (event.pointerId != null && event.pointerId !== slide.id)) return;
         this._slide = null;
-        if (slide.claimed) return setFromX(slide.el, event.clientX);
-        // Never moved: a tap on a slider is still a deliberate way to set it.
-        const still = Math.hypot(event.clientX - slide.x, event.clientY - slide.y) < SLOP;
-        if (still && performance.now() - slide.at < TAP_MS) setFromX(slide.el, event.clientX);
+        slide.el.closest(".num-field")?.classList.remove("sliding");
+        if (slide.claimed && event.clientX != null) setFromX(slide.el, event.clientX);
       };
       document.addEventListener("pointerup", release);
-      document.addEventListener("pointercancel", () => { this._slide = null; });
+      document.addEventListener("pointercancel", release);
     },
 
     // Which variables changed on the last update, so the rows that moved can
@@ -3371,7 +3387,9 @@ function tavern() {
     // without the browser ever having seen it.
 
     openTier: "",
-    openBackend: "",
+    // By position, not by name. Keyed by name it closed itself on the first
+    // keystroke of a rename — the key it was matching against had changed.
+    openBackend: -1,
     settings: { backends: [], tiers: {}, tier_names: [], tier_groups: [], kinds: [],
                 templates: [], think_modes: [], tiers_off: [], pass_every: {},
                 kind_defaults: {}, theme_tokens: [], theme: {},
@@ -3597,6 +3615,8 @@ function tavern() {
       };
       this.applyKindDefaults(backend);
       this.settings.backends.push(backend);
+      // Open: you added it to fill it in.
+      this.openBackend = this.settings.backends.length - 1;
     },
 
     // Reset every connection field to what this kind needs. All of them are
