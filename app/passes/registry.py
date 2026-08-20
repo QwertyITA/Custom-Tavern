@@ -332,6 +332,7 @@ def seed(db: Database) -> None:
 
     db.write_sync(_seed)
     _regroup(db)
+    _resupersede(db)
 
 
 # Passes that moved between tiers after they had already been seeded. Seeding
@@ -339,6 +340,57 @@ def seed(db: Database) -> None:
 # the three groups were named keeps its auditor in the background group — and
 # the panel then offers a Refiner with nothing in it.
 REGROUPED = {"state_auditor": "foreground", "expression": "foreground"}
+
+# Shipped prompts that have since been replaced, by pass. An install that still
+# holds one of these has never edited that pass, so the new shipped version can
+# take its place; anything else is someone's own writing and is left alone.
+#
+# The summary's was the reason this exists. It fired on a turn count rather than
+# on context pressure, and it told the model to "drop what has been superseded"
+# — which loses the premise, since nothing in a chat ever restates it.
+SUPERSEDED_PROMPTS: dict[str, tuple[str, ...]] = {
+    "summary": (
+        "You maintain a rolling summary of a roleplay conversation.\n"
+        "Fold the new messages into the existing summary. Keep what still matters, "
+        "drop what has been superseded, and stay under the stated budget.\n"
+        'Reply with JSON only: {"summary": "<the merged summary>"}\n'
+        "Write it as terse third-person narration of what happened and what changed "
+        "between the characters.",
+    ),
+}
+
+
+def _resupersede(db: Database) -> None:
+    """Bring an unedited canonical pass up to its current shipped version.
+
+    Only the prompt and the trigger, and only when the stored prompt is one this
+    engine used to ship: those two are the engine's own workings rather than
+    settings, and an install that had already been seeded would otherwise keep
+    a prompt that has since been found to be wrong. `enabled` is deliberately
+    not touched — a switch is the user's, however it came to be where it is.
+    """
+    shipped = {p.id: p for p in CANONICAL_PASSES}
+
+    def _fix(conn: sqlite3.Connection) -> None:
+        for pass_id, old_prompts in SUPERSEDED_PROMPTS.items():
+            current = shipped.get(pass_id)
+            row = conn.execute("SELECT data FROM pass_defs WHERE id=?", (pass_id,)).fetchone()
+            if current is None or row is None:
+                continue
+            try:
+                definition = PassDef.model_validate_json(row["data"])
+            except ValueError:
+                continue
+            if definition.prompt.strip() not in {p.strip() for p in old_prompts}:
+                continue
+            definition.prompt = current.prompt
+            definition.trigger = current.trigger
+            conn.execute(
+                "UPDATE pass_defs SET data=? WHERE id=?",
+                (definition.model_dump_json(), pass_id),
+            )
+
+    db.write_sync(_fix)
 
 
 def _regroup(db: Database) -> None:

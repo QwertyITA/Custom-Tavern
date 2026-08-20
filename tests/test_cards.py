@@ -179,3 +179,37 @@ def test_bundled_example_card_loads(tmp_path):
     assert any(c.name == "Mira" for c in loaded)
     mira = next(c for c in loaded if c.name == "Mira")
     assert mira.nudges and mira.lorebook and mira.pfp_set
+
+
+# ------------------------------------------- tags this app cannot draw (§8)
+
+
+def test_html_in_a_card_is_taken_out_on_import():
+    """Cards from the browse sites carry HTML — an <img> in the greeting is
+    common. Model output is drawn with textContent, so every tag arrives on
+    screen as its own source and costs prompt tokens on every turn to do it."""
+    from app.cards import from_card_json
+
+    card = {
+        "spec": "chara_card_v2",
+        "data": {
+            "name": "Wren",
+            "description": "A ferryman.<br>Quiet.",
+            "first_mes": '*She waits.*<img src="https://example.test/a-very-long-name.webp">',
+            "mes_example": "{{char}}: <b>Fine.</b>",
+            "alternate_greetings": ['<img src="x.png"> *She is late.*'],
+        },
+    }
+    character = from_card_json(card)
+    assert "<img" not in character.first_mes
+    assert character.first_mes.strip() == "*She waits.*"
+    assert "<br>" not in character.persona
+    assert "<b>" not in character.example_dialogue
+    assert "<img" not in character.alternate_greetings[0]
+
+
+def test_prose_that_merely_contains_an_angle_bracket_is_left_alone():
+    from app.cards import from_card_json
+
+    card = {"spec": "chara_card_v2", "data": {"name": "Wren", "description": "3 < 5 always"}}
+    assert from_card_json(card).persona == "3 < 5 always"

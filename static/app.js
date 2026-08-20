@@ -202,6 +202,19 @@ function makePacer(apply) {
       full = text;
       if (Math.floor(shown) < full.length) schedule();
     },
+    // Back to nothing. The stream turned out to have been the model's
+    // reasoning, so what is on screen is not the start of the reply and the
+    // pacing so far says nothing about how fast the reply arrives.
+    reset() {
+      if (frame) { cancelAnimationFrame(frame); frame = 0; }
+      full = "";
+      shown = 0;
+      started = 0;
+      last = 0;
+      closed = false;
+      apply("");
+      settle();
+    },
     // Everything, now — used when the turn is abandoned rather than finished.
     flush() {
       closed = true;
@@ -2854,6 +2867,24 @@ function tavern() {
               this.composingLabel = this.cueLabel("thinking");
               break;
             }
+
+            // Everything streamed so far was the model thinking out loud: it
+            // emitted a closing </think> for an opening tag its own chat
+            // template had written, so the reply had not started at all. What
+            // is on screen has to go back.
+            case "reply_reset":
+              buffer = "";
+              pacer.reset();
+              if (swipeMessageId) {
+                if (target) target.text = "";
+              } else {
+                this.messages = this.messages.filter((m) => m.id !== "streaming");
+                target = null;
+                this.composing = true;
+                this.composingKind = "thinking";
+                this.composingLabel = this.cueLabel("thinking");
+              }
+              break;
 
             case "reply": {
               // Not before the paced text has caught up: swapping in the

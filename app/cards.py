@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import AuthorsNote, Character, LorebookEntry, VariableSchema
+from .postprocess import strip_unrenderable
 from .state import DEFAULT_STATE_SCHEMA
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -156,11 +157,21 @@ def from_card_json(raw: dict[str, Any], *, character_id: str | None = None) -> C
     name = str(body.get("name") or raw.get("name") or "Unnamed").strip()
     extensions = body.get("extensions") if isinstance(body.get("extensions"), dict) else {}
 
-    persona_parts = [
-        str(body.get("description") or "").strip(),
-        str(body.get("personality") or "").strip(),
-    ]
-    persona = "\n\n".join(p for p in persona_parts if p)
+    def prose(*keys: str) -> str:
+        """A card field as prose this app can actually draw.
+
+        Cards from the browse sites carry HTML — an `<img>` in the greeting is
+        common, `<b>` and `<font>` less so. Model output is rendered with
+        textContent (§8), so every one of them arrives on screen as its own
+        source, and an image tag with a long URL costs sixty tokens of prompt
+        on every turn to do it. Taken out on the way in, where it happens once,
+        rather than at each of the places the text is used.
+        """
+        return strip_unrenderable(
+            "\n\n".join(p for p in (str(body.get(k) or "").strip() for k in keys) if p)
+        )
+
+    persona = prose("description", "personality")
 
     pfp_set = {}
     ours = extensions.get("personal_tavern", {}) if isinstance(extensions, dict) else {}
@@ -172,14 +183,16 @@ def from_card_json(raw: dict[str, Any], *, character_id: str | None = None) -> C
         name=name,
         version=int(ours.get("version", 1) or 1),
         persona=persona,
-        first_mes=str(body.get("first_mes") or ""),
+        first_mes=prose("first_mes"),
         alternate_greetings=[
-            str(g) for g in (body.get("alternate_greetings") or []) if str(g).strip()
+            strip_unrenderable(str(g))
+            for g in (body.get("alternate_greetings") or [])
+            if str(g).strip()
         ],
-        example_dialogue=str(body.get("mes_example") or ""),
-        scenario=str(body.get("scenario") or ""),
-        system_prompt=str(body.get("system_prompt") or ""),
-        post_history_instructions=str(body.get("post_history_instructions") or ""),
+        example_dialogue=prose("mes_example"),
+        scenario=prose("scenario"),
+        system_prompt=prose("system_prompt"),
+        post_history_instructions=prose("post_history_instructions"),
         pfp_set=pfp_set,
         backgrounds=list(ours.get("backgrounds") or []),
         state_schema=_state_schema_from(extensions if isinstance(extensions, dict) else {}),

@@ -165,6 +165,43 @@ def parse(text: str) -> list[Run]:
     return [run for run in runs if run.text]
 
 
+def repair_markup(text: str) -> str:
+    """Delete asterisks the tokenizer could not pair (§8).
+
+    Models lose count of them constantly, and one shape dominates: the reply
+    closes an attribution and then closes again at the end of a clause it never
+    opened —
+
+        *she says through clenched teeth,* tail whipping once behind her leg.*
+
+    The tokenizer fails soft and leaves that last one as a literal asterisk on
+    screen, which is right for rendering and wrong to keep. Half the replies in
+    the chat this was written against carried at least one.
+
+    The rule is the tokenizer's own, so the two cannot disagree: a marker that
+    could have opened or closed something but found no partner is a mistake and
+    goes. One that could do neither — `2 * 3`, a lone star with space on both
+    sides — was never markup and stays exactly where it is.
+    """
+    if "*" not in text:
+        return text
+    doomed: set[int] = set()
+    for para_start, para_end in _paragraphs(text):
+        markers = [m for m in _lex(text, para_start, para_end) if not m.keep]
+        paired: set[int] = set()
+        for _style, _start, _end, consumed in _pair(markers):
+            for marker in consumed:
+                paired.add(marker.start)
+        for marker in markers:
+            if marker.start in paired:
+                continue
+            if marker.can_open or marker.can_close:
+                doomed.update(range(marker.start, marker.end))
+    if not doomed:
+        return text
+    return "".join(c for i, c in enumerate(text) if i not in doomed)
+
+
 def to_plain(text: str) -> str:
     """Markup-stripped text — for token counting and keyword scans."""
     return "".join(run.text for run in parse(text))

@@ -24,6 +24,18 @@ from ..models import SIGNAL_LEVELS
 
 MARKER = "<<<state>>>"
 
+# The marker as it actually arrives. Small models mangle the delimiter while
+# keeping the shape — `***state>>>` was observed in the wild, and the reply that
+# produced it had its whole state payload printed in the message because an
+# exact match found nothing. Anything bracket-ish or starred around the word,
+# closed by two or more of anything pointy, counts.
+MARKER_LIKE = re.compile(
+    r"[<*_\-#]{2,6}\s{0,2}state\s{0,2}[>*_\-#]{2,6}", re.IGNORECASE
+)
+# What the stream filter has to hold back to be sure a marker is not straddling
+# two chunks: a little more than the longest thing MARKER_LIKE can match.
+MARKER_HOLD = 24
+
 # The contract as told to the model. Lives here, next to the parser that has to
 # survive whatever the model does with it.
 REPLY_SUFFIX_MARKER_HELP = (
@@ -110,11 +122,11 @@ def split_state_suffix(text: str) -> tuple[str, dict[str, Any] | None]:
     So prose on both sides of the payload counts. Anything before the marker,
     plus anything after the JSON object that follows it.
     """
-    index = text.find(MARKER)
-    if index == -1:
+    match = MARKER_LIKE.search(text)
+    if match is None:
         return text, None
-    before = text[:index]
-    rest = text[index + len(MARKER) :]
+    before = text[: match.start()]
+    rest = text[match.end() :]
     payload = parse_json_loose(rest)
     after = _after_json(rest) if payload is not None else ""
     body = (before + ("\n" if before.strip() and after.strip() else "") + after)
@@ -204,19 +216,18 @@ class SuffixStreamFilter:
             self._tail += delta
             return ""
         self._buffer += delta
-        index = self._buffer.find(MARKER)
-        if index != -1:
+        match = MARKER_LIKE.search(self._buffer)
+        if match is not None:
             self._found = True
-            emit = self._buffer[:index]
-            self._tail = self._buffer[index + len(MARKER) :]
+            emit = self._buffer[: match.start()]
+            self._tail = self._buffer[match.end() :]
             self._buffer = ""
             return emit
         # Hold back anything that could still turn out to be the marker's head.
-        hold = len(MARKER) - 1
-        if len(self._buffer) <= hold:
+        if len(self._buffer) <= MARKER_HOLD:
             return ""
-        emit = self._buffer[:-hold]
-        self._buffer = self._buffer[-hold:]
+        emit = self._buffer[:-MARKER_HOLD]
+        self._buffer = self._buffer[-MARKER_HOLD:]
         return emit
 
     def finish(self) -> tuple[str, dict[str, Any] | None]:

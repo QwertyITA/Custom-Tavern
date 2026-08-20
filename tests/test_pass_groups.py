@@ -181,3 +181,56 @@ def test_a_switched_off_pass_never_runs(db, chat, character, sched):
 
     definition.enabled = False
     assert sched.eligible([definition], ctx, set()) == []
+
+
+def test_an_unedited_shipped_prompt_is_brought_up_to_date(db):
+    """Seeding never clobbers a stored definition, so an install seeded before
+    a prompt was found to be wrong keeps the wrong one forever."""
+    import sqlite3
+
+    from app.models import PassDef
+    from app.passes import registry
+
+    stored = registry.get_pass(db, "summary")
+    stored.prompt = registry.SUPERSEDED_PROMPTS["summary"][0]
+    stored.trigger.type = "every_n"
+    stored.trigger.n = 8
+    db.write_sync(
+        lambda conn: conn.execute(
+            "UPDATE pass_defs SET data=? WHERE id='summary'", (stored.model_dump_json(),)
+        )
+    )
+
+    registry.seed(db)
+
+    fresh = registry.get_pass(db, "summary")
+    assert fresh.trigger.type == "over_budget"
+    assert "premise" in fresh.prompt
+
+
+def test_a_prompt_someone_has_written_is_left_alone(db):
+    from app.passes import registry
+
+    mine = registry.get_pass(db, "summary")
+    mine.prompt = "Summarise it in limericks."
+    mine.trigger.type = "every_n"
+    sync(registry.save_pass(db, mine))
+
+    registry.seed(db)
+
+    kept = registry.get_pass(db, "summary")
+    assert kept.prompt == "Summarise it in limericks."
+    assert kept.trigger.type == "every_n"
+
+
+def test_the_switch_is_never_migrated(db):
+    """However it came to be where it is, it is the user's."""
+    from app.passes import registry
+
+    stored = registry.get_pass(db, "summary")
+    stored.prompt = registry.SUPERSEDED_PROMPTS["summary"][0]
+    stored.enabled = True
+    sync(registry.save_pass(db, stored))
+
+    registry.seed(db)
+    assert registry.get_pass(db, "summary").enabled is True

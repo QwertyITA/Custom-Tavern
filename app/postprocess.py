@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import re
 
+from .markup import repair_markup
+
 # Template scaffolding a model sometimes emits verbatim.
 _ARTIFACTS = [
     re.compile(r"<\|im_(start|end)\|>"),
@@ -26,6 +28,24 @@ _LEAKAGE = re.compile(
 
 _THINK = re.compile(r"<think>(.*?)</think>\s*", re.IGNORECASE | re.DOTALL)
 _OPEN_THINK = re.compile(r"<think>.*\Z", re.IGNORECASE | re.DOTALL)
+# A closing tag with nothing to close. Ollama and llama.cpp serve reasoning
+# models whose chat template writes the opening `<think>` itself, so the model
+# only ever emits the closer — and then everything before it is reasoning that
+# the paired pattern above cannot see. Two replies in the chat this was written
+# against were stored with the model's entire plan in them, headings and all.
+_STRAY_CLOSE = re.compile(r"\A(.*?)</think>\s*", re.IGNORECASE | re.DOTALL)
+
+# Tags a model emits that this app does not render — it draws model output with
+# textContent (§8), so an <img> or a </b> arrives on screen as its own source.
+_HTML = re.compile(
+    r"</?(?:b|i|u|s|em|strong|br|hr|p|div|span|font|img|small|sub|sup)\b[^>]*>",
+    re.IGNORECASE,
+)
+
+
+def strip_unrenderable(text: str) -> str:
+    """Take out the tags this app draws as their own source (§8)."""
+    return _HTML.sub("", text)
 
 
 def split_thinking(text: str) -> tuple[str, str]:
@@ -41,12 +61,18 @@ def split_thinking(text: str) -> tuple[str, str]:
     if _OPEN_THINK.search(body):
         thoughts.append(_OPEN_THINK.search(body).group(0)[len("<think>") :].strip())
         body = _OPEN_THINK.sub("", body)
+    # A closer with no opener: the template wrote the opening tag, so the reply
+    # starts mid-thought and everything up to the closer is reasoning.
+    stray = _STRAY_CLOSE.match(body)
+    if stray:
+        thoughts.append(stray.group(1).strip())
+        body = body[stray.end() :]
     return body, "\n\n".join(t for t in thoughts if t)
 
 
 def clean_reply(text: str, *, strip_leakage: bool = True, user_names: tuple[str, ...] = ()) -> str:
     """Strip template artifacts and any continuation of the user's turn."""
-    body = text
+    body = strip_unrenderable(text)
     for pattern in _ARTIFACTS:
         body = pattern.sub("", body)
     if strip_leakage:
@@ -58,7 +84,10 @@ def clean_reply(text: str, *, strip_leakage: bool = True, user_names: tuple[str,
             body = named.sub("", body)
     # Collapse the runaway blank lines that stop-token truncation leaves behind.
     body = re.sub(r"\n{3,}", "\n\n", body)
-    return body.strip()
+    # Last, so it sees the text as it will be read: an asterisk left dangling by
+    # something removed above is as much a mistake as one the model dangled
+    # itself (§8).
+    return repair_markup(body.strip())
 
 
 class ThinkStreamFilter:
@@ -79,10 +108,21 @@ class ThinkStreamFilter:
 
     _OPEN = "<think>"
     _CLOSE = "</think>"
+    # How much text may be taken back when a closing tag turns up with nothing
+    # to close. A template that writes the opening tag itself means the whole
+    # reply starts mid-thought, and the retraction happens within a few hundred
+    # characters or not at all — past this a `</think>` is likelier to be
+    # something a character typed than a tag.
+    _RETRACT_LIMIT = 4000
 
     def __init__(self) -> None:
         self._buffer = ""
         self._inside = False
+        # Everything released so far, kept only until it is too late to take
+        # back. `retracted` says it *was* taken back, so a caller streaming to
+        # somewhere else knows to throw its copy away too.
+        self._shown = ""
+        self.retracted = False
         # `<think>...</think>\s*` — the whitespace after the block is part of
         # what split_thinking removes, and a reply that streams in starting on
         # its third line is not what the model wrote.
@@ -97,12 +137,20 @@ class ThinkStreamFilter:
         return haystack.lower().find(needle)
 
     def _emit(self, text: str) -> str:
-        if not self._trim:
-            return text
-        stripped = text.lstrip()
-        if stripped:
-            self._trim = False
-        return stripped
+        if self._trim:
+            text = text.lstrip()
+            if text:
+                self._trim = False
+        if len(self._shown) < self._RETRACT_LIMIT:
+            self._shown += text
+        return text
+
+    def _retract(self, tail: str) -> str:
+        """Everything shown so far was reasoning after all. Hand it back."""
+        self.retracted = True
+        thought, self._shown = self._shown + tail, ""
+        self._trim = True
+        return self._thought(thought)
 
     def _thought(self, text: str) -> str:
         if not text:
@@ -121,8 +169,21 @@ class ThinkStreamFilter:
         while True:
             tag = self._CLOSE if self._inside else self._OPEN
             index = self._find(self._buffer, tag)
+            if not self._inside and not self.retracted:
+                # A closer before any opener: the chat template wrote the
+                # opening tag, so everything up to here has been reasoning —
+                # including whatever has already been released downstream.
+                closing = self._find(self._buffer, self._CLOSE)
+                if closing != -1 and (index == -1 or closing < index) and (
+                    len(self._shown) < self._RETRACT_LIMIT
+                ):
+                    shown = []
+                    thought = [self._retract("".join(thought) + self._buffer[:closing])]
+                    self._buffer = self._buffer[closing + len(self._CLOSE) :]
+                    continue
             if index == -1:
-                hold = len(tag) - 1
+                # Long enough to catch either tag straddling two chunks.
+                hold = len(self._CLOSE) - 1
                 if len(self._buffer) > hold:
                     part, self._buffer = self._buffer[:-hold], self._buffer[-hold:]
                     if self._inside:

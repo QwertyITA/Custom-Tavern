@@ -182,8 +182,8 @@ Narrate people and places in third person, close on whoever is acting.
 Everything {{user}} physically feels is second person — "you" — and is worth
 detail: texture, pressure, temperature, wetness, ache, tiredness.
 
-"Leslie puts the clay in your hands. It slides gritty and cold between your
-fingers, heavier than it looked." 
+*Leslie puts the clay in your hands. It slides gritty and cold between your
+fingers, heavier than it looked.* "Careful. It fights you at first."
 """,
     },
     {
@@ -335,6 +335,22 @@ do.
 """,
     },
     {
+        "id": "craft:format", "band": "volatile", "label": "House style",
+        "note": "Speech in quotes, actions in asterisks. The one instruction the "
+                "renderer depends on, so it is stated where it is read last.",
+        "text": """\
+Speech goes in "double quotes". Everything else — action, narration, what a
+body does — goes in *single asterisks*. Emphasis inside either is **double**.
+
+Every marker that opens has to close, in the same paragraph. Do not close a
+run and then close it again: `*she says,* tail twitching.*` leaves a stray
+asterisk on the page.
+
+Nothing else is markup here. No headings, no bullet lists, no tables, no HTML
+tags, no code fences; they arrive on the page as themselves.
+""",
+    },
+    {
         "id": "craft:adult", "band": "prefix", "label": "Adult scenes",
         "note": "Off by default. How to write sex when the scene gets there — not whether it may.",
         "default_enabled": False,
@@ -359,9 +375,17 @@ something else, or stop.
 # The default layout: the slots first inside each band, then the writing blocks
 # — which sit at the end of the prefix, closest to the conversation they
 # govern, and still inside the part of the prompt that stays cached.
-BUILTIN: list[dict[str, Any]] = sorted(
-    STRUCTURAL + WRITING, key=lambda section: BAND_IDS.index(section["band"])
-)
+def _order(section: dict[str, Any]) -> tuple[int, int]:
+    """Band first, and `final` last inside its own.
+
+    The card's last word is the one thing that has to come after everything
+    else — that placement *is* the feature, and it is what the panel promises
+    of post-history instructions.
+    """
+    return (BAND_IDS.index(section["band"]), 1 if section["id"] == "final" else 0)
+
+
+BUILTIN: list[dict[str, Any]] = sorted(STRUCTURAL + WRITING, key=_order)
 
 BUILTIN_BY_ID = {section["id"]: section for section in BUILTIN}
 FIXED_IDS = frozenset(s["id"] for s in BUILTIN if s.get("fixed"))

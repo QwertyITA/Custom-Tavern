@@ -44,7 +44,12 @@ def test_the_writing_blocks_carry_their_own_text():
     for section in prompt_layout.WRITING:
         assert section["text"].strip(), section["id"]
         assert section["note"].strip(), section["id"]
-        assert section["band"] == "prefix", "static text belongs in the cached band"
+        # Static text belongs in the cached band — with one deliberate
+        # exception. The house style is the rule the *renderer* depends on, and
+        # a small model follows the instruction it read last, so it is worth
+        # the handful of tokens it costs to recompute every turn.
+        expected = "volatile" if section["id"] == "craft:format" else "prefix"
+        assert section["band"] == expected, section["id"]
 
 
 def test_the_library_sits_at_the_end_of_the_prefix():
@@ -52,7 +57,9 @@ def test_the_library_sits_at_the_end_of_the_prefix():
     than as part of who the character is, and they are still inside the part of
     the prompt that stays cached between turns."""
     prefix = ids(prompt_layout.normalise(None), "prefix")
-    first_block = min(prefix.index(s["id"]) for s in prompt_layout.WRITING)
+    first_block = min(
+        prefix.index(s["id"]) for s in prompt_layout.WRITING if s["band"] == "prefix"
+    )
     assert first_block > prefix.index("examples")
 
 

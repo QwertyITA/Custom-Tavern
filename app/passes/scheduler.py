@@ -79,6 +79,7 @@ class ReasoningWatch:
         self._inline = ThinkStreamFilter()
         self._parts: list[str] = []
         self.chars = 0
+        self._told = False
 
     def _keep(self, thought: str) -> str:
         if thought:
@@ -98,6 +99,14 @@ class ReasoningWatch:
         shown, thought = self._inline.finish()
         self._keep(thought)
         return shown
+
+    def take_retraction(self) -> bool:
+        """True once, when what has already been streamed turns out to be
+        reasoning and the client has to be told to throw its copy away."""
+        if self._inline.retracted and not self._told:
+            self._told = True
+            return True
+        return False
 
     @property
     def text(self) -> str:
@@ -631,6 +640,14 @@ class PassScheduler:
         try:
             async for delta in provider.stream(request, sink):
                 shown, thought = watch.feed(delta)
+                # The reply had not started after all. Everything sent so far
+                # was reasoning behind an opening tag the chat template wrote
+                # itself, so the client is told to drop it and the reply starts
+                # again from here.
+                if watch.take_retraction():
+                    collected.clear()
+                    suffix = SuffixStreamFilter()
+                    yield {"type": "reply_reset"}
                 # Only that it is happening, and how far in — the reasoning
                 # itself is not for the message stream (§5.6). It is enough to
                 # tell a thinking model from a silent backend, and to let the
@@ -1029,8 +1046,9 @@ class PassScheduler:
             fresh = [m for m in history if m["turn"] > covered]
             if not fresh:
                 return "", [], None
+            label = assembly.speaker_label(character.name)
             transcript = "\n".join(
-                f"{'User' if m['role'] == 'user' else character.name}: {to_plain(m['text'])}"
+                f"{'User' if m['role'] == 'user' else label}: {to_plain(m['text'])}"
                 for m in fresh
             )
             return (
@@ -1244,6 +1262,10 @@ class PassScheduler:
         try:
             async for delta in provider.stream(request, sink):
                 shown, thought = watch.feed(delta)
+                if watch.take_retraction():
+                    collected.clear()
+                    suffix = SuffixStreamFilter()
+                    yield {"type": "reply_reset"}
                 # As in the reply pass: the count, never the text (§5.6).
                 if thought:
                     yield {"type": "reasoning", "chars": watch.chars}
@@ -1376,6 +1398,10 @@ class PassScheduler:
         try:
             async for delta in provider.stream(request, sink):
                 shown, thought = watch.feed(delta)
+                if watch.take_retraction():
+                    collected.clear()
+                    suffix = SuffixStreamFilter()
+                    yield {"type": "reply_reset"}
                 # As in the reply pass: the count, never the text (§5.6).
                 if thought:
                     yield {"type": "reasoning", "chars": watch.chars}

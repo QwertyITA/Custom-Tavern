@@ -248,10 +248,15 @@ def build_reply_context(
         return f"## {section['label']}\n{body}" if body else ""
 
     # ---- stable prefix -------------------------------------------------
+    # No word about markup here any more. This is the *fallback* for a card
+    # with no system prompt of its own, and a card that has one replaces it
+    # outright — which is how the one statement of the app's own rendering
+    # convention disappeared for every imported card that carried a prompt.
+    # It lives in the `craft:format` block now, in the volatile band, where
+    # nothing can replace it and the model reads it last.
     default_instruction = (
         f"You are {character.name}. Stay in character and reply only as "
-        f"{character.name}, in prose. Use \"quotes\" for speech and *asterisks* for "
-        "actions and narration."
+        f"{character.name}, in prose."
     )
     # Who the character is talking to. In the stable prefix because it changes
     # about as often as the character does — switching persona mid-chat costs
@@ -698,6 +703,23 @@ def apply_eviction(
     return {"summarized": len(to_summarize), "dropped": len(to_drop)}
 
 
+def speaker_label(name: str) -> str:
+    """A character's name, as a name rather than as a card title.
+
+    Cards are titled for a browse page — "Kutra - your assigned Coboldgirl" —
+    and that whole string was being used as the speaker label in the transcript
+    the summary and memory passes read. Every line of it then began with a
+    sentence about the reader, which is not a name, and the summary that came
+    back had swapped who said what.
+    """
+    # No colon: "Doctor: Elias" puts the name on the wrong side of it.
+    for separator in (" - ", " — ", " – ", " | ", " (", ", the "):
+        head = name.split(separator)[0].strip()
+        if head and head != name:
+            name = head
+    return name.strip() or "them"
+
+
 def pending_summary_text(
     db: Database, chat_id: str, character_name: str, *, before_turn: int = 0
 ) -> tuple[str, int]:
@@ -720,8 +742,9 @@ def pending_summary_text(
     ]
     if not messages:
         return "", summary["covered_turn"]
+    label = speaker_label(character_name)
     transcript = "\n".join(
-        f"{'User' if m['role'] == 'user' else character_name}: {to_plain(m['text'])}"
+        f"{'User' if m['role'] == 'user' else label}: {to_plain(m['text'])}"
         for m in messages
     )
     return transcript, messages[-1]["turn"]
