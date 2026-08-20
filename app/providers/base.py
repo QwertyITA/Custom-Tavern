@@ -125,6 +125,17 @@ class Provider:
     async def generate(self, request: GenRequest) -> GenResult:
         raise NotImplementedError
 
+    async def context_limit(self) -> int | None:
+        """How many tokens this backend can hold at once, prompt and reply
+        together — or None when it has no way to say.
+
+        Asked rather than configured: the number is a property of the model
+        that is loaded right now, and the one place it is known for certain is
+        the backend serving it. A budget larger than this is not ambitious, it
+        is silently truncated somewhere out of sight.
+        """
+        return None
+
     async def list_models(self) -> list[str]:
         """Models this backend can actually serve right now.
 

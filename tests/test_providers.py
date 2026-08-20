@@ -426,6 +426,9 @@ def test_an_ollama_that_rejects_the_think_field_is_retried_without_it():
     seen = []
 
     def handler(request):
+        # The context probe goes to its own endpoints and is not part of this.
+        if not request.url.path.endswith(("/api/chat", "/api/generate")):
+            return httpx.Response(404, json={})
         payload = json.loads(request.content)
         seen.append(payload)
         if "think" in payload:
@@ -445,6 +448,8 @@ def test_the_streamed_path_retries_without_think_as_well():
     seen = []
 
     def handler(request):
+        if not request.url.path.endswith(("/api/chat", "/api/generate")):
+            return httpx.Response(404, json={})
         payload = json.loads(request.content)
         seen.append(payload)
         if "think" in payload:

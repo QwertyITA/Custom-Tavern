@@ -526,6 +526,22 @@ than before it.
 
 Layout is global, not per character: it describes how you like prompts built.
 
+### How long a reply may be
+
+**Max tokens**, on the Reply pass under ☰ → brain → Passes → Messages →
+Sampling. It ships at **5000**: the writing blocks ask for four to eight
+paragraphs, the state block goes after them, and a reasoning model spends
+several hundred tokens before it writes a word. Room to spare costs nothing on
+a backend that stops when it has finished; running out costs the whole turn.
+
+Prompt and reply share one window, so the app asks the backend how big that
+window is — Ollama reports what a loaded model was actually loaded with, which
+is usually smaller than the model's maximum; llama.cpp reports what it was
+started with; Horde has a published ceiling. If the context budget plus the
+reply does not fit, **the context is trimmed and the reply is not**: the answer
+is the thing being paid for. A backend with no way to say keeps whatever is
+configured.
+
 ### The writing blocks
 
 Twelve sections at the end of **who they are** arrive with their own text and

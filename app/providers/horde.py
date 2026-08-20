@@ -66,6 +66,11 @@ class HordeProvider(Provider):
         self._client: httpx.AsyncClient | None = None
         self.context_length = DEFAULT_CONTEXT
 
+    async def context_limit(self) -> int | None:
+        """Horde's own ceiling, not a model's: a worker may hold more, but the
+        API refuses a request that asks for more than this."""
+        return LIMITS["max_context_length"][1]
+
     def client(self) -> httpx.AsyncClient:
         if self._client is None:
             base = self.config.base_url or "https://aihorde.net/api/v2"

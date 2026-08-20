@@ -27,11 +27,14 @@ CANONICAL_PASSES: list[PassDef] = [
         blocking=True,
         model_tier="blocking",
         trigger=Trigger(type="every_turn"),
-        # 1000, because the shipped writing blocks (§7.5) ask for four to eight
-        # paragraphs and the state suffix has to fit after them. At 600 the
+        # 5000. The shipped writing blocks (§7.5) ask for four to eight
+        # paragraphs, the state suffix goes after them, and a reasoning model
+        # spends several hundred tokens before it writes a word — at 600 the
         # reply was cut mid-sentence and the suffix never arrived, which reads
-        # as the state engine having stopped working.
-        sampling=Sampling(temp=0.9, top_p=0.95, rep_penalty=1.08, max_tokens=1000),
+        # as the state engine having stopped working. Room to spare costs
+        # nothing on a backend that stops when it is finished; running out
+        # costs the whole turn.
+        sampling=Sampling(temp=0.9, top_p=0.95, rep_penalty=1.08, max_tokens=5000),
         output=PassOutput(type="reply"),
         writes_slice=SLICE_VARS,
         animation="typing",

@@ -37,6 +37,14 @@ from .base import GenRequest, GenResult, Provider, ProviderError, _copy_into, es
 THINKING_HEADROOM = 1.0
 THINKING_HEADROOM_CAP = 1200
 
+# Kept back from the window when fitting a reply into it: the token estimate is
+# four characters to a token, which is close and never exact.
+_WINDOW_SLACK = 128
+# However little room is left, asking for a handful of tokens is worse than
+# asking for none — the reply is cut off mid-word either way, and this at least
+# gets a sentence.
+_MIN_PREDICT = 256
+
 
 def _options(
     sampling: Sampling, stop: list[str], kind: str = "ollama", *, thinking: bool = False
@@ -55,6 +63,11 @@ def _options(
         "num_predict": predict,
         "stop": stop,
     }
+
+
+# (base_url, model) -> tokens. A loaded model's window cannot change without a
+# reload, so this is asked once rather than on every turn.
+_CONTEXT_CACHE: dict[tuple[str, str], int] = {}
 
 
 class OllamaProvider(Provider):
@@ -85,6 +98,55 @@ class OllamaProvider(Provider):
             return None
         return mode == "on"
 
+    async def context_limit(self) -> int | None:
+        """What this model is actually serving, prompt and reply together.
+
+        Two sources, in order. `/api/ps` knows what a *loaded* model was loaded
+        with, which is the number that matters — Ollama sizes it from VRAM and
+        it is routinely smaller than the model's own maximum. `/api/show` knows
+        the model's architectural limit, which is the right answer for a model
+        that is not loaded yet.
+
+        Cached per URL and model: it cannot change without a reload, and asking
+        on every turn would put two extra round trips in front of every reply.
+        """
+        key = (self.config.base_url, self.model)
+        if key in _CONTEXT_CACHE:
+            return _CONTEXT_CACHE[key]
+        limit = await self._ask_context()
+        if limit:
+            _CONTEXT_CACHE[key] = limit
+        return limit
+
+    async def _ask_context(self) -> int | None:
+        try:
+            running = await self.client().get("/api/ps")
+            if running.status_code == 200:
+                for row in (running.json() or {}).get("models") or []:
+                    if row.get("name") == self.model or row.get("model") == self.model:
+                        found = int(row.get("context_length") or 0)
+                        if found:
+                            return found
+        except (httpx.HTTPError, ValueError, TypeError):
+            pass
+        try:
+            shown = await self.client().post("/api/show", json={"model": self.model})
+            if shown.status_code != 200:
+                return None
+            info = (shown.json() or {}).get("model_info") or {}
+        except (httpx.HTTPError, ValueError, TypeError):
+            return None
+        for name, value in info.items():
+            # `llama.context_length`, `deepseek2.context_length`, and so on: the
+            # architecture prefixes it, and the architecture is whatever this
+            # model happens to be.
+            if name.endswith(".context_length"):
+                try:
+                    return int(value)
+                except (TypeError, ValueError):
+                    return None
+        return None
+
     def client(self) -> httpx.AsyncClient:
         if self._client is None:
             base = self.config.base_url or "http://127.0.0.1:11434"
@@ -93,13 +155,23 @@ class OllamaProvider(Provider):
             )
         return self._client
 
-    def _payload(self, request: GenRequest, stream: bool) -> tuple[str, dict]:
+    def _payload(
+        self, request: GenRequest, stream: bool, limit: int | None = None
+    ) -> tuple[str, dict]:
         stop = self.stop_strings(request.sampling)
         template = self.template()
         think = self.think(request)
         # `None` is "the model's template decides", which for a reasoning model
         # means it will. Anything but an explicit no gets the headroom.
         options = _options(request.sampling, stop, thinking=think is not False)
+        if limit:
+            # The last word on how much room there is. The scheduler has
+            # already fitted the *prompt* to this window; this is the other
+            # half — asking for more reply than the window has left does not
+            # produce more reply, it produces a truncated prompt inside Ollama
+            # where nobody can see it.
+            room = limit - request.estimated_input_tokens() - _WINDOW_SLACK
+            options["num_predict"] = max(_MIN_PREDICT, min(options["num_predict"], room))
         if template == "messages":
             messages = []
             if request.system:
@@ -179,7 +251,7 @@ class OllamaProvider(Provider):
         return response.json()
 
     async def generate(self, request: GenRequest) -> GenResult:
-        url, payload = self._payload(request, stream=False)
+        url, payload = self._payload(request, stream=False, limit=await self.context_limit())
         try:
             data = await self._post(url, payload)
         except httpx.HTTPError as exc:
@@ -198,7 +270,7 @@ class OllamaProvider(Provider):
     async def stream(
         self, request: GenRequest, sink: GenResult | None = None
     ) -> AsyncIterator[str]:
-        url, payload = self._payload(request, stream=True)
+        url, payload = self._payload(request, stream=True, limit=await self.context_limit())
         collected: list[str] = []
         thought: list[str] = []
         final: dict = {}
@@ -297,6 +369,29 @@ class LlamaCppProvider(OllamaProvider):
 
     kind = "llamacpp"
     native_chat = False
+
+    async def context_limit(self) -> int | None:
+        """`/props` reports what the server was started with, which for
+        llama.cpp is the whole story: `-c` is the window and there is no
+        per-request resizing."""
+        key = (self.config.base_url, self.model)
+        if key in _CONTEXT_CACHE:
+            return _CONTEXT_CACHE[key]
+        try:
+            response = await self.client().get("/props")
+            if response.status_code != 200:
+                return None
+            body = response.json() or {}
+        except (httpx.HTTPError, ValueError, TypeError):
+            return None
+        found = body.get("n_ctx") or (body.get("default_generation_settings") or {}).get("n_ctx")
+        try:
+            found = int(found or 0)
+        except (TypeError, ValueError):
+            return None
+        if found:
+            _CONTEXT_CACHE[key] = found
+        return found or None
     # The /completion endpoint this drives takes a prompt string and nothing
     # else, so there is nowhere to put an image.
     sees_images = False
@@ -347,7 +442,7 @@ class LlamaCppProvider(OllamaProvider):
     async def stream(
         self, request: GenRequest, sink: GenResult | None = None
     ) -> AsyncIterator[str]:
-        url, payload = self._payload(request, stream=True)
+        url, payload = self._payload(request, stream=True, limit=await self.context_limit())
         collected: list[str] = []
         try:
             async with self.client().stream("POST", url, json=payload) as response:

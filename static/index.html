@@ -911,6 +911,7 @@
                            :value="Math.min(f.max, Math.max(f.min, p.sampling[f.key]))"
                            @input="setSampling(p, f, $event.target.value)"
                            :aria-label="`${p.label || p.id} ${f.label}`">
+                    <p class="kind-note" x-show="f.note" x-text="f.note"></p>
                   </div>
                 </template>
 

@@ -75,6 +75,14 @@ class TurnContext:
         return self.chat["id"]
 
 
+# Left over the top of a fitted budget: the state contract goes in after the
+# prompt is assembled, and four characters to a token is close but never exact.
+CONTEXT_SAFETY = 256
+# However small the backend's window is, a prompt below this is not a
+# conversation — better a truncated one than an empty one.
+MIN_CONTEXT = 512
+
+
 class PassScheduler:
     def __init__(self, db: Database, settings: Settings) -> None:
         self.db = db
@@ -513,7 +521,7 @@ class PassScheduler:
         # (§19), so the assembler has to be told first.
         provider = provider_for_tier(definition.model_tier, self.settings)
         assembled = assembly.build_reply_context(
-            self.db, ctx.chat, ctx.character, self.settings,
+            self.db, ctx.chat, ctx.character, await self._fitted(provider, definition),
             toggle_injections=injections,
             sees_images=provider.sees_images,
         )
@@ -1232,7 +1240,7 @@ class PassScheduler:
             self.db,
             chat,
             character,
-            self.settings,
+            await self._fitted(provider, definition),
             toggle_injections=injections,
             exclude_message_id=message_id,
             sees_images=provider.sees_images,
@@ -1423,6 +1431,37 @@ class PassScheduler:
             if text.lower().startswith(prefix.lower()):
                 text = text[len(prefix):].lstrip()
         yield {"type": "impersonated", "text": text}
+
+    async def _fitted(self, provider, definition):
+        """Settings with the context budget cut to what this backend can hold.
+
+        Prompt and reply share one window. Asking for 32k of context and 5000
+        tokens of reply from a model serving 8k does not get you either — the
+        far end of the prompt is dropped somewhere inside the backend, quietly,
+        and the first anyone knows of it is a character who has forgotten the
+        last hour. So the backend is asked what it can serve and the budget is
+        fitted to it, reply first: the answer is the thing being paid for.
+
+        A backend with no way to say keeps the configured budget, which is the
+        behaviour this had before it could ask at all.
+        """
+        settings = self.settings
+        try:
+            limit = await provider.context_limit()
+        except Exception:  # a backend that cannot answer must not fail a turn
+            limit = None
+        if not limit:
+            return settings
+        reply = definition.sampling.max_tokens or 0
+        # A little back for the suffix contract and for the estimator being an
+        # estimator: four characters to a token is close, never exact.
+        room = limit - reply - CONTEXT_SAFETY
+        if room >= settings.token_budget:
+            return settings
+        # A window smaller than the reply is asking for still gets a prompt:
+        # the provider cuts the reply to fit, and a turn with a short prompt
+        # and a short answer beats one with neither.
+        return replace(settings, token_budget=max(MIN_CONTEXT, room))
 
     async def _one_more_go(self, provider, request, definition) -> str:
         """A second attempt at a reply that came back with nothing usable.

@@ -3434,7 +3434,13 @@ function tavern() {
         from("top_p", "Top p"),
         // Not in the catalogue: it has no neutral value and nobody tunes it
         // for taste, so it is not one of the samplers that can be left unsent.
-        { key: "max_tokens", label: "Max tokens", min: 32, max: 2048, step: 16 },
+        // Up to 8k: the reply ships asking for 5000, and a slider that stops
+        // at 2048 cannot express the value the app itself defaults to.
+        { key: "max_tokens", label: "Max tokens", min: 32, max: 8192, step: 32,
+          note: "How long the answer may be. Reasoning is paid for on top of "
+              + "it, and if this plus the context budget is more than the "
+              + "backend can hold, the context is trimmed to fit rather than "
+              + "the answer." },
       ];
     },
 
