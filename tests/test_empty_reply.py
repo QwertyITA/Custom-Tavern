@@ -333,6 +333,50 @@ def test_two_empty_attempts_still_fail_the_turn(db, chat, character, sched, flak
     assert repo.list_messages(db, chat["id"])[-1]["role"] == "user"
 
 
+def test_a_swipe_that_comes_back_empty_gets_the_same_second_attempt(
+    db, chat, character, sched, flaky, speaking
+):
+    """Reported with a screenshot: nine variants, every one of them "…". The
+    swipe path stored the ellipsis where the first attempt had long since
+    stopped doing that, so a reasoning model that ran out of room produced a
+    row of blanks that looked like the character having nothing to say."""
+    from app import repo
+    from tests.conftest import drain, events_of, sync, turn
+
+    speaking(REPLY)
+    sync(turn(sched, chat["id"], "hello"))
+    message = repo.list_messages(db, chat["id"])[-1]
+
+    provider = flaky('*She shrugs.* "Suit yourself."')
+    events = sync(drain(sched.run_swipe(message["id"])))
+
+    assert events_of(events, "variant"), events
+    assert "Suit yourself" in repo.list_messages(db, chat["id"])[-1]["text"]
+    assert len(provider.asked) == 2
+
+
+def test_a_swipe_with_nothing_to_show_keeps_the_variant_you_were_reading(
+    db, chat, character, sched, flaky, speaking
+):
+    """Better a swipe that says why it failed than one that replaces a reply
+    with an ellipsis."""
+    from app import repo
+    from tests.conftest import drain, events_of, sync, turn
+
+    speaking(REPLY)
+    sync(turn(sched, chat["id"], "hello"))
+    message = repo.list_messages(db, chat["id"])[-1]
+
+    flaky("")
+    events = sync(drain(sched.run_swipe(message["id"])))
+
+    assert not events_of(events, "variant")
+    assert events_of(events, "error")
+    kept = repo.list_messages(db, chat["id"])[-1]
+    assert kept["text"].strip() == REPLY
+    assert "…" not in kept["text"]
+
+
 def test_the_failed_turn_is_retryable(db, chat, character, sched, speaking):
     """The two halves have to fit together: an empty reply leaves exactly the
     state `retry_turn` exists to resolve — a user message with nothing after

@@ -135,11 +135,20 @@ deletes its chats with it, which is why both deletes take two taps.
 
 ### When a reply comes back empty
 
-**It is tried once more first.** Small reasoning models reason and then stop
-every few turns, and the setup is fine — the same prompt works next time — so
-failing the turn would send you to fix something that is not broken. The second
-attempt asks for no reasoning, which is the difference that makes it work, and
-does not stream: nobody watches a recovery.
+**It is tried once more first**, on a swipe as well as a first attempt. Small
+reasoning models reason and then stop every few turns, and the setup is fine —
+the same prompt works next time — so failing the turn would send you to fix
+something that is not broken. The second attempt asks for no reasoning, which
+is the difference that makes it work, and does not stream: nobody watches a
+recovery. A swipe that still comes back with nothing leaves the variant you
+were reading in place.
+
+**A model that reasons is given room to reason.** Ollama counts thinking
+against the same budget as the reply, so a model with a thousand tokens to
+answer in can spend all thousand working out what to say — that is exactly what
+GLM-4.7-flash was doing. Max tokens is how long the *answer* may be, so
+whenever reasoning is not switched off the request asks for that much again on
+top, up to 1200 extra.
 
 The character never says "…". If you see the turn fail with a sentence instead
 of a reply, that sentence is this app telling you which setting to change —

@@ -27,16 +27,32 @@ from .. import samplers
 from .base import GenRequest, GenResult, Provider, ProviderError, _copy_into, estimate_tokens
 
 
-def _options(sampling: Sampling, stop: list[str], kind: str = "ollama") -> dict:
+# How much room a model that reasons is given for the reasoning, on top of the
+# reply's own budget. Doubling is the honest reading of what a pass asked for:
+# `max_tokens` is how long the *answer* may be, and thinking is not the answer.
+#
+# Reported, with the numbers: GLM-4.7-flash on a 1000-token budget spent all
+# thousand working out what to say and stopped mid-sentence before saying any
+# of it. The retry recovers that turn; this is what stops it happening.
+THINKING_HEADROOM = 1.0
+THINKING_HEADROOM_CAP = 1200
+
+
+def _options(
+    sampling: Sampling, stop: list[str], kind: str = "ollama", *, thinking: bool = False
+) -> dict:
     """Ollama's `options` block: the samplers it takes, under its own names.
 
     Only what has been moved off neutral (§17) — Ollama ignores an option it
     does not know, but a request carrying a dozen parameters nobody set is how
     output changes for reasons nobody can account for.
     """
+    predict = sampling.max_tokens
+    if thinking and predict > 0:
+        predict += min(int(predict * THINKING_HEADROOM), THINKING_HEADROOM_CAP)
     return {
         **samplers.params_for(kind, sampling),
-        "num_predict": sampling.max_tokens,
+        "num_predict": predict,
         "stop": stop,
     }
 
@@ -80,6 +96,10 @@ class OllamaProvider(Provider):
     def _payload(self, request: GenRequest, stream: bool) -> tuple[str, dict]:
         stop = self.stop_strings(request.sampling)
         template = self.template()
+        think = self.think(request)
+        # `None` is "the model's template decides", which for a reasoning model
+        # means it will. Anything but an explicit no gets the headroom.
+        options = _options(request.sampling, stop, thinking=think is not False)
         if template == "messages":
             messages = []
             if request.system:
@@ -98,7 +118,7 @@ class OllamaProvider(Provider):
                 "model": self.model,
                 "messages": messages,
                 "stream": stream,
-                "options": _options(request.sampling, stop),
+                "options": options,
             }
         else:
             # Explicit template configured: drive the raw completion endpoint so
@@ -108,9 +128,8 @@ class OllamaProvider(Provider):
                 "prompt": request.prompt_text(template, self.config.template_spec),
                 "raw": True,
                 "stream": stream,
-                "options": _options(request.sampling, stop),
+                "options": options,
             }
-        think = self.think(request)
         if think is not None:
             payload["think"] = think
         if request.expects_json:

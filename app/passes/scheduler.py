@@ -1280,7 +1280,36 @@ class PassScheduler:
             body, payload = split_state_suffix(body)
         reply = self._rewrite_reply(
             clean_reply(body, strip_leakage=self.settings.strip_user_turn_leakage)
-        ) or "…"
+        )
+
+        # Exactly what a first attempt gets (§5.6). This path used to store the
+        # ellipsis instead, which is how a reasoning model that ran out of room
+        # produced nine variants of "…" — every one of them a turn that failed
+        # silently and looked like the character having nothing to say.
+        if not reply.strip():
+            second = await self._one_more_go(provider, request, definition)
+            if second.strip():
+                reply = self._rewrite_reply(
+                    clean_reply(second, strip_leakage=self.settings.strip_user_turn_leakage)
+                )
+                if payload is None:
+                    reply, payload = split_state_suffix(reply)
+                yield {"type": "delta", "text": reply}
+
+        if not reply.strip():
+            reason = _why_empty(
+                "".join(collected), thinking, body,
+                used=sink.tokens_out,
+                budget=definition.sampling.max_tokens or 0,
+            )
+            self._record_run(
+                ctx, definition, "error", run_id=run_id,
+                finished_at=time.time(), error=reason,
+            )
+            # No variant: a swipe that produced nothing must leave the one you
+            # were reading in place, not replace it with a blank.
+            yield {"type": "error", "error": reason, "pass_id": "basic"}
+            return
 
         variant = repo.add_variant(
             self.db,

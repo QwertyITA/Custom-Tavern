@@ -470,6 +470,43 @@ def test_any_other_error_is_still_an_error():
         sync(provider.generate(GenRequest()))
 
 
+def test_a_thinking_model_gets_room_to_think_on_top_of_the_reply():
+    """`max_tokens` is how long the answer may be. Ollama counts reasoning
+    against the same number, so a model that thinks spends the answer's budget
+    working out what the answer is — reported with the numbers: a thousand
+    tokens of reasoning and no reply at all."""
+    request = GenRequest(messages=[{"role": "user", "content": "hi"}],
+                         sampling=Sampling(max_tokens=1000))
+    thinking = ollama_provider(think="on")._payload(request, stream=False)[1]
+    assert thinking["options"]["num_predict"] == 2000
+
+
+def test_the_headroom_is_capped():
+    request = GenRequest(sampling=Sampling(max_tokens=4000))
+    payload = ollama_provider(think="on")._payload(request, stream=False)[1]
+    assert payload["options"]["num_predict"] == 5200
+
+
+def test_auto_gets_the_headroom_too():
+    """"The model's template decides" means a reasoning model will."""
+    request = GenRequest(sampling=Sampling(max_tokens=500))
+    assert ollama_provider()._payload(request, stream=False)[1]["options"]["num_predict"] == 1000
+
+
+def test_thinking_off_asks_for_exactly_what_the_pass_wanted():
+    request = GenRequest(sampling=Sampling(max_tokens=500))
+    payload = ollama_provider(think="off")._payload(request, stream=False)[1]
+    assert payload["options"]["num_predict"] == 500
+
+
+def test_a_request_that_turns_thinking_off_loses_the_headroom_with_it():
+    """The retry after an empty reply: no reasoning, so no room for it."""
+    request = GenRequest(sampling=Sampling(max_tokens=500), think=False)
+    payload = ollama_provider(think="on")._payload(request, stream=False)[1]
+    assert payload["options"]["num_predict"] == 500
+    assert payload["think"] is False
+
+
 def test_thinking_is_a_backend_setting_the_gui_can_offer():
     """Three modes, in the order the buttons sit in, and a default per kind:
     auto everywhere except Horde, where the GPU belongs to a volunteer."""
