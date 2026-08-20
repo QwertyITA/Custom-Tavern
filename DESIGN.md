@@ -419,8 +419,9 @@ Declarative objects; a new behavior = a new object.
 ## 11. Data models
 
 ```
-Character   : id, name, version, pfp_set{emotion→img}, backgrounds[{img, metadata}],
-              persona, state_schema, lorebook_ref, default_toggles[]
+Character   : id, name, version, pfp_set{emotion→img}, pfp_shape(portrait|square),
+              backgrounds[{img, metadata}], persona, state_schema, lorebook_ref,
+              default_toggles[]
 Chat        : id, character_id, version, created_at, settings(colours, toggle overrides)
 Message     : id, chat_id, turn, role, text(raw markup), variants[], active_variant, edited
 StateSlice  : chat_id, turn, slice_name, value(json), source_turn
@@ -445,7 +446,11 @@ Fullscreen PWA, phone layout, custom colours for every element.
 **Layout (top → bottom):** (1) pinned **world-info bar** — place · weather · time,
 time generic ("early afternoon", never "14:56"), per-field refresh animation.
 (2) **chat area** — messages as rectangles, AI pfp on its messages, inline markup styled
-per §8. (3) **edit button** on AI messages; **swipe** for variants (§9). (4) composer.
+per §8. The portrait is framed to the character's own `pfp_shape` — 2:3, the shape a
+card is drawn in, or square — chosen when the picture is uploaded and cropped to there
+and then. Tapping one enlarges it and takes the width from the bubble beside it;
+enlarged, it offers the whole screen. (3) **edit button** on AI messages; **swipe** for
+variants (§9). (4) composer.
 
 **Animation modes:** *Composing* (blocking pass gating reply) → "typing…" for pass 1,
 cogs for other blocking passes. *Ambient* (background pass) → subtle panel indicator,
