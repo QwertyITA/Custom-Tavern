@@ -485,6 +485,15 @@ and then. Tapping one enlarges it and takes the width from the bubble beside it;
 enlarged, it offers the whole screen. (3) **edit button** on AI messages; **swipe** for
 variants (§9). (4) composer.
 
+**Characters roster:** tapping a row opens the chat that character was last active in
+(falling back to a new chat if it has none) — the roster is a contact list, not an index
+you have to open a sub-menu from.
+
+**Composer `+` menu:** a tap opens it and a second tap closes it, same as any other
+sheet; a press that keeps going and drags onto an item selects that item on release,
+mirroring the message-bubble hold gesture (§9) at a smaller scale. Both are the same
+press — only what the finger does after it lands decides which one happens.
+
 **Animation modes:** *Composing* (blocking pass gating reply) → "typing…" for pass 1,
 cogs for other blocking passes. *Ambient* (background pass) → subtle panel indicator,
 no character-thinking cue. Canonical passes use their own animation; **failed** passes

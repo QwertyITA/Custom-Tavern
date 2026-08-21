@@ -425,6 +425,14 @@ function tavern() {
     revealArmed: false,
     revealSettling: false,
     composerMenu: false,
+    // A press on the + button that has not been released yet: where it
+    // started, which pointer it is, and whether the menu was already open
+    // when the press began (that decides what a release over nothing does —
+    // see onPlusUp). Which item the finger is currently over lives in
+    // composerActive, kept separate so it can drive :class bindings on its
+    // own without the whole hold object being reactive.
+    plusHold: null,
+    composerActive: -1,
     impersonating: false,
     // The message currently playing the send animation. Held only long enough
     // for the keyframes to run; a class left on would replay on every re-render.
@@ -797,6 +805,22 @@ function tavern() {
       this.chats = await api.get("/api/chats");
       await this.openChat(chat.id);
       this.closePanel();
+    },
+
+    // Tapping a character row opens the conversation it was last in — the
+    // ordinary "open a contact" gesture — rather than doing nothing, which is
+    // what the row did before this existed. `chatsFor` is already sorted by
+    // `updated_at DESC` (touched on every message, not just on creation), so
+    // the first entry is genuinely the most recently active one, not just the
+    // most recently created.
+    async openLastChat(character) {
+      const chats = this.chatsFor(character.id);
+      if (chats.length) {
+        await this.openChat(chats[0].id);
+        this.closePanel();
+      } else {
+        await this.newChat(character.id);
+      }
     },
 
     async openChat(id) {
@@ -1719,6 +1743,76 @@ function tavern() {
       this.composerMenu = false;
       if (action.soon) return this.flashHint(`${action.label} is not built yet`);
       if (action.run) action.run();
+    },
+
+    // ---- composer's + button: tap, or press-hold-drag-release ----
+    //
+    // A tap and a hold start exactly the same way — there is no delay to
+    // distinguish them, unlike the message wheel's HOLD_MS — so the press
+    // opens the menu immediately on pointerdown, same as the old plain
+    // @click did. What pointerdown can't know yet is what the release means:
+    // dragged onto an item, it picks that item; released over nothing, it
+    // should reproduce whatever @click used to do, which depended on whether
+    // the menu was already open. `wasOpen` remembers that so onPlusUp can
+    // tell "just opened by this press, leave it up" from "already open,
+    // this press is the close tap" apart.
+    //
+    // Pointer capture means move/up keep arriving even once the finger has
+    // left the small + button and is over the sheet — but it also means
+    // event.target stops reporting what is really underneath the finger, so
+    // composerItemAt hit-tests by rectangle instead, the same way the wheel's
+    // wheelIndexAt does for its own gesture.
+    onPlusDown(event) {
+      if (!event.isPrimary || this.nobodyYet) return;
+      this.plusHold = {
+        pointerId: event.pointerId,
+        wasOpen: this.composerMenu,
+      };
+      try { event.currentTarget.setPointerCapture(event.pointerId); } catch (_) { /* mouse */ }
+      this.composerMenu = true;
+      this.composerActive = -1;
+    },
+
+    onPlusMove(event) {
+      const hold = this.plusHold;
+      if (!hold || event.pointerId !== hold.pointerId) return;
+      this.composerActive = this.composerItemAt(event.clientX, event.clientY);
+    },
+
+    onPlusUp(event) {
+      const hold = this.plusHold;
+      this.plusHold = null;
+      if (!hold || event.pointerId !== hold.pointerId) return;
+      const index = this.composerItemAt(event.clientX, event.clientY);
+      this.composerActive = -1;
+      if (index >= 0) {
+        return this.runComposerAction(this.composerActions()[index]);
+      }
+      // Released over nothing: a plain tap that opened the menu leaves it
+      // open for a separate tap on an item, same as before this gesture
+      // existed; a tap that found the menu already open is the "tap again to
+      // close" one, and closing it is the whole reason @click could do this
+      // in one handler where this needs two.
+      if (hold.wasOpen) this.composerMenu = false;
+    },
+
+    onPlusCancel() {
+      this.plusHold = null;
+      this.composerActive = -1;
+    },
+
+    // Which composer-item the given point is over, skipping disabled ones —
+    // a drag that ends on a disabled row picks nothing, same as a tap on one
+    // already does via the button's own :disabled.
+    composerItemAt(x, y) {
+      const items = document.querySelectorAll(".composer-item");
+      for (let i = 0; i < items.length; i += 1) {
+        const el = items[i];
+        if (el.disabled) continue;
+        const r = el.getBoundingClientRect();
+        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return i;
+      }
+      return -1;
     },
 
     // ---- group chats (roadmap 8) ----

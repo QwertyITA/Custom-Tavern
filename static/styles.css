@@ -1961,7 +1961,10 @@ body {
 
 /* ------------------------------------------------------- composer & pull */
 
-.composer-more { flex: none; }
+/* Own gesture handling (§ app.js onPlusDown et al.) rather than the browser's:
+   without this, dragging up from the button into the sheet reads as a page
+   scroll and the pointer never reaches pointermove. */
+.composer-more { flex: none; touch-action: none; }
 
 /* Rises from the composer rather than dropping from the top: that is where
    the button is and where the eye already is. */
@@ -1998,6 +2001,15 @@ body {
      opened it rather than all arriving at once. */
   animation: composer-rise 300ms var(--ease-back) both;
   animation-delay: calc(var(--i) * 34ms);
+  transition: background var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out);
+}
+/* The finger is over this one, mid-drag from the + button — a lift, not a
+   press: the whole row answers, the same as a chat row or a preset does,
+   because a drag has no down-then-up to scale-and-spring between. */
+.composer-item.dragged {
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+  border-color: var(--accent);
 }
 @keyframes composer-rise {
   from { transform: translateY(18px); opacity: 0; }

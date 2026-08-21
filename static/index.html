@@ -699,8 +699,15 @@
   <input type="file" id="attach-input" multiple hidden
          accept=".png,.jpg,.jpeg,.webp,.gif,.txt,.md,.json,.csv,.log,.yaml,.yml,image/*,text/*"
          @change="attachFiles($event)">
+  <!-- A tap opens it (and a second tap closes it); a press that keeps going
+       and drags onto an item selects that item on release. Pure pointer
+       events rather than @click, same as the message wheel's own hold
+       gesture, because pointer capture is what lets the drag continue once
+       the finger has left this button and is over the sheet. -->
   <button class="icon-btn composer-more" :class="{ on: composerMenu }"
-          @click="composerMenu = !composerMenu" :aria-expanded="composerMenu"
+          @pointerdown="onPlusDown($event)" @pointermove="onPlusMove($event)"
+          @pointerup="onPlusUp($event)" @pointercancel="onPlusCancel()"
+          :aria-expanded="composerMenu"
           :disabled="nobodyYet"
           aria-label="More actions" title="More actions">
     <svg class="icon" viewBox="0 0 24 24"><use href="#i-plus"/></svg>
@@ -735,7 +742,8 @@
      @click="composerMenu = false">
   <div class="composer-menu">
     <template x-for="(a, i) in composerActions()" :key="a.id">
-      <button class="composer-item" :class="{ soon: a.soon }" :style="`--i:${i}`"
+      <button class="composer-item" :class="{ soon: a.soon, dragged: composerActive === i }"
+              :style="`--i:${i}`"
               @click="runComposerAction(a)" :disabled="a.disabled">
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use :href="a.icon"/></svg>
         <span class="composer-item-name" x-text="a.label"></span>
@@ -1685,7 +1693,11 @@
 
         <template x-for="c in characters" :key="c.id">
           <div class="char" :data-cid="c.id" :class="{ current: c.id === characterId }">
-            <div class="char-head">
+            <!-- Opens the chat this character was last in, so tapping the row
+                 does the thing "tap a chat app's contact" always does. The six
+                 tools alongside it stop the click from reaching here, the same
+                 way a persona row's own buttons already do above. -->
+            <div class="char-head" @click="openLastChat(c)">
               <!-- Every row gets a portrait slot, filled or not: a card can
                    name an image that was never copied in, and a character
                    written here has none at all. The fallback sits underneath
@@ -1716,31 +1728,31 @@
                    width. -->
               <div class="char-tools">
               <button class="glyph-btn star" :class="{ on: c.favourite }"
-                      @click="toggleFavourite(c)"
+                      @click.stop="toggleFavourite(c)"
                       :title="c.favourite ? 'Starred — sorts to the top' : 'Star this character'"
                       :aria-pressed="c.favourite" aria-label="Star character">
                 <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-star"/></svg>
               </button>
-              <button class="glyph-btn" @click="editCharacter(c.id)"
+              <button class="glyph-btn" @click.stop="editCharacter(c.id)"
                       title="Edit character" aria-label="Edit character">
                 <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-edit"/></svg>
               </button>
               <a class="glyph-btn" :href="`/api/characters/${c.id}/export?download=true`"
-                 :download="`${c.name}.card.json`"
+                 :download="`${c.name}.card.json`" @click.stop
                  title="Export card" aria-label="Export card">
                 <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-export"/></svg>
               </a>
-              <button class="glyph-btn" @click="newChat(c.id)"
+              <button class="glyph-btn" @click.stop="newChat(c.id)"
                       title="New chat" aria-label="New chat">
                 <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-plus"/></svg>
               </button>
               <button class="glyph-btn" :class="{ on: historyFor === c.id }"
-                      @click="toggleHistory(c.id)"
+                      @click.stop="toggleHistory(c.id)"
                       title="Chat history" aria-label="Chat history">
                 <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-menu"/></svg>
               </button>
               <button class="glyph-btn danger" :class="{ armed: confirmChar === c.id }"
-                      @click="deleteCharacter(c)"
+                      @click.stop="deleteCharacter(c)"
                       :title="confirmChar === c.id ? 'Tap again to delete — this deletes its chats too' : 'Delete character'"
                       aria-label="Delete character"
                       x-text="confirmChar === c.id ? '⚠&#xFE0E;' : '✕&#xFE0E;'"></button>
