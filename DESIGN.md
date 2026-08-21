@@ -242,6 +242,20 @@ Context is assembled each turn in a fixed order, trimmed to a token budget:
 KV cache survives across turns on local Ollama. Token budget is enforced by the
 eviction ladder, not by hard-cutting the prefix.
 
+**Known, accepted cost: assembly is O(chat length), not O(context window).**
+Every turn calls `repo.list_messages` for the *whole* chat and walks it to find
+the verbatim window and the pinned opening (§7.2) — there is no `LIMIT` at the
+query. Measured on a synthetic chat: 2,000 messages costs ~17ms for the list and
+~34ms for full assembly; 10,000 messages costs ~86ms and ~170ms, blocking the
+event loop for the duration since SQLite access here is synchronous. Audited and
+left as-is on 2026-08-21: it is fast enough at the sizes a real conversation
+reaches, and a windowed query is a known, straightforward fix (`ORDER BY turn
+DESC LIMIT N`, plus the opening row) if a chat ever grows large enough for it to
+matter. Worth re-checking after §7.2's own change: eviction now waits for real
+token pressure rather than a message count, so a chat under its budget keeps
+growing in the verbatim table for longer than it used to before anything is
+ever summarized out of it.
+
 ### 7.2 Eviction ladder (context decay)
 
 Not flat FIFO — a tiered decay so dropped messages condense rather than vanish:
