@@ -144,8 +144,17 @@ function pfpUrl(file) {
 // The CSS filter a character's chosen picture effect draws as, wherever the
 // picture is (§models.PfpEffect) — the roster, the chat, the enlarged view,
 // same as pfpUrl above and portraitShape below cover the file and the frame.
+//
+// Applied to a `.pfp-glow` sibling of the picture, never to the picture
+// itself: a hue-rotated element hue-rotates everything it renders, so
+// putting this on the same element as the photo would tint the photo along
+// with the ring around it, which is exactly the mistake this was pulled back
+// out of. `.pfp-glow`'s own base colour is a plain saturated red — hue-rotate
+// turns that into whichever colour was actually chosen.
+//
 // Empty for an untouched character rather than six no-op filter functions,
-// so most `<img>` tags in a chat carry no filter attribute at all.
+// so most `.pfp-glow` spans carry no filter attribute at all — and, paired
+// with pfpEffectOn below, are not even in the DOM.
 function pfpEffectStyle(effect) {
   const e = effect || {};
   const parts = [];
@@ -156,6 +165,17 @@ function pfpEffectStyle(effect) {
   if (e.sepia) parts.push(`sepia(${e.sepia})`);
   if (e.grayscale) parts.push(`grayscale(${e.grayscale})`);
   return parts.length ? `filter: ${parts.join(" ")}` : "";
+}
+
+// Whether there is a glow to show at all — an untouched character's effect
+// is every field at its neutral default, and the ring should not render,
+// let alone at zero-strength, when there is nothing to draw.
+function pfpEffectOn(effect) {
+  const e = effect || {};
+  return !!(
+    e.hue || (e.saturate ?? 1) !== 1 || (e.brightness ?? 1) !== 1 ||
+    (e.contrast ?? 1) !== 1 || e.sepia || e.grayscale
+  );
 }
 
 // How much slower the text is shown than the model produced it. A local model
@@ -792,13 +812,16 @@ function tavern() {
     },
 
     // Same resolution as portraitShape, for the colour treatment instead of
-    // the frame — it belongs to whoever is speaking, not to the chat.
+    // the frame — it belongs to whoever is speaking, not to the chat. Returns
+    // the raw effect object, not a style string: the caller draws it onto a
+    // `.pfp-glow` sibling of the picture, never the picture itself (see the
+    // note on pfpEffectStyle), and needs the object for pfpEffectOn too.
     portraitEffect(message) {
       if (message && message.speaker_id && this.cast.length > 1) {
         const who = this.cast.find((m) => m.character_id === message.speaker_id);
-        if (who && who.pfp_effect) return pfpEffectStyle(who.pfp_effect);
+        if (who && who.pfp_effect) return who.pfp_effect;
       }
-      return pfpEffectStyle(this.character && this.character.pfp_effect);
+      return this.character && this.character.pfp_effect;
     },
 
     // Tap to look at it, tap again to put it back. The bubble beside it gives
@@ -813,7 +836,7 @@ function tavern() {
     openPfpFull(src, shape, effect) {
       if (!src) return;
       this.pfpFullLeaving = false;
-      this.pfpFull = { src, shape: shape || "portrait", effect: effect || "" };
+      this.pfpFull = { src, shape: shape || "portrait", effect: effect || null };
       buzz(6);
     },
 
@@ -823,7 +846,7 @@ function tavern() {
       if (!this.pfpFull.src || this.pfpFullLeaving) return;
       this.pfpFullLeaving = true;
       setTimeout(() => {
-        this.pfpFull = { src: "", shape: "portrait", effect: "" };
+        this.pfpFull = { src: "", shape: "portrait", effect: null };
         this.pfpFullLeaving = false;
       }, PANEL_LEAVE_MS());
     },
@@ -1795,11 +1818,7 @@ function tavern() {
     },
 
     pfpEffectActive() {
-      const e = this.draftCharacter.pfp_effect || {};
-      return !!(
-        e.hue || (e.saturate ?? 1) !== 1 || (e.brightness ?? 1) !== 1 ||
-        (e.contrast ?? 1) !== 1 || e.sepia || e.grayscale
-      );
+      return pfpEffectOn(this.draftCharacter.pfp_effect);
     },
 
     // ---- reactions (§models.CharacterReactions) ----

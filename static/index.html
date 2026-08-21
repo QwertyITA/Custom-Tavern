@@ -393,9 +393,10 @@
             <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
           </span>
           <template x-if="portraitFor(m)">
-            <img class="pfp pfp-over" :src="portraitFor(m)" alt=""
-                 :style="portraitEffect(m)" @error="$el.remove()">
+            <img class="pfp pfp-over" :src="portraitFor(m)" alt="" @error="$el.remove()">
           </template>
+          <span class="pfp-glow" x-show="pfpEffectOn(portraitEffect(m))" x-cloak
+                :style="pfpEffectStyle(portraitEffect(m))" aria-hidden="true"></span>
           <!-- Only once it is big: at 34px a button over the face would be
                most of the face. -->
           <button class="pfp-full" x-show="bigPfp === m.id && portraitFor(m)" x-cloak
@@ -542,9 +543,10 @@
         <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
       </span>
       <template x-if="portrait">
-        <img class="pfp pfp-over" :src="portrait" alt=""
-             :style="pfpEffectStyle(character && character.pfp_effect)" @error="$el.remove()">
+        <img class="pfp pfp-over" :src="portrait" alt="" @error="$el.remove()">
       </template>
+      <span class="pfp-glow" x-show="pfpEffectOn(character && character.pfp_effect)" x-cloak
+            :style="pfpEffectStyle(character && character.pfp_effect)" aria-hidden="true"></span>
     </span>
     <!-- Three cues in one box, cross-fading. Which one is showing says what
          is actually happening: the dots mean the backend has not answered
@@ -618,8 +620,12 @@
        @keydown.escape.window="closePfpFull()"
        x-transition:enter="pfp-full-enter" x-transition:enter-start="pfp-full-from"
        x-transition:enter-end="pfp-full-to">
-    <img class="pfp-full-image" :class="'shape-' + pfpFull.shape"
-         :src="pfpFull.src" :style="pfpFull.effect" alt="" @click.stop>
+    <span class="pfp-full-wrap" @click.stop>
+      <img class="pfp-full-image" :class="'shape-' + pfpFull.shape"
+           :src="pfpFull.src" alt="">
+      <span class="pfp-glow pfp-glow-full" x-show="pfpEffectOn(pfpFull.effect)" x-cloak
+            :style="pfpEffectStyle(pfpFull.effect)" aria-hidden="true"></span>
+    </span>
     <button class="pfp-full-close" @click.stop="closePfpFull()" aria-label="Close">
       <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg>
     </button>
@@ -1980,9 +1986,10 @@
                      blank for every character whose picture had been chosen
                      here or had come in on a card. -->
                 <template x-if="c.pfp">
-                  <img class="pfp pfp-over" :src="pfpUrl(c.pfp)" alt=""
-                       :style="pfpEffectStyle(c.pfp_effect)" @error="$el.remove()">
+                  <img class="pfp pfp-over" :src="pfpUrl(c.pfp)" alt="" @error="$el.remove()">
                 </template>
+                <span class="pfp-glow" x-show="pfpEffectOn(c.pfp_effect)" x-cloak
+                      :style="pfpEffectStyle(c.pfp_effect)" aria-hidden="true"></span>
               </span>
               <div class="char-id">
                 <span class="char-name" x-text="c.name"></span>
@@ -2160,9 +2167,10 @@
               <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
             </span>
             <template x-if="draftPortrait()">
-              <img class="pfp pfp-large pfp-over" :src="draftPortrait()" alt=""
-                   :style="pfpEffectStyle(draftCharacter.pfp_effect)" @error="$el.remove()">
+              <img class="pfp pfp-large pfp-over" :src="draftPortrait()" alt="" @error="$el.remove()">
             </template>
+            <span class="pfp-glow" x-show="pfpEffectActive()" x-cloak
+                  :style="pfpEffectStyle(draftCharacter.pfp_effect)" aria-hidden="true"></span>
           </span>
           <div class="pfp-edit-actions">
             <label class="link file-link">

@@ -701,6 +701,23 @@ body {
 }
 .pfp-slot.shape-square { --pfp-ratio: 1; }
 .pfp-slot-large { --pfp-w: 72px; }
+
+/* A colour treatment ring around the picture (§models.PfpEffect) — not a
+   filter over it. Its own element, sitting behind the photo rather than on
+   it: `filter` colours everything an element renders, photo included, so
+   the two have to be separate boxes or the "ring" would tint the face too.
+   The base colour is a plain saturated red; app.js's pfpEffectStyle turns
+   that into whichever colour was actually picked with hue-rotate, the same
+   way a colourize-an-icon trick would. Undrawn (not just invisible) for a
+   character with nothing chosen — see pfpEffectOn. */
+.pfp-glow {
+  position: absolute;
+  inset: -3px;
+  border-radius: 10px;
+  box-shadow: 0 0 0 2px hsl(0 90% 55%),
+              0 0 12px 3px hsl(0 90% 55% / .55);
+  pointer-events: none;
+}
 /* The picture, over the placeholder that is always underneath it. */
 .pfp-over { position: absolute; inset: 0; }
 .pfp {
@@ -892,6 +909,18 @@ body {
 .pfp-full-layer.leaving { animation: pfp-layer-in var(--dur-panel-leave) var(--ease-in-out) reverse both; }
 @keyframes pfp-layer-in { from { opacity: 0; } to { opacity: 1; } }
 
+/* Its own box so .pfp-glow-full has something to ring that is not the image
+   element itself — see the note on .pfp-glow above. Sized like the image
+   used to be sized directly, so wrapping it changed nothing about the
+   layout. */
+.pfp-full-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 .pfp-full-image {
   /* Fills the screen rather than merely fitting on it: a portrait stored at
      640px would otherwise sit at 640px in the middle of a phone, which is
@@ -905,6 +934,7 @@ body {
 .leaving .pfp-full-image {
   animation: pfp-image-in var(--dur-panel-leave) var(--ease-in-out) reverse both;
 }
+.pfp-glow-full { inset: 6px; border-radius: 12px; }
 @keyframes pfp-image-in {
   from { opacity: 0; transform: scale(.86); }
   to   { opacity: 1; transform: none; }
