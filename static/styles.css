@@ -291,9 +291,47 @@ body {
 .menu-wrap.open .menu-btn { transform: none; opacity: 1; }
 .menu-wrap.open .menu-btn:nth-child(2) { transition-delay: 45ms; }
 .menu-wrap.open .menu-btn:nth-child(3) { transition-delay: 90ms; }
-.menu-wrap.open .menu-btn:nth-child(4) { transition-delay: 135ms; }
 .menu-btn.on { color: var(--accent); border-color: var(--accent); background: var(--panel); }
 .menu-label { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
+
+/* ---- Brain's own tab bar: the same button, a shorter row ---- */
+/* Reuses .menu-btn wholesale — same icon-over-label shape, same press
+   feedback (it is already in that selector list) — so this reads as more of
+   the header's own menu rather than a second pattern invented for one panel.
+   What is different is the row itself: no open/close, no stagger, and an
+   underline on the active tab instead of a filled pill, closer to the
+   ribbon it is standing in for. */
+.brain-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 14px;
+  border-bottom: 1px solid var(--line);
+}
+.brain-tab {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  padding-bottom: 6px;
+  /* .menu-btn's own base state is invisible — opacity 0, lifted — waiting
+     for .menu-wrap.open to reveal it on the header's staggered entrance.
+     This row has no such reveal (it is already inside an open sheet), so it
+     needs to start visible rather than wait for an ancestor class that will
+     never arrive. */
+  opacity: 1;
+  transform: none;
+}
+.brain-tab.on { border-bottom-color: var(--accent); background: none; }
+
+/* Switching tabs still counts as content appearing (§ motion rules) even
+   though nothing is opening or closing — a small rise-and-fade says "new
+   content" without implying the old tab went anywhere. No leave transition:
+   the incoming tab covers the outgoing one in the same frame, so there is
+   nothing to see it happen to. */
+.braintab-enter { transition: opacity var(--dur-base) var(--ease-out),
+                              transform var(--dur-base) var(--ease-out); }
+.braintab-from { opacity: 0; transform: translateY(6px); }
+.braintab-to { opacity: 1; transform: translateY(0); }
 
 .icon-btn.refresh { flex: none; }
 /* A continuous rotation is the one thing that must stay linear — easing it
@@ -2029,6 +2067,10 @@ body {
 }
 .composer-item:disabled { opacity: .4; }
 .composer-item.soon .icon { opacity: .5; }
+/* The generic form of the same flag, for a stub button that is not part of
+   the composer sheet — dimmed rather than hidden, because it says what is
+   coming rather than pretending nothing is. */
+.wide.soon { opacity: .6; }
 
 /* Registered so it can be interpolated. An unregistered custom property is a
    string as far as the engine is concerned and transitions between two strings
@@ -2399,6 +2441,13 @@ input.mono {
               background var(--dur-base) var(--ease-out);
 }
 .p-switch.on .p-knob { transform: translateX(17px); background: var(--bg); }
+/* The reply pass: always on, and genuinely un-tappable rather than a live
+   control that happens to reject every tap. Drawn in the same muted colours
+   as an off switch instead of the accent, so "on" reads as a status rather
+   than as something that could be switched — the knob still sits on the
+   right, but nothing about the colour invites a press. */
+.p-switch:disabled.on { background: var(--panel-2); border-color: var(--line); }
+.p-switch:disabled .p-knob { background: var(--muted); }
 
 .p-add {
   width: 100%;

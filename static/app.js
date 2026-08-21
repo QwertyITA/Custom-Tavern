@@ -405,6 +405,11 @@ function tavern() {
     // the sheet would slide away empty.
     panel: "",
     panelOpen: false,
+    // Which of Brain's four categories is showing. Persists across closing
+    // and reopening the panel — the same way openBackend/openTier already do
+    // for what is folded open within one — rather than resetting to the
+    // first tab every time.
+    brainTab: "backends",
     historyFor: "",
     // Raised while a different chat's transcript is being fetched.
     loadingChat: false,
@@ -901,13 +906,14 @@ function tavern() {
           // Served rather than duplicated here: a slider for a parameter no
           // backend is sent would be worse than no slider.
           this.samplerBook = await api.get("/api/samplers");
+          // "Story options" is one of Brain's four tabs (§12) rather than its
+          // own panel, so what it needs loads on the way into Brain too.
+          await this.loadNote();
+          await this.loadEventChance();
         } else if (name === "theme") {
           this.bgMsg = "";
           await this.loadSettings();
           await this.loadBackdrops();
-        } else if (name === "story") {
-          await this.loadNote();
-          await this.loadEventChance();
         } else if (name === "chats") {
           this.characters = await api.get("/api/characters");
           this.chats = await api.get("/api/chats");

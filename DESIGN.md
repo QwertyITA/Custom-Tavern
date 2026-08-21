@@ -494,6 +494,30 @@ sheet; a press that keeps going and drags onto an item selects that item on rele
 mirroring the message-bubble hold gesture (§9) at a smaller scale. Both are the same
 press — only what the finger does after it lands decides which one happens.
 
+**Header menu:** three destinations — **Brain**, **Theme**, **Characters**. Story used
+to be a fourth; it is now a tab inside Brain (below), because it was one settings screen
+among several rather than a peer of "where the work is sent" and "what it looks like".
+
+**Brain panel:** a tab bar of four icon-labelled categories rather than one long
+scroll, chosen because the old flat layout mixed "configure a backend" with "which
+passes run" with "what this story remembers" with "advanced numeric knobs" in one
+list with no way to jump between them.
+- **Backends** — the backend CRUD block, web search, and which backend each pass
+  group is assigned to (moved out of Passes so "what does the work" lives in one
+  place with "where the work goes").
+- **Passes** — pass editing: the three canonical groups always shown, the reply
+  group's on/off switch drawn muted and disabled rather than as a live control
+  (there is no reply without it, so it cannot actually be turned off, and it
+  should not look like it can be), and a stub "Add a pass" button (not
+  implemented). "What goes into the prompt" (band/section layout) lives here
+  too; it moved as-is, not redesigned — its own layout is a separate, open
+  discussion, flagged in place rather than fixed on the side.
+- **Story options** — the former standalone Story panel, unchanged, including that
+  it saves each field immediately rather than through the panel's Save button
+  (which is why that button is hidden while this tab is open).
+- **Advanced** — languages, find-and-replace, and the remaining advanced numeric
+  fields: everything left over once the other three categories claimed their own.
+
 **Animation modes:** *Composing* (blocking pass gating reply) → "typing…" for pass 1,
 cogs for other blocking passes. *Ambient* (background pass) → subtle panel indicator,
 no character-thinking cue. Canonical passes use their own animation; **failed** passes
