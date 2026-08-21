@@ -3339,8 +3339,12 @@ input.mono {
 :root.glass .icon-btn:disabled { opacity: .55; }
 
 /* Red on wood is not the red that was designed on white. It keeps its hue and
-   gains the weight it needs to stay a warning over a photograph. */
-:root.glass .glyph-btn.danger {
+   gains the weight it needs to stay a warning over a photograph.
+   `:not(.armed)` matters as much as `:not(.danger)` does above: without it
+   this beats `.glyph-btn.armed`'s on-accent colour on specificity alone
+   (0,4,0 against 0,2,0, cascade order never gets a say), so the armed "!"
+   was drawn in a colour-mix that is almost the red it was sitting on. */
+:root.glass .glyph-btn.danger:not(.armed) {
   color: color-mix(in srgb, var(--error) calc(70% + 30% * var(--glass-thin)), var(--text));
 }
 
