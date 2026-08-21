@@ -94,6 +94,31 @@ Everything else leans on these.
 - [x] **24. Web search.** Inject search results into context. Toggleable, off
       by default.
 
+## Phase 7 — emotion
+
+Not started. Overlaps with the existing `expression` canonical pass
+(§DESIGN.md §12, §5.3) — that pass already picks one of a fixed emotion set
+per turn and uses it to choose a `pfp_set` sprite (§ KNOWN-ISSUES.md, "Emotion
+sprites don't go through the cropper"), so 36 and 37 below are as much about
+making that mechanism explicit and toggleable as about building it new. Order
+matters: 36 and 37 both read whatever 35 lands on.
+
+- [ ] **35. Emotion tracking, closed set.** A fixed, small enum — not
+      free-form model output — updated the way other state is (§6): rubric
+      levels, not a sentence. Whether this rides on `expression` as-is or gets
+      its own slice is the open call; either way "closed set" is the
+      requirement, not "the model picks a word."
+- [ ] **36. Emotion-driven bubble animation.** Each emotion in the closed set
+      gets its own small arrival animation for that bubble — shy lands
+      differently than confident. Toggleable off, and the fallback (off, or
+      an emotion with no animation assigned) is today's one animation for
+      everyone, not no animation at all.
+- [ ] **37. Emotion-driven pfp selection.** Swap which `pfp_set` sprite is
+      drawn based on the tracked emotion, for a character that has more than
+      one. Toggleable independently of 36 — a user may want the picture to
+      change without the bubble motion changing, or the reverse. Depends on
+      35 for what "the current emotion" actually is.
+
 ## The UX pass
 
 - [x] **Audit.** Drive the finished app on a phone-sized screen and find where

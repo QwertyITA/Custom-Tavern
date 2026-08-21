@@ -36,6 +36,28 @@ repeated below.
 
 ## Medium
 
+### The composer `+` hold-drag selects text instead of picking an item
+
+Reported, not independently reproduced here — a phone's native long-press
+text-selection is not something this headless setup can trigger, so this is
+recorded on the report plus what the code shows, not on a live repro like the
+rest of this file asks for.
+
+`.composer-more` (`static/styles.css`) got `touch-action: none` when the
+hold-drag gesture was built, to stop the drag from being read as a page
+scroll — but not `user-select: none` / `-webkit-user-select: none` /
+`-webkit-touch-callout: none`, which is the separate thing that actually
+suppresses a long-press turning into text selection (iOS Safari's callout
+menu needs the third one specifically). `.crop-stage`, a few hundred lines
+away, is the same shape of gesture — a press-and-drag that must not become a
+built-in browser gesture instead — and does carry all three; the composer
+button was never given the same treatment. Tap-to-open and tapping an item
+directly both still work; only the hold-and-drag layer is affected, on
+whichever browsers treat a held touch on a button as selectable text. Fix is
+probably to add the same three properties `.crop-stage` has, to
+`.composer-more` and likely `.composer-item` too, since the drag continues
+onto those.
+
 ### Upload endpoints read the whole body before checking its size
 
 `app/main.py`: card import, chat import, attachment upload, and both avatar
