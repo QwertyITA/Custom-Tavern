@@ -184,75 +184,6 @@
             x-text="character ? character.name : ''"></button>
   </div>
 
-  <!-- The world-info pill: place, weather, time and the button that fills
-       them in, in their own row just below the compact header rather than
-       sharing the name's line. Hidden outright while the menu is open rather
-       than left for the opening buttons to cover — a covered-but-still-there
-       pill bled through the gaps between them under glass, which looked
-       broken, and there is nothing to bleed through when it is not rendered
-       at all. It is a plain child of the sticky header, not absolutely
-       positioned, so it moves with it for free and needs no offset math. -->
-  <div class="world-pill" x-show="!menu" x-cloak
-       x-transition:enter="braintab-enter" x-transition:enter-start="braintab-from"
-       x-transition:enter-end="braintab-to">
-    <!-- Hidden entirely until a scene exists. Three em-dashes said nothing
-         except that the app had not got round to it yet. -->
-    <!-- Tapping it opens the line in full underneath. On a 412px screen all
-         three fields truncate — "the tavern common room" arrives as "the
-         tavern com…" — and `title` is a hover affordance, which a phone does
-         not have. So the scene pass costs a model call, writes a result, and
-         the result cannot be read. This is how it gets read. -->
-    <div class="world-fields" x-show="hasScene" x-cloak
-         role="button" tabindex="0" :aria-expanded="worldOpen"
-         aria-label="Show the setting in full"
-         @click="worldOpen = !worldOpen"
-         @keydown.enter.prevent="worldOpen = !worldOpen"
-         @keydown.space.prevent="worldOpen = !worldOpen">
-      <span class="field" :class="{ refreshing: refreshing.scene }"
-            :title="`Place: ${scene.place || 'unknown'}`" x-show="scene.place">
-        <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-place"/></svg>
-        <span class="field-value" x-text="scene.place"></span>
-      </span>
-      <span class="field" :class="{ refreshing: refreshing.scene }"
-            :title="`Weather: ${scene.weather || 'unknown'}`" x-show="scene.weather">
-        <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-weather"/></svg>
-        <span class="field-value" x-text="scene.weather"></span>
-      </span>
-      <span class="field" :class="{ refreshing: refreshing.scene }"
-            :title="`Time: ${scene.time || 'unknown'}`" x-show="scene.time">
-        <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-time"/></svg>
-        <span class="field-value" x-text="scene.time"></span>
-      </span>
-    </div>
-
-    <!-- The scene pass only fires when a reply suggests the setting moved.
-         That is right nearly always, and wrong exactly when you are looking at
-         a stale line and can see that it is stale. Before there is any line at
-         all this is also the way to ask for one — so this stays reachable
-         whether or not hasScene is true, unlike the fields beside it. -->
-    <button class="icon-btn refresh" :class="{ spinning: refreshing.scene }"
-            @click="refreshWorld()" :disabled="refreshing.scene || !chatId"
-            :aria-label="hasScene ? 'Refresh world info' : 'Generate world info'"
-            :title="hasScene ? 'Refresh world info' : 'Generate world info'">
-      <svg class="icon" viewBox="0 0 24 24"><use href="#i-refresh"/></svg>
-    </button>
-  </div>
-
-  <!-- The setting, in full, when the truncated line above is tapped. Same fold
-       mechanism as the menu row, so it eases open rather than appearing. -->
-  <div class="fold world-full" :class="{ open: worldOpen && hasScene }">
-    <div class="fold-clip">
-      <dl class="world-long">
-        <template x-for="f in worldLines" :key="f.label">
-          <div class="world-long-row">
-            <dt x-text="f.label"></dt>
-            <dd x-text="f.value"></dd>
-          </div>
-        </template>
-      </dl>
-    </div>
-  </div>
-
   <!-- The row of destinations. Collapsed to nothing until the menu opens; see
        the grid-rows note in styles.css for why it animates the way it does.
        It stays open once opened — picking a destination is usually the first
@@ -280,6 +211,77 @@
     </div>
   </div>
 </header>
+
+<!-- The world-info pill: place, weather, time and the button that fills them
+     in, centered in its own row below the header rather than sharing the
+     name's line or living inside the header itself. Hidden outright while
+     the menu is open rather than left for the opening buttons to cover — a
+     covered-but-still-there pill bled through the gaps between them under
+     glass, which looked broken, and there is nothing to bleed through when
+     it is not rendered at all. It needs no sticky positioning or offset math
+     of its own: `.chat` below is the only element in the page that scrolls,
+     so everything above it — header and pill alike — stays on screen simply
+     by sitting in that fixed, non-scrolling region. -->
+<div class="world-pill" x-show="!menu" x-cloak
+     x-transition:enter="braintab-enter" x-transition:enter-start="braintab-from"
+     x-transition:enter-end="braintab-to">
+  <!-- Hidden entirely until a scene exists. Three em-dashes said nothing
+       except that the app had not got round to it yet. -->
+  <!-- Tapping it opens the line in full underneath. On a 412px screen all
+       three fields truncate — "the tavern common room" arrives as "the
+       tavern com…" — and `title` is a hover affordance, which a phone does
+       not have. So the scene pass costs a model call, writes a result, and
+       the result cannot be read. This is how it gets read. -->
+  <div class="world-fields" x-show="hasScene" x-cloak
+       role="button" tabindex="0" :aria-expanded="worldOpen"
+       aria-label="Show the setting in full"
+       @click="worldOpen = !worldOpen"
+       @keydown.enter.prevent="worldOpen = !worldOpen"
+       @keydown.space.prevent="worldOpen = !worldOpen">
+    <span class="field" :class="{ refreshing: refreshing.scene }"
+          :title="`Place: ${scene.place || 'unknown'}`" x-show="scene.place">
+      <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-place"/></svg>
+      <span class="field-value" x-text="scene.place"></span>
+    </span>
+    <span class="field" :class="{ refreshing: refreshing.scene }"
+          :title="`Weather: ${scene.weather || 'unknown'}`" x-show="scene.weather">
+      <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-weather"/></svg>
+      <span class="field-value" x-text="scene.weather"></span>
+    </span>
+    <span class="field" :class="{ refreshing: refreshing.scene }"
+          :title="`Time: ${scene.time || 'unknown'}`" x-show="scene.time">
+      <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-time"/></svg>
+      <span class="field-value" x-text="scene.time"></span>
+    </span>
+  </div>
+
+  <!-- The scene pass only fires when a reply suggests the setting moved.
+       That is right nearly always, and wrong exactly when you are looking at
+       a stale line and can see that it is stale. Before there is any line at
+       all this is also the way to ask for one — so this stays reachable
+       whether or not hasScene is true, unlike the fields beside it. -->
+  <button class="icon-btn refresh" :class="{ spinning: refreshing.scene }"
+          @click="refreshWorld()" :disabled="refreshing.scene || !chatId"
+          :aria-label="hasScene ? 'Refresh world info' : 'Generate world info'"
+          :title="hasScene ? 'Refresh world info' : 'Generate world info'">
+    <svg class="icon" viewBox="0 0 24 24"><use href="#i-refresh"/></svg>
+  </button>
+</div>
+
+<!-- The setting, in full, when the truncated line above is tapped. Same fold
+     mechanism as the menu row, so it eases open rather than appearing. -->
+<div class="fold world-full" :class="{ open: worldOpen && hasScene }">
+  <div class="fold-clip">
+    <dl class="world-long">
+      <template x-for="f in worldLines" :key="f.label">
+        <div class="world-long-row">
+          <dt x-text="f.label"></dt>
+          <dd x-text="f.value"></dd>
+        </div>
+      </template>
+    </dl>
+  </div>
+</div>
 
 <!-- pass-status HUD (debug, toggleable) (§12) -->
 <section class="hud" x-show="hud" x-cloak>

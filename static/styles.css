@@ -339,12 +339,16 @@ body {
 .icon-btn.refresh.spinning { animation: spin 1.1s linear infinite; color: var(--accent); }
 .icon-btn.on { color: var(--accent); }
 
-/* A rounded chip of its own row, not a stretch of the name's — see the note
-   on .world-pill above for why it moved and why it disappears with the menu
-   rather than being covered by it. */
+/* A rounded chip of its own row below the header, not a stretch of the
+   name's — see the HTML comment above the markup for why it disappears with
+   the menu rather than being covered by it. It sits directly in the
+   fixed-height flex column above `.chat` (see the note on `.chat` for why
+   that needs no sticky positioning), and centers itself there rather than
+   hugging either edge. */
 .world-pill {
   display: flex;
   align-items: center;
+  align-self: center;
   gap: 2px;
   width: fit-content;
   max-width: 100%;
