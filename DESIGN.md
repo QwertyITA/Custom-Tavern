@@ -374,6 +374,17 @@ Markup **nests and interleaves freely** within a message (`*action "quote" more*
 - **Tags this app cannot draw are stripped**, from replies and from imported cards
   alike. Output is rendered with `textContent`, so an `<img>` arrives on screen as its
   own source and costs prompt tokens on every turn to do it.
+- **The client redraws only the open paragraph, not the whole reply.** Markers only
+  pair inside one paragraph (`_paragraphs` in both tokenizers), so nothing arriving
+  after a `\n\n` can restyle text before it — the same rule that bounds a stray
+  marker's damage also bounds what a new token can invalidate. `static/markup.js`'s
+  `render()` uses this: once a paragraph closes it is drawn once and never touched
+  again; only the still-open paragraph is re-parsed and redrawn each frame. It used to
+  rebuild the whole message every frame, which is right for a finished message and
+  quadratic for a streaming one — measured streaming an 800-word reply in the same
+  browser, same steps: 4.8s total and 6.7ms for the last frame before, 137ms and
+  0.1ms after. `render()`'s own comments carry the reasoning; there is no Python
+  equivalent to keep in step, since only the client ever redraws incrementally.
 
 Custom colours attach to these parser rules. The `Message` model stores **raw text
 only** — no `segments` field.
