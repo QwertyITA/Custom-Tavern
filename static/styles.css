@@ -917,6 +917,59 @@ body {
 .pfp-full-close:active { transform: scale(.9); }
 .pfp-full-close .icon { width: 22px; height: 22px; }
 
+/* ---------------------------------- hold-to-delete a character (§ kill) */
+
+.kill-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 62;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: color-mix(in srgb, #000 62%, transparent);
+}
+.kill-sheet {
+  width: 100%;
+  max-width: 420px;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px 16px 0 0;
+}
+.kill-title { margin: 0; font-size: 16px; }
+/* Always drawn as the danger action it is, not just once armed — unlike
+   `.glyph-btn.armed` this button has no unarmed state to distinguish itself
+   from, so there is nothing to save the red for. */
+.kill-btn {
+  background: var(--error);
+  color: var(--on-accent);
+  border-color: transparent;
+  font-weight: 600;
+}
+.kill-btn:disabled { opacity: .7; }
+/* The fill lives in its own track below the button rather than inside it —
+   text over a growing red bar is exactly the low-contrast trap fixed above
+   for the armed glyph, and a separate track sidesteps it rather than
+   re-solving it. */
+.kill-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.kill-fill {
+  display: block;
+  height: 100%;
+  width: 100%;
+  transform-origin: left;
+  transform: scaleX(0);
+  background: var(--error);
+}
+
 /* The editor's copy, big enough to see what you chose. */
 .pfp-edit { display: flex; gap: 12px; align-items: center; margin: 4px 0 12px; }
 .pfp-large { border-radius: 12px; }

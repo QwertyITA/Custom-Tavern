@@ -604,10 +604,44 @@
        x-transition:enter="pfp-full-enter" x-transition:enter-start="pfp-full-from"
        x-transition:enter-end="pfp-full-to">
     <img class="pfp-full-image" :class="'shape-' + pfpFull.shape"
-         :src="pfpFull.src" alt="" @click.stop>
+         :src="pfpFull.src" :style="pfpFull.effect" alt="" @click.stop>
     <button class="pfp-full-close" @click.stop="closePfpFull()" aria-label="Close">
       <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg>
     </button>
+  </div>
+
+  <!-- The third gate on deleting a character (§ deleteCharacter, above the
+       two taps that reach here). A modal is otherwise deliberately avoided in
+       this app — see the comment on deleteChat — but this is the one action
+       with no way back: a character's chats go with it. -->
+  <div class="kill-scrim" x-show="killHold" x-cloak
+       @click="closeKillModal()"
+       @keydown.escape.window="closeKillModal()"
+       x-transition:enter="crop-enter" x-transition:enter-start="crop-from"
+       x-transition:enter-end="crop-to"
+       x-transition:leave="crop-leave" x-transition:leave-start="crop-to"
+       x-transition:leave-end="crop-from">
+    <div class="kill-sheet" @click.stop>
+      <h3 class="kill-title" x-text="`Delete ${(killHold && killHold.character.name) || ''}?`"></h3>
+      <p class="kind-note">
+        Keep holding &ldquo;Delete&rdquo; to permanently eliminate the character.
+        Every chat with them goes with it, and neither comes back.
+      </p>
+      <button class="wide kill-btn" :disabled="killHold && killHold.state === 'deleting'"
+              @pointerdown="onKillDown($event)" @pointerup="onKillUp()"
+              @pointercancel="onKillCancel()"
+              x-text="killHold && killHold.state === 'deleting' ? 'Deleting…' : 'Delete'">
+      </button>
+      <!-- A real elapsed-time countdown, not an arrival — see the note on
+           linear easing (§ motion rules). Written straight to the element by
+           onKillDown's own frame loop, never through Alpine (§ that same
+           method). -->
+      <div class="kill-track" aria-hidden="true">
+        <span class="kill-fill" x-ref="killFill"></span>
+      </div>
+      <button class="wide" @click="closeKillModal()"
+              :disabled="killHold && killHold.state === 'deleting'">Cancel</button>
+    </div>
   </div>
 
   <!-- A turn whose reply failed leaves the transcript ending on a question

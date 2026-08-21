@@ -96,6 +96,10 @@ const REGEN_PILL_WIDTH = 84;
 const REGEN_PILL_HEIGHT = 46;
 // How long an armed delete stays armed before giving up on the second tap.
 const CONFIRM_MS = 3000;
+// Deleting a character takes its chats with it — the one action in the app
+// that cannot be undone by re-importing, so it gets a third gate the other
+// armed deletes don't: a held press, timed rather than tapped.
+const KILL_HOLD_MS = 7000;
 // How long a one-line confirmation ("Copied") stays on screen.
 const HINT_MS = 1900;
 // Quiet time after the last keystroke before the template preview re-renders.
@@ -418,6 +422,10 @@ function tavern() {
     confirmChar: "",
     confirmChat: "",
     confirmMsg: "",
+    // The hold-to-delete modal for a character, null when closed. `state` is
+    // "idle" (modal up, nothing pressed), "holding" (timing a press) or
+    // "deleting" (the hold finished; the request is in flight).
+    killHold: null,
     // Hold-to-open action wheel. `wheel` is null when closed; when open it
     // carries the message, where it was opened, and which option the finger
     // is currently over.
@@ -2418,21 +2426,87 @@ function tavern() {
       }
     },
 
-    // Two taps rather than a confirm dialog: a modal over a sheet on a phone is
-    // its own problem, and the second tap is the same finger in the same place.
+    // First tap arms, same as every other delete in the app. The second tap
+    // used to delete outright; deleting a character takes its chats with it,
+    // which is more than any other armed action here does, so the second tap
+    // now opens the hold-to-confirm modal instead — see openKillModal below.
     //
-    // It also disarms after CONFIRM_MS, like every other armed action here.
-    // These two were the exception, and they are the two that do the most
-    // damage — deleting a character takes its chats with it. An armed delete
-    // that waits indefinitely is one you meet again after scrolling away and
-    // coming back, by which time the first tap has been forgotten and the
-    // second one reads as the first.
-    async deleteCharacter(character) {
+    // It still disarms after CONFIRM_MS if the second tap never comes, like
+    // every other armed row.
+    deleteCharacter(character) {
       if (this.confirmChar !== character.id) {
         this.arm("confirmChar", character.id);
         return;
       }
       this.confirmChar = "";
+      this.openKillModal(character);
+    },
+
+    // ---- character deletion: hold to confirm ----
+    //
+    // A modal over a sheet is its own problem on a phone (see deleteChat
+    // below, which stays two-tap for exactly that reason) — but a character
+    // takes every one of its chats with it, unrecoverably, and
+    // that is worth the one exception. A timed hold rather than a third tap:
+    // a tap is one instant, indistinguishable from the two that armed it, and
+    // the whole point is a gesture that cannot happen by accident.
+    openKillModal(character) {
+      this.killHold = { character, state: "idle" };
+      buzz(14);
+    },
+
+    closeKillModal() {
+      if (!this.killHold) return;
+      cancelAnimationFrame(this._killRaf);
+      this._killRaf = null;
+      this.killHold = null;
+    },
+
+    onKillDown(event) {
+      const hold = this.killHold;
+      if (!event.isPrimary || !hold || hold.state === "deleting") return;
+      try { event.currentTarget.setPointerCapture(event.pointerId); } catch (_) { /* mouse */ }
+      hold.state = "holding";
+      buzz(8);
+      const startedAt = performance.now();
+      cancelAnimationFrame(this._killRaf);
+      // The fill is written straight to the element every frame, the same as
+      // the message wheel's magnetise() — seven seconds of Alpine re-render on
+      // every frame is exactly the kind of work that costs frames on a phone,
+      // and nothing here needs to be reactive except the three state names.
+      const tick = (now) => {
+        if (!this.killHold || this.killHold.state !== "holding") return;
+        const progress = Math.min(1, (now - startedAt) / KILL_HOLD_MS);
+        if (this.$refs.killFill) this.$refs.killFill.style.transform = `scaleX(${progress})`;
+        if (progress >= 1) { this.finishKill(); return; }
+        this._killRaf = requestAnimationFrame(tick);
+      };
+      this._killRaf = requestAnimationFrame(tick);
+    },
+
+    onKillUp() { this.releaseKillHold(); },
+    onKillCancel() { this.releaseKillHold(); },
+
+    // Letting go before seven seconds resets the fill rather than closing the
+    // modal — the modal itself stays up so a second attempt is another hold,
+    // not two more taps on the row behind it.
+    releaseKillHold() {
+      const hold = this.killHold;
+      if (!hold || hold.state !== "holding") return;
+      cancelAnimationFrame(this._killRaf);
+      this._killRaf = null;
+      hold.state = "idle";
+      if (this.$refs.killFill) this.$refs.killFill.style.transform = "scaleX(0)";
+    },
+
+    async finishKill() {
+      const hold = this.killHold;
+      if (!hold) return;
+      cancelAnimationFrame(this._killRaf);
+      this._killRaf = null;
+      hold.state = "deleting";
+      buzz(25);
+      const character = hold.character;
       try {
         await api.del(`/api/characters/${character.id}`);
         this.characters = await api.get("/api/characters");
@@ -2443,8 +2517,13 @@ function tavern() {
       } catch (e) {
         this.error = errorText(e);
       }
+      this.killHold = null;
     },
 
+    // Two taps rather than a confirm dialog: a modal over a sheet on a phone
+    // is its own problem, and the second tap is the same finger in the same
+    // place. One chat, not every chat with a character — deleteCharacter is
+    // the exception that gets a third gate, not this one.
     async deleteChat(chat) {
       if (this.confirmChat !== chat.id) {
         this.arm("confirmChat", chat.id);
