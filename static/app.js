@@ -500,6 +500,13 @@ function tavern() {
       nat: { w: 0, h: 0 },
       box: { x: 0, y: 0, w: 0, h: 0 },
       drag: null,
+      // The frame is positioned from the *measured* image, and Alpine only
+      // recomputes a binding when something reactive changes — so a layout
+      // change with no state change left it where it was. Rotating the phone
+      // put it 127px off the picture it was supposed to be framing. The
+      // observer below bumps this, and the style reads it.
+      tick: 0,
+      watcher: null,
     },
     pfpFull: { src: "", shape: "portrait" },
     pfpFullLeaving: false,
@@ -1504,6 +1511,11 @@ function tavern() {
       const img = event.target;
       this.crop.nat = { w: img.naturalWidth || 1, h: img.naturalHeight || 1 };
       this.crop.box = this.cropFit(this.crop.shape);
+      this.crop.watcher?.disconnect();
+      if (typeof ResizeObserver === "function") {
+        this.crop.watcher = new ResizeObserver(() => { this.crop.tick += 1; });
+        this.crop.watcher.observe(img);
+      }
     },
 
     setCropShape(shape) {
@@ -1522,6 +1534,7 @@ function tavern() {
     },
 
     cropBoxStyle() {
+      void this.crop.tick;   // recompute when the picture is re-laid-out
       const img = this.$refs.cropImage;
       const stage = this.$refs.cropStage;
       if (!img || !stage || !this.crop.nat.w) return "display: none";
@@ -1583,7 +1596,10 @@ function tavern() {
 
     cancelCrop() {
       if (this.crop.src) URL.revokeObjectURL(this.crop.src);
-      this.crop = { ...this.crop, open: false, src: "", file: null, drag: null };
+      this.crop.watcher?.disconnect();
+      this.crop = {
+        ...this.crop, open: false, src: "", file: null, drag: null, watcher: null,
+      };
     },
 
     // Drawn to a canvas at the size it will be shown at rather than uploaded

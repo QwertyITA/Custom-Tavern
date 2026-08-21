@@ -709,7 +709,11 @@ body {
   flex-direction: column;
   gap: 10px;
   padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
-  background: var(--surface);
+  /* --panel, not --surface: this is the one sheet that must not be glass.
+     Choosing a crop is precise work over a picture, and the editor's own
+     fields showing through it land on top of the thing being looked at. Same
+     reason text and icons stay opaque everywhere else. */
+  background: var(--panel);
   border-top-left-radius: 18px;
   border-top-right-radius: 18px;
   border-top: 1px solid var(--line);
