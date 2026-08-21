@@ -282,6 +282,22 @@ const STATUS_TEXT = {
   504: "The model backend took too long to answer.",
 };
 
+// What went wrong, in a sentence rather than in the browser's words.
+//
+// `apiError` covers a request the server *answered* badly. This covers the one
+// it never answered at all, which on a phone is the commonest failure there
+// is: Android reaps the server, or Termux is swiped away, and every fetch
+// rejects with a bare TypeError whose message is "Failed to fetch" — six words
+// that name nothing and suggest nothing. Everywhere else this app says what
+// happened and what to do about it; this was the one place it did not.
+function errorText(e) {
+  if (e && (e.name === "TypeError" || e.name === "NetworkError")) {
+    return "The tavern's server is not answering. It runs on this phone — "
+      + "check Termux is still open, then try again.";
+  }
+  return String((e && e.message) || e);
+}
+
 async function apiError(response) {
   const body = await response.json().catch(() => ({}));
   const said = body.detail || body.error;
@@ -550,7 +566,7 @@ function tavern() {
         else if (this.chats.length) await this.openChat(this.chats[0].id);
         else await this.newChat();
       } catch (e) {
-        this.error = String(e.message || e);
+        this.error = errorText(e);
       }
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register("/sw.js").catch(() => {});
@@ -877,7 +893,7 @@ function tavern() {
           this.historyFor = "";
         }
       } catch (e) {
-        this.error = String(e.message || e);
+        this.error = errorText(e);
       }
     },
 
@@ -914,7 +930,7 @@ function tavern() {
         await api.post(`/api/chats/${this.chatId}/passes/scene/run`, {});
       } catch (e) {
         this.refreshing.scene = false;
-        this.error = String(e.message || e);
+        this.error = errorText(e);
       }
     },
 
@@ -1000,7 +1016,7 @@ function tavern() {
           ? `Stops at: ${body.stop.map((s) => this.showEscapes(s)).join("  ")}`
           : "No stop sequences from this template.";
       } catch (e) {
-        this.previewText = String(e.message || e);
+        this.previewText = errorText(e);
         this.previewStop = "";
       }
     },
@@ -1016,7 +1032,7 @@ function tavern() {
         if (body.ok) this.thought = body;
         else this.thoughtError = body.reason || "Nothing was kept for this one.";
       } catch (e) {
-        this.thoughtError = String(e.message || e);
+        this.thoughtError = errorText(e);
       }
     },
 
@@ -1032,7 +1048,7 @@ function tavern() {
         if (body.ok) this.sent = body;
         else this.sentError = body.reason || "No record of this one.";
       } catch (e) {
-        this.sentError = String(e.message || e);
+        this.sentError = errorText(e);
       }
     },
 
@@ -1163,7 +1179,7 @@ function tavern() {
       } catch (e) {
         this.ruleTests = {
           ...this.ruleTests,
-          [rule.id]: { ok: false, error: String(e.message || e) },
+          [rule.id]: { ok: false, error: errorText(e) },
         };
       }
     },
@@ -1320,7 +1336,7 @@ function tavern() {
         this.note = body.note;
         this.noteFromChat = body.from_chat;
       } catch (e) {
-        this.error = String(e.message || e);
+        this.error = errorText(e);
       }
     },
 
@@ -1337,7 +1353,7 @@ function tavern() {
         clearTimeout(this._noteTimer);
         this._noteTimer = setTimeout(() => { this.noteMsg = ""; }, HINT_MS);
       } catch (e) {
-        this.error = String(e.message || e);
+        this.error = errorText(e);
       }
     },
 
@@ -1347,7 +1363,7 @@ function tavern() {
       try {
         this.personas = (await api.get("/api/personas")).personas;
       } catch (e) {
-        this.error = String(e.message || e);
+        this.error = errorText(e);
       }
     },
 
@@ -1361,7 +1377,7 @@ function tavern() {
         this.persona = result.persona;
         this.flashHint(`Playing as ${persona.name}`);
       } catch (e) {
-        this.error = String(e.message || e);
+        this.error = errorText(e);
       }
     },
 
@@ -1371,7 +1387,7 @@ function tavern() {
         await this.loadPersonas();
         this.flashHint(`New chats will use ${persona.name}`);
       } catch (e) {
-        this.error = String(e.message || e);
+        this.error = errorText(e);
       }
     },
 
@@ -1415,7 +1431,7 @@ function tavern() {
         if (this.chatId) await this.refreshPersona();
         this.personaMsg = "Saved";
       } catch (e) {
-        this.personaError = String(e.message || e);
+        this.personaError = errorText(e);
       } finally {
         this.savingPersona = false;
       }
@@ -1434,7 +1450,7 @@ function tavern() {
         await this.loadPersonas();
         if (this.chatId) await this.refreshPersona();
       } catch (e) {
-        this.error = String(e.message || e);
+        this.error = errorText(e);
       }
     },
 
@@ -1460,7 +1476,7 @@ function tavern() {
         if (!response.ok) throw await apiError(response);
         this.draftPersona.avatar = (await response.json()).name;
       } catch (e) {
-        this.personaError = String(e.message || e);
+        this.personaError = errorText(e);
       } finally {
         this.uploadingAvatar = false;
         event.target.value = "";
@@ -1637,7 +1653,7 @@ function tavern() {
         this.draftCharacter.pfp_shape = this.crop.shape;
         this.cancelCrop();
       } catch (e) {
-        this.charError = String(e.message || e);
+        this.charError = errorText(e);
       } finally {
         this.uploadingPfp = false;
         this.crop.busy = false;
@@ -1719,7 +1735,7 @@ function tavern() {
           this.nextSpeaker = "";
         }
       } catch (e) {
-        this.error = String(e.message || e);
+        this.error = errorText(e);
       }
     },
 
@@ -1746,7 +1762,7 @@ function tavern() {
         const added = this.cast.find((m) => m.character_id === characterId);
         this.flashHint(added ? `${added.name} joined` : "Joined");
       } catch (e) {
-        this.flashHint(String(e.message || e));
+        this.flashHint(errorText(e));
       }
     },
 
@@ -1758,7 +1774,7 @@ function tavern() {
       } catch (e) {
         // The server refuses to empty a chat, and its reason is the useful
         // one to show — "someone has to be here, mute them instead".
-        this.flashHint(String(e.message || e));
+        this.flashHint(errorText(e));
       }
     },
 
@@ -1783,7 +1799,7 @@ function tavern() {
       try {
         await api.patch(`/api/chats/${this.chatId}/members/${member.character_id}`, body);
       } catch (e) {
-        this.error = String(e.message || e);
+        this.error = errorText(e);
       }
     },
 
@@ -1794,7 +1810,7 @@ function tavern() {
         await api.put(`/api/chats/${this.chatId}/policy`, { policy });
       } catch (e) {
         this.policy = previous;
-        this.flashHint(String(e.message || e));
+        this.flashHint(errorText(e));
       }
     },
 
@@ -1822,7 +1838,7 @@ function tavern() {
           found.trigger = { ...found.trigger, type: "chance", probability: value };
           await api.put(`/api/passes/${found.id}`, found);
         } catch (e) {
-          this.error = String(e.message || e);
+          this.error = errorText(e);
         }
       }, PREVIEW_DEBOUNCE_MS);
     },
@@ -1864,7 +1880,7 @@ function tavern() {
         this.staged.splice(this.staged.indexOf(pending), 1, stored);
       } catch (e) {
         this.staged.splice(this.staged.indexOf(pending), 1);
-        this.flashHint(String(e.message || e));
+        this.flashHint(errorText(e));
       }
     },
 
@@ -1924,7 +1940,7 @@ function tavern() {
           }
         }
       } catch (e) {
-        this.error = String(e.message || e);
+        this.error = errorText(e);
       } finally {
         this.streaming = false;
         this.impersonating = false;
@@ -1945,7 +1961,7 @@ function tavern() {
       try {
         this.backdrops = (await api.get("/api/backgrounds")).backgrounds;
       } catch (e) {
-        this.bgMsg = String(e.message || e);
+        this.bgMsg = errorText(e);
       }
     },
 
@@ -1969,7 +1985,7 @@ function tavern() {
         this.setBackground(added.name);
         this.bgMsg = `Added ${added.name}`;
       } catch (e) {
-        this.bgMsg = String(e.message || e);
+        this.bgMsg = errorText(e);
       } finally {
         this.uploadingBg = false;
         event.target.value = "";   // so the same file can be picked again
@@ -1993,7 +2009,7 @@ function tavern() {
         this.setBackground(result.background);
         this.bgMsg = `Removed ${backdrop.name}`;
       } catch (e) {
-        this.bgMsg = String(e.message || e);
+        this.bgMsg = errorText(e);
       }
     },
 
@@ -2111,7 +2127,7 @@ function tavern() {
         this.characters = await api.get("/api/characters");
         this.importMsg = `Imported ${added.name}`;
       } catch (e) {
-        this.importError = String(e.message || e);
+        this.importError = errorText(e);
       } finally {
         this.importing = false;
         event.target.value = "";
@@ -2126,7 +2142,7 @@ function tavern() {
       try {
         await api.post(`/api/characters/${character.id}/favourite`, { favourite: wanted });
       } catch (e) {
-        this.error = String(e.message || e);
+        this.error = errorText(e);
         return;
       }
       character.favourite = wanted;
@@ -2181,7 +2197,7 @@ function tavern() {
         this.historyFor = body.chat.character_id;
         this.importMsg = `Imported "${body.chat.title || "untitled"}"`;
       } catch (e) {
-        this.importError = String(e.message || e);
+        this.importError = errorText(e);
       } finally {
         this.importingChat = false;
         event.target.value = "";
@@ -2210,7 +2226,7 @@ function tavern() {
         await api.patch(`/api/chats/${chat.id}`, { title: wanted });
         this.flashHint(wanted ? `Renamed to "${wanted}"` : "Name cleared");
       } catch (e) {
-        this.error = String(e.message || e);
+        this.error = errorText(e);
       }
     },
 
@@ -2236,7 +2252,7 @@ function tavern() {
         // list showing results for a prefix of what was typed.
         if (this.chatQuery.trim() === query) this.chatHits = hits;
       } catch (e) {
-        this.error = String(e.message || e);
+        this.error = errorText(e);
       } finally {
         if (this.chatQuery.trim() === query) this.searching = false;
       }
@@ -2248,7 +2264,7 @@ function tavern() {
         this.characters = await api.get("/api/characters");
         await this.editCharacter(created.id);
       } catch (e) {
-        this.error = String(e.message || e);
+        this.error = errorText(e);
       }
     },
 
@@ -2266,7 +2282,7 @@ function tavern() {
         // path creating a character and then appearing to do nothing.
         this.panelOpen = true;
       } catch (e) {
-        this.error = String(e.message || e);
+        this.error = errorText(e);
       }
     },
 
@@ -2296,7 +2312,7 @@ function tavern() {
         if (this.character && this.character.id === saved.id) this.character = saved;
         this.charMsg = "saved";
       } catch (e) {
-        this.charError = String(e.message || e);
+        this.charError = errorText(e);
       } finally {
         this.savingCharacter = false;
       }
@@ -2325,7 +2341,7 @@ function tavern() {
         // so the app has to land somewhere real rather than on a dead id.
         if (character.id === this.characterId) await this.fallbackChat();
       } catch (e) {
-        this.error = String(e.message || e);
+        this.error = errorText(e);
       }
     },
 
@@ -2341,7 +2357,7 @@ function tavern() {
         this.characters = await api.get("/api/characters");
         if (chat.id === this.chatId) await this.fallbackChat();
       } catch (e) {
-        this.error = String(e.message || e);
+        this.error = errorText(e);
       }
     },
 
@@ -2770,9 +2786,17 @@ function tavern() {
       if (this.$refs.input) this.$refs.input.style.height = "auto";
       const speaker = this.nextSpeaker;
       this.nextSpeaker = "";
-      await this.runStream(`/api/chats/${this.chatId}/send`, {
+      const sent = await this.runStream(`/api/chats/${this.chatId}/send`, {
         text, attachments: files, speaker_id: speaker,
       });
+      // It never reached the server, so there is no stored message to retry
+      // and nothing on screen — the words would simply have been gone. Put
+      // them back where they were typed. A request that *did* land leaves the
+      // message in the transcript and the retry affordance answers it.
+      if (!sent) {
+        this.draft = text;
+        this.nextSpeaker = speaker;
+      }
     },
 
     // Answer a message whose reply never came. Deliberately not "send it
@@ -2941,7 +2965,10 @@ function tavern() {
       if (this.streamAbort) this.streamAbort.abort();
     },
 
+    // Returns whether the turn actually started — a caller that never reached
+    // the server has a message on its hands that nothing else will account for.
     async runStream(url, body, swipeMessageId) {
+      let reached = false;
       this.streaming = true;
       this.streamAbort = new AbortController();
       this.composing = !swipeMessageId;
@@ -2972,6 +2999,9 @@ function tavern() {
         // own "404 Not Found", which is the one path where a bare status code
         // still reached the screen after the rest were given sentences.
         if (!response.ok) throw await apiError(response);
+        // The server answered. Whatever happens now, the message is its
+        // problem: it is stored, and the retry affordance can answer it.
+        reached = true;
 
         for await (const event of sseStream(response)) {
           switch (event.type) {
@@ -3152,7 +3182,7 @@ function tavern() {
           this.flashHint("Stopped");
           await this.reloadMessages();
         } else {
-          this.error = String(e.message || e);
+          this.error = errorText(e);
           this.messages = this.messages.filter((m) => m.id !== "streaming");
         }
         // A failed regeneration must not leave the message blank.
@@ -3177,6 +3207,7 @@ function tavern() {
         this.regenPrevious = "";
         this.loadCost();
       }
+      return reached;
     },
 
     // ---- editing & variants ----
@@ -3262,7 +3293,7 @@ function tavern() {
       try {
         await api.del(`/api/messages/${message.id}`);
       } catch (e) {
-        this.error = String(e.message || e);
+        this.error = errorText(e);
         return;
       }
       if (el) {
@@ -3321,7 +3352,7 @@ function tavern() {
           this.flashHint("Stopped");
           await this.reloadMessages();
         } else {
-          this.error = String(e.message || e);
+          this.error = errorText(e);
           message.text = start;
         }
       } finally {
@@ -3339,7 +3370,7 @@ function tavern() {
         message.hidden = next;
         this.flashHint(next ? "Hidden from the prompt" : "Back in the prompt");
       } catch (e) {
-        this.error = String(e.message || e);
+        this.error = errorText(e);
       }
     },
 
@@ -4117,7 +4148,7 @@ function tavern() {
           }
         }
       } catch (e) {
-        this.modelErrors[backend.name] = String(e.message || e);
+        this.modelErrors[backend.name] = errorText(e);
       } finally {
         this.loadingModels = "";
       }
@@ -4183,7 +4214,7 @@ function tavern() {
         this.applyTheme();
         this.saveMsg = "saved";
       } catch (e) {
-        this.saveError = String(e.message || e);
+        this.saveError = errorText(e);
       } finally {
         this.saving = false;
       }
@@ -4201,7 +4232,7 @@ function tavern() {
         const result = await response.json();
         this.tests = { ...this.tests, [backend.name]: response.ok ? result : { ok: false, error: result.detail } };
       } catch (e) {
-        this.tests = { ...this.tests, [backend.name]: { ok: false, error: String(e.message || e) } };
+        this.tests = { ...this.tests, [backend.name]: { ok: false, error: errorText(e) } };
       } finally {
         this.testing = "";
       }
@@ -4301,7 +4332,7 @@ function tavern() {
         await api.put(`/api/passes/${pass.id}`, pass);
       } catch (e) {
         pass.enabled = !pass.enabled;
-        this.error = String(e.message || e);
+        this.error = errorText(e);
       }
     },
 
