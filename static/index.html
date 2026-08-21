@@ -393,12 +393,13 @@
             <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
           </span>
           <template x-if="portraitFor(m)">
-            <img class="pfp pfp-over" :src="portraitFor(m)" alt="" @error="$el.remove()">
+            <img class="pfp pfp-over" :src="portraitFor(m)" alt=""
+                 :style="portraitEffect(m)" @error="$el.remove()">
           </template>
           <!-- Only once it is big: at 34px a button over the face would be
                most of the face. -->
           <button class="pfp-full" x-show="bigPfp === m.id && portraitFor(m)" x-cloak
-                  @click.stop="openPfpFull(portraitFor(m), portraitShape(m))"
+                  @click.stop="openPfpFull(portraitFor(m), portraitShape(m), portraitEffect(m))"
                   aria-label="Fill the screen with this picture">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-expand"/></svg>
           </button>
@@ -541,7 +542,8 @@
         <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
       </span>
       <template x-if="portrait">
-        <img class="pfp pfp-over" :src="portrait" alt="" @error="$el.remove()">
+        <img class="pfp pfp-over" :src="portrait" alt=""
+             :style="pfpEffectStyle(character && character.pfp_effect)" @error="$el.remove()">
       </template>
     </span>
     <!-- Three cues in one box, cross-fading. Which one is showing says what
@@ -1945,56 +1947,6 @@
           </div>
         </div>
 
-        <!-- Who you are comes first: it is the shorter list, it changes less
-             often, and every character below is talked to as this person. -->
-        <h3>You</h3>
-        <p class="note" x-show="!personas.length">
-          Nobody set up yet, so the character calls you "You". Add a persona and
-          <code>{{user}}</code> becomes your name.
-        </p>
-        <template x-for="pn in personas" :key="pn.id">
-          <div class="persona" :class="{ current: (persona || {}).id === pn.id }"
-               @click="usePersona(pn)">
-            <span class="char-pfp">
-              <svg class="char-pfp-generic" viewBox="0 0 24 24" aria-hidden="true">
-                <use href="#i-person"/>
-              </svg>
-              <!-- x-if, not x-show: `display: none` hides an image from the
-                   eye and not from the network, so a persona with no avatar
-                   was fetching `/avatars/` — the directory — and 404-ing on
-                   every render. Same in the two places below. -->
-              <template x-if="pn.avatar">
-                <img :src="`/avatars/${pn.avatar}`" alt=""
-                     @error="$el.style.display = 'none'">
-              </template>
-            </span>
-            <div class="char-id">
-              <span class="char-name" x-text="pn.name"></span>
-              <span class="char-meta" x-text="pn.description || 'No description'"></span>
-            </div>
-            <button class="glyph-btn" :class="{ on: pn.is_default }"
-                    @click.stop="makeDefaultPersona(pn)"
-                    :title="pn.is_default ? 'Used by new chats' : 'Use for new chats'"
-                    aria-label="Default persona">
-              <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-star"/></svg>
-            </button>
-            <button class="glyph-btn" @click.stop="editPersona(pn)"
-                    title="Edit persona" aria-label="Edit persona">
-              <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-edit"/></svg>
-            </button>
-            <button class="glyph-btn danger" :class="{ armed: confirmPersona === pn.id }"
-                    @click.stop="deletePersona(pn)"
-                    :title="confirmPersona === pn.id ? 'Tap again to delete' : 'Delete persona'"
-                    aria-label="Delete persona">
-              <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-close"/></svg>
-            </button>
-          </div>
-        </template>
-        <button class="wide" @click="newPersona()">
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plus"/></svg>
-          <span>New persona</span>
-        </button>
-
         <h3>Characters</h3>
         <p class="note">
           One row per character. Deleting a character deletes its chats with it —
@@ -2002,29 +1954,34 @@
         </p>
 
         <template x-for="c in characters" :key="c.id">
-          <div class="char" :data-cid="c.id" :class="{ current: c.id === characterId }">
+          <div class="char" :data-cid="c.id"
+               :class="{ current: c.id === characterId, favourite: c.favourite }">
             <!-- Opens the chat this character was last in, so tapping the row
                  does the thing "tap a chat app's contact" always does. The six
                  tools alongside it stop the click from reaching here, the same
-                 way a persona row's own buttons already do above. -->
+                 way a persona row's own buttons do below. -->
             <div class="char-head" @click="openLastChat(c)">
               <!-- Every row gets a portrait slot, filled or not: a card can
                    name an image that was never copied in, and a character
                    written here has none at all. The fallback sits underneath
                    and the photo covers it when there is one, so a broken image
-                   reveals the placeholder instead of leaving a hole. -->
-              <span class="char-pfp">
-                <svg class="char-pfp-generic" viewBox="0 0 24 24" aria-hidden="true">
-                  <use href="#i-person"/>
-                </svg>
+                   reveals the placeholder instead of leaving a hole.
+                   The same .pfp-slot the conversation itself draws with, not
+                   the fixed round .char-pfp personas and cast members still
+                   use — a roster of standing figures framed as circles was
+                   the one place pfp_shape was chosen and then ignored. -->
+              <span class="pfp-slot" :class="'shape-' + (c.pfp_shape || 'portrait')">
+                <span class="pfp pfp-blank" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
+                </span>
                 <!-- Through pfpUrl like everywhere else. Hardcoding the
                      bundled path put an uploaded portrait, which is already a
                      URL, at /static/characters//avatars/… — so the roster was
                      blank for every character whose picture had been chosen
                      here or had come in on a card. -->
                 <template x-if="c.pfp">
-                  <img :src="pfpUrl(c.pfp)" alt=""
-                       @error="$el.style.display = 'none'">
+                  <img class="pfp pfp-over" :src="pfpUrl(c.pfp)" alt=""
+                       :style="pfpEffectStyle(c.pfp_effect)" @error="$el.remove()">
                 </template>
               </span>
               <div class="char-id">
@@ -2130,6 +2087,57 @@
           <code>.png</code> with the character inside it. Export writes one back
           out that SillyTavern and the rest will read.
         </p>
+
+        <!-- Who you are, below the characters now rather than above them —
+             the roster is what this panel is for; who is doing the talking is
+             the shorter, less-often-changed list underneath it. -->
+        <h3>You</h3>
+        <p class="note" x-show="!personas.length">
+          Nobody set up yet, so the character calls you "You". Add a persona and
+          <code>{{user}}</code> becomes your name.
+        </p>
+        <template x-for="pn in personas" :key="pn.id">
+          <div class="persona" :class="{ current: (persona || {}).id === pn.id }"
+               @click="usePersona(pn)">
+            <span class="char-pfp">
+              <svg class="char-pfp-generic" viewBox="0 0 24 24" aria-hidden="true">
+                <use href="#i-person"/>
+              </svg>
+              <!-- x-if, not x-show: `display: none` hides an image from the
+                   eye and not from the network, so a persona with no avatar
+                   was fetching `/avatars/` — the directory — and 404-ing on
+                   every render. -->
+              <template x-if="pn.avatar">
+                <img :src="`/avatars/${pn.avatar}`" alt=""
+                     @error="$el.style.display = 'none'">
+              </template>
+            </span>
+            <div class="char-id">
+              <span class="char-name" x-text="pn.name"></span>
+              <span class="char-meta" x-text="pn.description || 'No description'"></span>
+            </div>
+            <button class="glyph-btn" :class="{ on: pn.is_default }"
+                    @click.stop="makeDefaultPersona(pn)"
+                    :title="pn.is_default ? 'Used by new chats' : 'Use for new chats'"
+                    aria-label="Default persona">
+              <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-star"/></svg>
+            </button>
+            <button class="glyph-btn" @click.stop="editPersona(pn)"
+                    title="Edit persona" aria-label="Edit persona">
+              <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-edit"/></svg>
+            </button>
+            <button class="glyph-btn danger" :class="{ armed: confirmPersona === pn.id }"
+                    @click.stop="deletePersona(pn)"
+                    :title="confirmPersona === pn.id ? 'Tap again to delete' : 'Delete persona'"
+                    aria-label="Delete persona">
+              <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-close"/></svg>
+            </button>
+          </div>
+        </template>
+        <button class="wide" @click="newPersona()">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plus"/></svg>
+          <span>New persona</span>
+        </button>
       </div>
     </template>
 
@@ -2153,7 +2161,7 @@
             </span>
             <template x-if="draftPortrait()">
               <img class="pfp pfp-large pfp-over" :src="draftPortrait()" alt=""
-                   @error="$el.remove()">
+                   :style="pfpEffectStyle(draftCharacter.pfp_effect)" @error="$el.remove()">
             </template>
           </span>
           <div class="pfp-edit-actions">
@@ -2164,6 +2172,41 @@
             <button class="link danger" x-show="draftPortrait()"
                     @click="clearCharacterPfp()">Remove</button>
             <span class="kind-note">Shown beside every one of their messages.</span>
+          </div>
+        </div>
+
+        <!-- A colour treatment over the picture, same "belongs to the
+             character" reasoning as the shape above (§models.PfpEffect) —
+             drawn on the preview here and everywhere else the picture is. -->
+        <button class="disclose" :class="{ open: pfpEffectOpen }"
+                x-show="draftPortrait()"
+                @click="pfpEffectOpen = !pfpEffectOpen" :aria-expanded="pfpEffectOpen">
+          <svg class="disclose-arrow" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-back"/></svg>
+          <span>Picture effect</span>
+          <span class="p-count" x-show="pfpEffectActive()">on</span>
+        </button>
+        <div class="fold" :class="{ open: pfpEffectOpen }">
+          <div class="fold-clip">
+            <div class="preset-row">
+              <template x-for="p in pfpEffectPresets()" :key="p.id">
+                <button class="preset" :class="{ picked: (draftCharacter.pfp_effect || {}).preset === p.id }"
+                        @click="applyPfpPreset(p)" x-text="p.label"></button>
+              </template>
+            </div>
+            <template x-for="f in pfpEffectFields()" :key="f.key">
+              <div class="num-field">
+                <div class="num-head">
+                  <span class="num-label" x-text="f.label"></span>
+                  <span class="num-unit" x-text="pfpFieldValue(f)"></span>
+                </div>
+                <input class="num-slider" type="range" :min="f.min" :max="f.max" :step="f.step"
+                       :value="(draftCharacter.pfp_effect || {})[f.key] ?? f.default"
+                       @input="tunePfpEffect(f.key, $event.target.value)"
+                       :aria-label="f.label">
+              </div>
+            </template>
+            <button class="link" @click="applyPfpPreset(pfpEffectPresets()[0])"
+                    x-show="pfpEffectActive()">Back to none</button>
           </div>
         </div>
 
@@ -2200,6 +2243,32 @@
           <span class="row-label wide-label">Final instruction</span>
           <textarea x-model="draftCharacter.post_history_instructions" rows="3"
                     placeholder="Read after the conversation, so it wins over anything the scene has drifted into."></textarea>
+        </label>
+
+        <!-- Three lines the story never asks for but the app needs — written
+             once by whichever backend runs Messages (§ character_reactions.py)
+             the first time this card is imported or talked to, and left alone
+             from then on. Editable here like everything else; an edit counts
+             as "already has one" the same as a generated line does. -->
+        <h3>Reactions</h3>
+        <p class="note" x-show="draftCharacter.id && missingReactions().length">
+          Still filling in: <span x-text="missingReactions().join(', ')"></span> —
+          it finishes the first time this character is talked to.
+        </p>
+        <label class="col-field" x-show="draftCharacter.reactions">
+          <span class="row-label wide-label">Starred</span>
+          <textarea x-model="draftCharacter.reactions.starred" rows="2"
+                    placeholder="How they'd take being marked a favourite. 5–8 words."></textarea>
+        </label>
+        <label class="col-field" x-show="draftCharacter.reactions">
+          <span class="row-label wide-label">Unstarred</span>
+          <textarea x-model="draftCharacter.reactions.unstarred" rows="2"
+                    placeholder="How they'd take being un-favourited. 5–8 words."></textarea>
+        </label>
+        <label class="col-field" x-show="draftCharacter.reactions">
+          <span class="row-label wide-label">Killed</span>
+          <textarea x-model="draftCharacter.reactions.killed" rows="2"
+                    placeholder="Their very last line, if this character is ever deleted. 5–8 words."></textarea>
         </label>
 
         <div class="sheet-actions">

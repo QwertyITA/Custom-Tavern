@@ -1228,6 +1228,25 @@ body {
   background: var(--panel-2);
 }
 .char.current { border-color: var(--accent); }
+/* Starred is the one purely celebratory thing in this roster — everything
+   else here is information, this is a small reward for choosing a favourite.
+   Comes after .current above so gold wins the border when a character is
+   both open and starred; the row still reads as "open" from its position in
+   the panel and doesn't need the border to say it twice. */
+.char.favourite {
+  border-color: color-mix(in srgb, #e8b923 55%, var(--line));
+  animation: char-glow 2.6s var(--ease-in-out) infinite;
+}
+@keyframes char-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 1px color-mix(in srgb, #e8b923 25%, transparent),
+                0 0 10px 1px color-mix(in srgb, #e8b923 20%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 1px color-mix(in srgb, #f6d365 55%, transparent),
+                0 0 18px 4px color-mix(in srgb, #f6d365 45%, transparent);
+  }
+}
 /* Wraps rather than crushes. `.char-id` used to carry `min-width: 0` so its
    name could ellipsis, which also let flex collapse it to nothing — and once
    the action buttons grew to a 40px touch target, that is exactly what

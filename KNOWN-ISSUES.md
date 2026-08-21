@@ -4,7 +4,7 @@ Everything here was found during two audit passes over the running app, not
 read off the source and guessed at. Where a number appears, it was measured;
 where a behaviour is claimed, it was reproduced against a live server — most
 recently on 2026-08-21, re-verified against the code as it stands after the
-streaming and portrait-deletion fixes, not against an earlier snapshot.
+character-roster and portrait-effects work, not against an earlier snapshot.
 
 This file exists so a real defect does not have to be rediscovered before it
 can be weighed against everything else waiting for attention, and so a
@@ -24,8 +24,13 @@ correctness bug in the first attempt at fixing it (§markup.js, DESIGN.md §8);
 a character's portrait was never deleted with the character (§repo.py,
 app/main.py, DESIGN.md §11); a regex rule guard that let the textbook
 catastrophic-backtracking pattern straight through (`(a+)+$`); the app saying
-"Failed to fetch" and losing a typed message when the server was unreachable.
-None of those are repeated below.
+"Failed to fetch" and losing a typed message when the server was unreachable;
+the character roster's fixed round avatars regardless of `pfp_shape` (§below,
+now the same `.pfp-slot` the conversation itself draws with); the armed
+delete glyph reading almost the same colour as its own background under
+glass, a CSS specificity bug (`:root.glass .glyph-btn.danger` beating
+`.glyph-btn.armed` on nothing but selector count). None of those are
+repeated below.
 
 ---
 
@@ -149,15 +154,6 @@ conversation (Kutra → Kuta, Kstra, Kruta …) under a q4 model. This is the
 backend, not the app — nothing server-side rewrites names — and keeping the
 scenario in the prompt (this session's context-window fix) should reduce how
 often it happens without being able to prevent it outright.
-
-### The character roster keeps fixed round avatars regardless of `pfp_shape`
-
-`.char-pfp` in `static/styles.css` is a fixed 38×38 circle with no binding to
-a character's chosen shape at all — confirmed by re-reading the rule after
-the shape feature shipped. Deliberate: a list of faces reads better uniform,
-and the roster is a different surface from the conversation, where the shape
-is drawn correctly. Flagged for whoever might want the roster to follow suit
-instead.
 
 ### The pre-pass ("would the character say yes") is not built
 

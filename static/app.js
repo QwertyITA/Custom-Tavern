@@ -141,6 +141,23 @@ function pfpUrl(file) {
   return name.startsWith("/") ? name : `/static/characters/${name}`;
 }
 
+// The CSS filter a character's chosen picture effect draws as, wherever the
+// picture is (§models.PfpEffect) — the roster, the chat, the enlarged view,
+// same as pfpUrl above and portraitShape below cover the file and the frame.
+// Empty for an untouched character rather than six no-op filter functions,
+// so most `<img>` tags in a chat carry no filter attribute at all.
+function pfpEffectStyle(effect) {
+  const e = effect || {};
+  const parts = [];
+  if (e.hue) parts.push(`hue-rotate(${e.hue}deg)`);
+  if (e.saturate !== undefined && e.saturate !== 1) parts.push(`saturate(${e.saturate})`);
+  if (e.brightness !== undefined && e.brightness !== 1) parts.push(`brightness(${e.brightness})`);
+  if (e.contrast !== undefined && e.contrast !== 1) parts.push(`contrast(${e.contrast})`);
+  if (e.sepia) parts.push(`sepia(${e.sepia})`);
+  if (e.grayscale) parts.push(`grayscale(${e.grayscale})`);
+  return parts.length ? `filter: ${parts.join(" ")}` : "";
+}
+
 // How much slower the text is shown than the model produced it. A local model
 // on a good card arrives faster than anyone reads, and a reply that lands in a
 // lump is one you scroll back through rather than watch.
@@ -497,6 +514,8 @@ function tavern() {
     personaError: "",
     uploadingAvatar: false,
     uploadingPfp: false,
+    // Right at its default until it is not, same as the Advanced fold below.
+    pfpEffectOpen: false,
     confirmPersona: "",
     savingCharacter: false,
     charMsg: "",
@@ -772,6 +791,16 @@ function tavern() {
       return (this.character && this.character.pfp_shape) || "portrait";
     },
 
+    // Same resolution as portraitShape, for the colour treatment instead of
+    // the frame — it belongs to whoever is speaking, not to the chat.
+    portraitEffect(message) {
+      if (message && message.speaker_id && this.cast.length > 1) {
+        const who = this.cast.find((m) => m.character_id === message.speaker_id);
+        if (who && who.pfp_effect) return pfpEffectStyle(who.pfp_effect);
+      }
+      return pfpEffectStyle(this.character && this.character.pfp_effect);
+    },
+
     // Tap to look at it, tap again to put it back. The bubble beside it gives
     // up the width, which is the point: at 34px a portrait is punctuation, and
     // this is for when you actually want to see who you are talking to.
@@ -781,10 +810,10 @@ function tavern() {
       buzz(4);
     },
 
-    openPfpFull(src, shape) {
+    openPfpFull(src, shape, effect) {
       if (!src) return;
       this.pfpFullLeaving = false;
-      this.pfpFull = { src, shape: shape || "portrait" };
+      this.pfpFull = { src, shape: shape || "portrait", effect: effect || "" };
       buzz(6);
     },
 
@@ -794,7 +823,7 @@ function tavern() {
       if (!this.pfpFull.src || this.pfpFullLeaving) return;
       this.pfpFullLeaving = true;
       setTimeout(() => {
-        this.pfpFull = { src: "", shape: "portrait" };
+        this.pfpFull = { src: "", shape: "portrait", effect: "" };
         this.pfpFullLeaving = false;
       }, PANEL_LEAVE_MS());
     },
@@ -1709,6 +1738,77 @@ function tavern() {
       return pfpUrl(set.neutral || Object.values(set)[0] || "");
     },
 
+    // ---- picture effect (§models.PfpEffect) ----
+
+    // Named starting points, each a full set of values rather than one knob —
+    // picking one is meant to be the fast path, with the sliders below for
+    // anyone who wants to keep going from there.
+    pfpEffectPresets() {
+      return [
+        // Its own id, not "" — "" is what a freehand-tuned slider clears
+        // `preset` to (see tunePfpEffect), and reusing it here would make
+        // the "None" swatch light up for values that are anything but.
+        { id: "none", label: "None", values: { hue: 0, saturate: 1, brightness: 1, contrast: 1, sepia: 0, grayscale: 0 } },
+        { id: "warm", label: "Warm", values: { hue: 15, saturate: 1.15, brightness: 1.03, contrast: 1, sepia: 0.15, grayscale: 0 } },
+        { id: "cool", label: "Cool", values: { hue: 200, saturate: 1.1, brightness: 1, contrast: 1.05, sepia: 0, grayscale: 0 } },
+        { id: "vivid", label: "Vivid", values: { hue: 0, saturate: 1.6, brightness: 1.02, contrast: 1.1, sepia: 0, grayscale: 0 } },
+        { id: "sepia", label: "Sepia", values: { hue: 0, saturate: 1, brightness: 1, contrast: 1, sepia: 0.65, grayscale: 0 } },
+        { id: "noir", label: "Noir", values: { hue: 0, saturate: 1, brightness: 0.98, contrast: 1.15, sepia: 0, grayscale: 1 } },
+        { id: "dream", label: "Dream", values: { hue: 280, saturate: 0.85, brightness: 1.08, contrast: 0.92, sepia: 0.1, grayscale: 0 } },
+      ];
+    },
+
+    // The manual sliders, in the order they render. One list rather than six
+    // near-identical num-field blocks in the template.
+    pfpEffectFields() {
+      return [
+        { key: "hue", label: "Hue", min: -180, max: 180, step: 1, default: 0 },
+        { key: "saturate", label: "Saturation", min: 0, max: 3, step: 0.05, default: 1 },
+        { key: "brightness", label: "Brightness", min: 0.5, max: 1.5, step: 0.02, default: 1 },
+        { key: "contrast", label: "Contrast", min: 0.5, max: 1.5, step: 0.02, default: 1 },
+        { key: "sepia", label: "Sepia", min: 0, max: 1, step: 0.02, default: 0 },
+        { key: "grayscale", label: "Grayscale", min: 0, max: 1, step: 0.02, default: 0 },
+      ];
+    },
+
+    applyPfpPreset(preset) {
+      this.draftCharacter.pfp_effect = { preset: preset.id, ...preset.values };
+    },
+
+    // A slider moved by hand no longer matches whichever preset it started
+    // from — clearing `preset` is what makes the swatch row correctly show
+    // nothing picked once someone has gone off and tuned it themselves.
+    tunePfpEffect(key, value) {
+      this.draftCharacter.pfp_effect = {
+        ...(this.draftCharacter.pfp_effect || {}),
+        [key]: +value,
+        preset: "",
+      };
+    },
+
+    // toFixed rather than the raw bound value: a range input's own step math
+    // can hand back 1.1500000000000001 for a perfectly ordinary 0.05 step,
+    // same reasoning as m.talkativeness.toFixed(1) elsewhere in this file.
+    pfpFieldValue(field) {
+      const raw = (this.draftCharacter.pfp_effect || {})[field.key] ?? field.default;
+      return field.key === "hue" ? `${Math.round(raw)}°` : Number(raw).toFixed(2);
+    },
+
+    pfpEffectActive() {
+      const e = this.draftCharacter.pfp_effect || {};
+      return !!(
+        e.hue || (e.saturate ?? 1) !== 1 || (e.brightness ?? 1) !== 1 ||
+        (e.contrast ?? 1) !== 1 || e.sepia || e.grayscale
+      );
+    },
+
+    // ---- reactions (§models.CharacterReactions) ----
+
+    missingReactions() {
+      const r = this.draftCharacter.reactions || {};
+      return ["starred", "unstarred", "killed"].filter((k) => !(r[k] || "").trim());
+    },
+
     // ---- composer actions ----
 
     composerActions() {
@@ -2383,6 +2483,7 @@ function tavern() {
         this.draftCharacter = await api.get(`/api/characters/${characterId}`);
         this.altGreetings = (this.draftCharacter.alternate_greetings || []).join("\n\n");
         this.stopStrings = (this.draftCharacter.stop_strings || []).join("\n");
+        this.pfpEffectOpen = false;
         this.panel = "character";
         // Usually reached from the chats panel, where the sheet is already up
         // — but not from the first-run empty state, which is on the chat screen
@@ -2412,6 +2513,8 @@ function tavern() {
           stop_strings: this.stopStrings,
           pfp_set: draft.pfp_set || {},
           pfp_shape: draft.pfp_shape || "portrait",
+          pfp_effect: draft.pfp_effect || {},
+          reactions: draft.reactions || {},
         });
         this.characters = await api.get("/api/characters");
         // The open chat holds its own copy of the card, and the header reads

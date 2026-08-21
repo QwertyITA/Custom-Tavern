@@ -497,13 +497,22 @@ generic ("early afternoon", never "14:56"), per-field refresh animation. Hidden 
 the opening buttons under glass. (2) **chat area** — messages as rectangles, AI pfp on
 its messages, inline markup styled per §8. The portrait is framed to the character's own
 `pfp_shape` — 2:3, the shape a card is drawn in, or square — chosen when the picture is
-uploaded and cropped to there and then. Tapping one enlarges it and takes the width from
-the bubble beside it; enlarged, it offers the whole screen. (3) **edit button** on AI
-messages; **swipe** for variants (§9). (4) composer.
+uploaded and cropped to there and then, and drawn through whatever `pfp_effect` colour
+treatment the character has (§11) — both apply everywhere the picture does: the roster,
+the chat, the enlarged view. Tapping one enlarges it and takes the width from the bubble
+beside it; enlarged, it offers the whole screen. (3) **edit button** on AI messages;
+**swipe** for variants (§9). (4) composer.
 
-**Characters roster:** tapping a row opens the chat that character was last active in
+**Characters roster:** characters listed above personas ("You"), not below — the roster
+is what the panel is for. Tapping a row opens the chat that character was last active in
 (falling back to a new chat if it has none) — the roster is a contact list, not an index
-you have to open a sub-menu from.
+you have to open a sub-menu from. A starred character's whole card carries a soft
+animated gold glow, the roster's one purely celebratory touch. Deleting a character is
+the one destructive action in the app that gets a modal (everywhere else, two taps):
+the second tap on an already-armed delete opens it, and the character is gone only once
+"Delete" has been held for seven full seconds, filling a track underneath it — release
+early and it resets rather than closing, so a second attempt is another hold, not two
+more taps on the row behind it.
 
 **Composer `+` menu:** a tap opens it and a second tap closes it, same as any other
 sheet; a press that keeps going and drags onto an item selects that item on release,
