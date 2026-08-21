@@ -17,7 +17,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .models import AuthorsNote, Character, LorebookEntry, VariableSchema
+from .models import AuthorsNote, Character, CharacterReactions, LorebookEntry, PfpEffect, VariableSchema
 from .postprocess import strip_unrenderable
 from .state import DEFAULT_STATE_SCHEMA
 
@@ -139,6 +139,18 @@ def _authors_note_from(ours: dict[str, Any]) -> AuthorsNote:
         return AuthorsNote()
 
 
+def _model_or_default(cls: type, raw: Any) -> Any:
+    """Ours, and only ours, same as `_authors_note_from` — a card missing the
+    field, or carrying junk in it, gets the model's own defaults rather than
+    failing the whole import over one extension field."""
+    if isinstance(raw, dict):
+        try:
+            return cls.model_validate(raw)
+        except ValueError:
+            pass
+    return cls()
+
+
 def from_card_json(raw: dict[str, Any], *, character_id: str | None = None) -> Character:
     """Map a v1/v2/v3 card (or one of our own exports) onto Character."""
     if not isinstance(raw, dict):
@@ -195,6 +207,8 @@ def from_card_json(raw: dict[str, Any], *, character_id: str | None = None) -> C
         post_history_instructions=prose("post_history_instructions"),
         pfp_set=pfp_set,
         pfp_shape="square" if ours.get("pfp_shape") == "square" else "portrait",
+        pfp_effect=_model_or_default(PfpEffect, ours.get("pfp_effect")),
+        reactions=_model_or_default(CharacterReactions, ours.get("reactions")),
         backgrounds=list(ours.get("backgrounds") or []),
         state_schema=_state_schema_from(extensions if isinstance(extensions, dict) else {}),
         nudges=list(ours.get("nudges") or []),
@@ -270,6 +284,8 @@ def to_card_json(character: Character) -> dict[str, Any]:
                 "nudges": character.nudges,
                 "pfp_set": character.pfp_set,
                 "pfp_shape": character.pfp_shape,
+                "pfp_effect": payload["pfp_effect"],
+                "reactions": payload["reactions"],
                 "backgrounds": character.backgrounds,
                 "default_toggles": character.default_toggles,
                 "colours": character.colours,

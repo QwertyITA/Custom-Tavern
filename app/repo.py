@@ -86,6 +86,10 @@ def list_characters(db: Database) -> list[dict]:
                 # or the roster frames a standing figure as a square while the
                 # conversation beside it does not.
                 "pfp_shape": "square" if card.get("pfp_shape") == "square" else "portrait",
+                # Same idea, for the colour treatment: a filter chosen for one
+                # character is wrong on the next, so the roster has to know it
+                # too rather than drawing every face plain.
+                "pfp_effect": card.get("pfp_effect") if isinstance(card.get("pfp_effect"), dict) else {},
                 "chats": counts.get(row["id"], 0),
                 "favourite": bool(row["favourite"]),
             }

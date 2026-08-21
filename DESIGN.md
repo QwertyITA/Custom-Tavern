@@ -445,8 +445,9 @@ Declarative objects; a new behavior = a new object.
 
 ```
 Character   : id, name, version, pfp_set{emotion→img}, pfp_shape(portrait|square),
-              backgrounds[{img, metadata}], persona, state_schema, lorebook_ref,
-              default_toggles[]
+              pfp_effect(hue, saturate, brightness, contrast, sepia, grayscale),
+              reactions(starred, unstarred, killed), backgrounds[{img, metadata}],
+              persona, state_schema, lorebook_ref, default_toggles[]
 Chat        : id, character_id, version, created_at, settings(colours, toggle overrides)
 Message     : id, chat_id, turn, role, text(raw markup), variants[], active_variant, edited
 StateSlice  : chat_id, turn, slice_name, value(json), source_turn
@@ -469,6 +470,18 @@ with persona pictures through the same upload endpoint). Deleting a character de
 the second kind — but only once nothing else still points at the same file, since the
 directory is shared and a filename surviving the character it was cropped for is not
 proof nothing wants it.
+
+`pfp_effect` is a CSS filter recipe over that same picture — same "belongs to the
+character, not the app" reasoning as `pfp_shape`, and drawn everywhere the shape is
+(the roster, the chat, the enlarged view). `reactions` holds three 5–8 word in-character
+lines (a reaction to being starred, unstarred, and permanently deleted) that the story
+never asks for but the app needs; `app/character_reactions.py` generates whichever of
+the three is empty, using the backend behind the Messages tier, and never overwrites
+one that already has something in it — generated or typed by hand. Generation is
+attempted once at card import and, for whatever is still missing, once more after every
+reply a character sends (queued after the reply, never blocking it) — both fire-and-
+forget, so an unreachable backend at import time is not a failed import, just a retry
+that has not landed yet.
 
 ---
 

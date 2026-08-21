@@ -189,6 +189,36 @@ class AuthorsNote(BaseModel):
         return turn % every == 0
 
 
+class PfpEffect(BaseModel):
+    """A CSS filter recipe over the portrait — belongs to the character, the
+    same reasoning as `pfp_shape` below: a colour treatment chosen for one
+    drawing looks wrong on the next, so it travels with the card rather than
+    living in app settings, and is drawn wherever the picture is (§12)."""
+
+    preset: str = ""
+    hue: float = 0          # deg, hue-rotate
+    saturate: float = 1     # 0 grey .. 3 vivid, 1 is unchanged
+    brightness: float = 1   # 0.5 .. 1.5, 1 is unchanged
+    contrast: float = 1     # 0.5 .. 1.5, 1 is unchanged
+    sepia: float = 0        # 0 .. 1
+    grayscale: float = 0    # 0 .. 1
+
+
+REACTION_KEYS = ("starred", "unstarred", "killed")
+
+
+class CharacterReactions(BaseModel):
+    """Three short in-character lines the story never asks for directly but
+    the app needs: how they'd take being starred, unstarred, or deleted
+    (§ app/character_reactions.py). Generation only ever fills in whichever of
+    these is empty — a line already here, generated or typed by hand, is
+    never overwritten."""
+
+    starred: str = ""
+    unstarred: str = ""
+    killed: str = ""
+
+
 class Character(BaseModel):
     id: str
     name: str
@@ -217,6 +247,11 @@ class Character(BaseModel):
     # a face shot is wasted in a tall one. Cropped to this on the way in, drawn
     # to it everywhere after.
     pfp_shape: Literal["portrait", "square"] = "portrait"
+    # A colour treatment over the portrait — same "belongs to the character"
+    # reasoning as the shape above, and drawn everywhere the shape is.
+    pfp_effect: PfpEffect = Field(default_factory=PfpEffect)
+    # Starred/unstarred/deleted lines the app writes once and keeps (§ above).
+    reactions: CharacterReactions = Field(default_factory=CharacterReactions)
     backgrounds: list[dict[str, Any]] = Field(default_factory=list)  # {img, metadata}
     state_schema: dict[str, VariableSchema] = Field(default_factory=dict)
     # Rule-based keyword/regex nudges, applied before any model pass (§6).

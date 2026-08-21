@@ -17,7 +17,7 @@ from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import assembly, attachments, cards, chat_files, config, groups, macros
+from . import assembly, attachments, cards, chat_files, character_reactions, config, groups, macros
 from . import memory as memory_store
 from . import prompt_layout
 from . import providers, regex_rules, repo, state as state_mod
@@ -27,11 +27,14 @@ from .db import get_db
 from .events import BUS
 from .markup import parse_to_dicts
 from .models import (
+    REACTION_KEYS,
     AuthorsNote,
     Character,
+    CharacterReactions,
     CreateChatRequest,
     EditMessageRequest,
     PassDef,
+    PfpEffect,
     Sampling,
     SendMessageRequest,
     ToggleRequest,
@@ -393,6 +396,24 @@ async def update_character(character_id: str, payload: dict = Body(...)) -> dict
             setattr(character, field, str(payload[field] or ""))
     if payload.get("pfp_shape") in ("portrait", "square"):
         character.pfp_shape = payload["pfp_shape"]
+    if "pfp_effect" in payload:
+        try:
+            character.pfp_effect = PfpEffect.model_validate(payload["pfp_effect"] or {})
+        except ValueError as exc:
+            raise HTTPException(400, f"invalid picture effect: {exc}") from exc
+    if "reactions" in payload:
+        # The one place a generated line CAN be overwritten: generation itself
+        # never touches a field that already has something in it (see
+        # character_reactions.py), but a person editing the field directly is
+        # allowed to change their mind about what is already there.
+        raw = payload["reactions"]
+        if not isinstance(raw, dict):
+            raise HTTPException(400, "reactions must be an object")
+        current = character.reactions.model_dump()
+        for key in REACTION_KEYS:
+            if key in raw:
+                current[key] = str(raw[key] or "").strip()
+        character.reactions = CharacterReactions.model_validate(current)
     if "pfp_set" in payload:
         # Names and URLs only. A value from the editor is a path under
         # /avatars; one from a card is a filename that shipped beside it.
@@ -479,6 +500,14 @@ async def import_character(request: Request, filename: str = Query("card.json"))
         if saved:
             character.pfp_set = {"neutral": saved}
     repo.save_character(get_db(), character)
+    # Best-effort and not awaited: the import response should not wait on a
+    # model call, and a backend that is slow or unreachable right now is not
+    # a reason to fail the import. Whatever does not land here is retried the
+    # next time someone actually sends this character a message (§ run_turn).
+    asyncio.create_task(
+        character_reactions.spawn(get_db(), config.SETTINGS, character),
+        name=f"reactions:{character.id}",
+    )
     return {"id": character.id, "name": character.name}
 
 

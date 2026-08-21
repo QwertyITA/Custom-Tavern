@@ -130,6 +130,14 @@ class EchoProvider(Provider):
             payload = self._signals(request)
             payload["reason"] = "echo audit: deltas within personality bounds"
             return json.dumps(payload)
+        if request.pass_id == "character_reactions":
+            return json.dumps(
+                {
+                    "starred": "Smiles, clearly pleased to be someone's favourite.",
+                    "unstarred": "Shrugs it off, pretending not to mind.",
+                    "killed": "No last words. Fades, quiet as it started.",
+                }
+            )
         return json.dumps(self._signals(request))
 
     def _compose(self, request: GenRequest) -> str:

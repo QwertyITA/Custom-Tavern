@@ -30,6 +30,7 @@ from typing import Any
 
 from .. import assembly
 from .. import attachments
+from .. import character_reactions
 from .. import groups
 from .. import macros, memory as memory_store, regex_rules, repo, state as state_mod
 from .. import translation
@@ -548,6 +549,16 @@ class PassScheduler:
         launched = self._launch_background(ctx)
         if launched:
             yield {"type": "background_queued", "passes": launched}
+        # A character imported while its backend was unreachable, or created
+        # blank, gets another try at its reaction lines here — queued after
+        # the reply has already gone out, same as the background passes
+        # above, and only when something is actually still missing.
+        if character_reactions.missing_keys(ctx.character):
+            task = asyncio.create_task(
+                character_reactions.spawn(self.db, self.settings, ctx.character),
+                name=f"reactions:{ctx.character.id}:{turn}",
+            )
+            self._track(chat_id, task)
         yield {"type": "turn_end", "turn": turn}
 
     async def _run_search(self, ctx: TurnContext, user_text: str) -> AsyncIterator[dict]:

@@ -69,6 +69,9 @@ def members(db: Database, chat_id: str) -> list[dict[str, Any]]:
             # And the shape it is drawn in: two members of one group can be
             # framed differently, and each row has to know which.
             "pfp_shape": _pfp_shape(row["data"]),
+            # Same for a colour treatment — it belongs to the member, not to
+            # the room they are standing in.
+            "pfp_effect": _pfp_effect(row["data"]),
         }
         for row in rows
     ]
@@ -91,6 +94,11 @@ def _neutral_pfp(raw: Any) -> str:
 
 def _pfp_shape(raw: Any) -> str:
     return "square" if _card(raw).get("pfp_shape") == "square" else "portrait"
+
+
+def _pfp_effect(raw: Any) -> dict:
+    effect = _card(raw).get("pfp_effect")
+    return effect if isinstance(effect, dict) else {}
 
 
 def is_group(db: Database, chat_id: str) -> bool:
