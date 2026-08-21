@@ -713,13 +713,19 @@ body {
    The base colour is a plain saturated red; app.js's pfpEffectStyle turns
    that into whichever colour was actually picked with hue-rotate, the same
    way a colourize-an-icon trick would. Undrawn (not just invisible) for a
-   character with nothing chosen — see pfpEffectOn. */
+   character with nothing chosen — see pfpEffectOn.
+   The bleed is kept small deliberately: this same rule draws the ring in
+   the message list, where `.chat`'s own side padding is the tightest room
+   it ever has to fit in (10px — see the note on .chat). inset + spread +
+   blur here adds up to well under that, so the ring is never sliced by the
+   scrollport's edge; a softer, larger glow reads fine elsewhere but gets
+   clipped exactly here, which is the one place it is on screen the most. */
 .pfp-glow {
   position: absolute;
-  inset: -3px;
+  inset: -2px;
   border-radius: 10px;
   box-shadow: 0 0 0 2px hsl(0 90% 55%),
-              0 0 12px 3px hsl(0 90% 55% / .55);
+              0 0 5px 1px hsl(0 90% 55% / .55);
   pointer-events: none;
 }
 /* The picture, over the placeholder that is always underneath it. */
