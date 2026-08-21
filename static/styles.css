@@ -2351,11 +2351,22 @@ body {
   contain-intrinsic-size: auto 96px;
 }
 /* Never the one being animated: skipping work for an element mid-transition is
-   how a bubble ends up jumping instead of moving. */
+   how a bubble ends up jumping instead of moving.
+
+   content-visibility: auto does more than skip an off-screen row's paint —
+   it holds `contain: paint` at all times, on-screen included, which clips a
+   descendant's overflow to the row's own box whether or not that row is
+   actually being skipped. .pfp-glow's ring bleeds a few px past .pfp-slot,
+   which sits flush against .msg's own left edge, so that containment sliced
+   the ring off on exactly that side — the other three sides stayed inside
+   .msg's much larger box (bubble included) and were never touched. A row
+   whose speaker has a colour effect chosen carries pfp-glowing for exactly
+   this reason, not because it is mid-animation. */
 .msg.sending,
 .msg.collapsing,
 .msg.animating,
 .msg.streaming,
+.msg.pfp-glowing,
 .msg:has(.bubble.leaving),
 .msg:has(.bubble.clipping),
 .msg:has(.mk-new) {

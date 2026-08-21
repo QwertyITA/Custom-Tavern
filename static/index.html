@@ -366,7 +366,8 @@
   </div>
 
   <template x-for="m in messages" :key="m.id">
-    <article class="msg" :class="[m.role, sendingId === m.id ? 'sending' : '']">
+    <article class="msg" :class="[m.role, sendingId === m.id ? 'sending' : '',
+                                   pfpEffectOn(portraitEffect(m)) ? 'pfp-glowing' : '']">
       <!-- x-if for the same reason as the rows below, and one worse: an empty
            `src` is not "no image", it is the current page, which the browser
            re-fetches once per bubble. -->
