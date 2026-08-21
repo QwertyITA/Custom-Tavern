@@ -79,6 +79,33 @@ def test_a_catastrophically_backtracking_pattern_is_refused():
     assert "hang" in str(caught.value)
 
 
+@pytest.mark.parametrize("pattern", [r"(a+)+$", r"(x+x+)+y", r"(a|a)+$", r"(a*)*$"])
+def test_the_anchored_shapes_are_refused_too(pattern):
+    """`(a+)+b` was caught and `(a+)+$` was not, which is the whole difficulty:
+    the probes were a run of a's that the anchored pattern *matches* on its
+    first attempt, and mixed strings holding too few a's to blow up on. It
+    needed a run of one character walled off by something that cannot match.
+    Measured before the probe was added: 103ms on twenty characters against a
+    25ms budget, and at the forty thousand a rule is applied under it never
+    returns at all."""
+    with pytest.raises(regex_rules.RuleError) as caught:
+        regex_rules.check(rule(find=pattern))
+    assert "hang" in str(caught.value)
+
+
+def test_the_probes_do_not_refuse_the_rules_people_actually_write():
+    """A guard that rejects ordinary patterns is a guard nobody keeps on."""
+    for pattern in (
+        r'"([^"]+)"',
+        r"\*(.+?)\*",
+        r"^(User|You):\s*",
+        r"\n{3,}",
+        r"(?i)\bthe\s+(cat|dog)\b",
+        r"[A-Z][a-z]+ [A-Z][a-z]+",
+    ):
+        regex_rules.check(rule(find=pattern))
+
+
 def test_an_ordinary_pattern_passes_the_check():
     for pattern in (r"\bcat\b", r"^\s*>.*$", r"(\w+), (\w+)", r"[Tt]he (\w+)"):
         regex_rules.check(rule(find=pattern))

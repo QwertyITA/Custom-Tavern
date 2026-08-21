@@ -71,6 +71,15 @@ PROBES = (
     # letters before failing. Without this one it looks harmless, because every
     # other probe lets it succeed on the first attempt.
     "abcdefghijklmnopqrst!",
+    # The same trap for a pattern written around one character rather than a
+    # class. `(a+)+$` is *the* textbook catastrophic pattern and every probe
+    # above let it through: the plain run matches it on the first attempt, and
+    # the mixed ones hold too few a's to blow up on. Twenty a's and a wall took
+    # 103ms here, against a 25ms budget; at forty thousand — the cap a rule is
+    # actually applied under — it never returns, and `re` cannot be
+    # interrupted, so the one process serving the phone is gone.
+    "a" * 20 + "!",
+    "x" * 20 + "!",
 )
 
 
