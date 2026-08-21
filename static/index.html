@@ -182,7 +182,19 @@
     <button class="who" @click="openCharacters()" :disabled="!character"
             :aria-label="character ? `${character.name} — characters and chats` : 'Characters'"
             x-text="character ? character.name : ''"></button>
+  </div>
 
+  <!-- The world-info pill: place, weather, time and the button that fills
+       them in, in their own row just below the compact header rather than
+       sharing the name's line. Hidden outright while the menu is open rather
+       than left for the opening buttons to cover — a covered-but-still-there
+       pill bled through the gaps between them under glass, which looked
+       broken, and there is nothing to bleed through when it is not rendered
+       at all. It is a plain child of the sticky header, not absolutely
+       positioned, so it moves with it for free and needs no offset math. -->
+  <div class="world-pill" x-show="!menu" x-cloak
+       x-transition:enter="braintab-enter" x-transition:enter-start="braintab-from"
+       x-transition:enter-end="braintab-to">
     <!-- Hidden entirely until a scene exists. Three em-dashes said nothing
          except that the app had not got round to it yet. -->
     <!-- Tapping it opens the line in full underneath. On a 412px screen all
@@ -216,7 +228,8 @@
     <!-- The scene pass only fires when a reply suggests the setting moved.
          That is right nearly always, and wrong exactly when you are looking at
          a stale line and can see that it is stale. Before there is any line at
-         all this is also the way to ask for one. -->
+         all this is also the way to ask for one — so this stays reachable
+         whether or not hasScene is true, unlike the fields beside it. -->
     <button class="icon-btn refresh" :class="{ spinning: refreshing.scene }"
             @click="refreshWorld()" :disabled="refreshing.scene || !chatId"
             :aria-label="hasScene ? 'Refresh world info' : 'Generate world info'"

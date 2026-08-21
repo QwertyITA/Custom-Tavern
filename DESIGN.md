@@ -476,14 +476,17 @@ proof nothing wants it.
 
 Fullscreen PWA, phone layout, custom colours for every element.
 
-**Layout (top → bottom):** (1) pinned **world-info bar** — place · weather · time,
-time generic ("early afternoon", never "14:56"), per-field refresh animation.
-(2) **chat area** — messages as rectangles, AI pfp on its messages, inline markup styled
-per §8. The portrait is framed to the character's own `pfp_shape` — 2:3, the shape a
-card is drawn in, or square — chosen when the picture is uploaded and cropped to there
-and then. Tapping one enlarges it and takes the width from the bubble beside it;
-enlarged, it offers the whole screen. (3) **edit button** on AI messages; **swipe** for
-variants (§9). (4) composer.
+**Layout (top → bottom):** (1) pinned **header** — the menu button and who you're
+talking to. (1b) **world-info pill** — place · weather · time and their refresh button,
+its own rounded chip directly below the header rather than sharing its line; time
+generic ("early afternoon", never "14:56"), per-field refresh animation. Hidden outright
+(not merely covered) while the header's own menu is open, so it never bleeds through
+the opening buttons under glass. (2) **chat area** — messages as rectangles, AI pfp on
+its messages, inline markup styled per §8. The portrait is framed to the character's own
+`pfp_shape` — 2:3, the shape a card is drawn in, or square — chosen when the picture is
+uploaded and cropped to there and then. Tapping one enlarges it and takes the width from
+the bubble beside it; enlarged, it offers the whole screen. (3) **edit button** on AI
+messages; **swipe** for variants (§9). (4) composer.
 
 **Characters roster:** tapping a row opens the chat that character was last active in
 (falling back to a new chat if it has none) — the roster is a contact list, not an index
