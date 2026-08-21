@@ -527,8 +527,37 @@ async def export_character(character_id: str, download: bool = False) -> JSONRes
 
 @app.delete("/api/characters/{character_id}")
 async def delete_character(character_id: str) -> dict:
-    repo.delete_character(get_db(), character_id)
+    db = get_db()
+    # Read before the row is gone: the portrait files a character owned are
+    # named in its own pfp_set, and there is nowhere else to learn that from
+    # once the character itself no longer exists.
+    character = repo.get_character(db, character_id)
+    repo.delete_character(db, character_id)
+    if character is not None:
+        _forget_orphaned_avatars(db, character)
     return {"ok": True}
+
+
+def _forget_orphaned_avatars(db, character) -> None:
+    """Delete the portrait files a character owned, unless something else is
+    still using them.
+
+    A card's own bundled art — "mira/neutral.png", served from the tracked
+    static tree — is never touched here; only entries this app itself wrote,
+    which always begin "/avatars/". Without this, every deleted character
+    left its cropped portrait behind forever: nothing else in the app ever
+    looks at data/avatars/ to see what is still wanted, so the directory only
+    ever grew.
+    """
+    for value in (character.pfp_set or {}).values():
+        if not value.startswith("/avatars/"):
+            continue
+        name = value[len("/avatars/") :]
+        if repo.avatar_still_wanted(db, name):
+            continue
+        path = config.avatar_path(name)
+        if path is not None:
+            path.unlink(missing_ok=True)
 
 
 @app.get("/api/characters/{character_id}/memories")

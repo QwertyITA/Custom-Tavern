@@ -111,3 +111,82 @@ def test_a_group_member_carries_its_own_shape(db, character):
     shapes = {m["name"]: m["pfp_shape"] for m in groups.members(db, chat["id"])}
     assert shapes["Kes"] == "square"
     assert shapes[character.name] == "portrait"
+
+
+# ------------------------------------- the picture leaves with the character
+
+
+def _upload(client, isolated_avatars, name=b"a portrait"):
+    response = client.post("/api/avatars?filename=mine.png", content=name)
+    assert response.status_code == 200
+    url = response.json()["url"]
+    path = isolated_avatars / url.rsplit("/", 1)[-1]
+    assert path.is_file()
+    return url, path
+
+
+def test_deleting_a_character_deletes_its_portrait(client, isolated_settings, isolated_avatars):
+    """Nothing else in the app ever looks at data/avatars/ to see what is
+    still wanted, so before this the directory only ever grew — one file left
+    behind for every character anyone ever tried and deleted."""
+    created = client.post("/api/characters", json={"name": "Wren"}).json()
+    url, path = _upload(client, isolated_avatars)
+    client.put(f"/api/characters/{created['id']}", json={"name": "Wren", "pfp_set": {"neutral": url}})
+
+    client.delete(f"/api/characters/{created['id']}")
+    assert not path.exists()
+
+
+def test_bundled_card_art_is_never_touched(client, isolated_settings, isolated_avatars):
+    """Only entries this app itself wrote, which always begin "/avatars/" —
+    never a card's own shipped art, served from the tracked static tree."""
+    created = client.post("/api/characters", json={"name": "Wren"}).json()
+    client.put(
+        f"/api/characters/{created['id']}",
+        json={"name": "Wren", "pfp_set": {"neutral": "wren/neutral.png"}},
+    )
+    # Nothing to assert on the filesystem — there is no data/avatars/ file
+    # for this at all — only that deletion does not error trying to find one.
+    response = client.delete(f"/api/characters/{created['id']}")
+    assert response.status_code == 200
+
+
+def test_a_shared_avatar_survives_if_a_persona_still_uses_it(
+    client, db, isolated_settings, isolated_avatars
+):
+    """data/avatars/ is shared with personas through the same upload
+    endpoint. A filename outliving the character it was cropped for is not
+    proof nothing wants it."""
+    from app import repo
+
+    created = client.post("/api/characters", json={"name": "Wren"}).json()
+    url, path = _upload(client, isolated_avatars)
+    filename = url.rsplit("/", 1)[-1]
+    client.put(f"/api/characters/{created['id']}", json={"name": "Wren", "pfp_set": {"neutral": url}})
+    repo.save_persona(db, {"id": "p1", "name": "Me", "avatar": filename})
+
+    client.delete(f"/api/characters/{created['id']}")
+    assert path.exists()
+
+
+def test_a_shared_avatar_survives_if_another_character_still_uses_it(
+    client, isolated_settings, isolated_avatars
+):
+    a = client.post("/api/characters", json={"name": "Wren"}).json()
+    b = client.post("/api/characters", json={"name": "Kes"}).json()
+    url, path = _upload(client, isolated_avatars)
+    for character in (a, b):
+        client.put(
+            f"/api/characters/{character['id']}",
+            json={"name": character["name"], "pfp_set": {"neutral": url}},
+        )
+
+    client.delete(f"/api/characters/{a['id']}")
+    assert path.exists(), "the surviving character still needs it"
+    client.delete(f"/api/characters/{b['id']}")
+    assert not path.exists()
+
+
+def test_deleting_an_unknown_character_does_not_error(client, isolated_settings):
+    response = client.delete("/api/characters/does-not-exist")
+    assert response.status_code == 200

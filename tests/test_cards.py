@@ -242,20 +242,19 @@ def png_card(payload: dict) -> bytes:
     )
 
 
-def test_importing_a_png_card_keeps_the_picture(client, isolated_settings, tmp_path):
+def test_importing_a_png_card_keeps_the_picture(client, isolated_settings, isolated_avatars):
     """The JSON lives in a tEXt chunk of a PNG that *is* the portrait. Reading
     the chunk and dropping the file left every imported card faceless."""
-    from app import config, repo
+    from app import repo
     from app.db import get_db
 
-    config.AVATAR_DIR = tmp_path / "avatars"
     data = png_card({"spec": "chara_card_v2", "data": {"name": "Wren", "description": "A ferryman."}})
     response = client.post("/api/characters/import?filename=wren.png", content=data)
     assert response.status_code == 200
 
     character = repo.get_character(get_db(), response.json()["id"])
     assert character.pfp_set.get("neutral", "").startswith("/avatars/")
-    saved = config.AVATAR_DIR / character.pfp_set["neutral"].rsplit("/", 1)[-1]
+    saved = isolated_avatars / character.pfp_set["neutral"].rsplit("/", 1)[-1]
     assert saved.read_bytes() == data
 
 

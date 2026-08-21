@@ -448,6 +448,14 @@ Lorebook    : id, entries[{keys[], content, insertion_depth, constant}]
 Cards live as files in `data/characters/`; v2/v3 `.png` import maps into this schema.
 `version` fields on Character/Chat drive schema migrations (§17).
 
+A `pfp_set` entry is either the card's own bundled art (a bare relative path, served
+from the tracked static tree, never touched by the app) or a picture cropped through
+the app itself (`/avatars/<file>`, written into the gitignored `data/avatars/`, shared
+with persona pictures through the same upload endpoint). Deleting a character deletes
+the second kind — but only once nothing else still points at the same file, since the
+directory is shared and a filename surviving the character it was cropped for is not
+proof nothing wants it.
+
 ---
 
 ## 12. GUI specification

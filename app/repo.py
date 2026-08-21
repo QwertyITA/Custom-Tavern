@@ -216,6 +216,27 @@ def delete_character(db: Database, character_id: str) -> None:
     )
 
 
+def avatar_still_wanted(db: Database, filename: str) -> bool:
+    """Whether anything left still points at this file in data/avatars/.
+
+    The directory is shared: character portraits and persona pictures upload
+    into the same place through the same endpoint, so a filename outliving
+    the character it was cropped for is not proof nothing wants it — only
+    finding it nowhere at all is. Checked *after* the character row is gone,
+    so the character being deleted never counts as a reason to keep its own
+    picture.
+    """
+    needle = f"/avatars/{filename}"
+    for row in db.query("SELECT data FROM characters"):
+        try:
+            card = json.loads(row["data"])
+        except (TypeError, ValueError):
+            continue
+        if needle in (card.get("pfp_set") or {}).values():
+            return True
+    return db.query_one("SELECT 1 FROM personas WHERE avatar=?", (filename,)) is not None
+
+
 # -------------------------------------------------------------------- chats
 
 

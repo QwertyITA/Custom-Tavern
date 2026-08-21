@@ -114,6 +114,22 @@ def isolated_settings(tmp_path, monkeypatch):
     config.apply_settings(original)
 
 
+@pytest.fixture
+def isolated_avatars(tmp_path, monkeypatch):
+    """Point the avatar store at a temp directory.
+
+    `monkeypatch`, not a bare assignment: `config.AVATAR_DIR` is a module-level
+    global, so a test that sets it directly and never puts it back leaves every
+    test running after it in the same process pointed at a tmp_path pytest has
+    already torn down.
+    """
+    from app import config
+
+    path = tmp_path / "avatars"
+    monkeypatch.setattr(config, "AVATAR_DIR", path)
+    return path
+
+
 def sync(coro):
     """Run a coroutine from a sync test — keeps pytest-asyncio off the dep list,
     which matters when the dev machine is a phone."""
