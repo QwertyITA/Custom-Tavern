@@ -471,17 +471,23 @@ the second kind — but only once nothing else still points at the same file, si
 directory is shared and a filename surviving the character it was cropped for is not
 proof nothing wants it.
 
-`pfp_effect` is a CSS filter recipe over that same picture — same "belongs to the
-character, not the app" reasoning as `pfp_shape`, and drawn everywhere the shape is
-(the roster, the chat, the enlarged view). `reactions` holds three 5–8 word in-character
-lines (a reaction to being starred, unstarred, and permanently deleted) that the story
-never asks for but the app needs; `app/character_reactions.py` generates whichever of
-the three is empty, using the backend behind the Messages tier, and never overwrites
-one that already has something in it — generated or typed by hand. Generation is
-attempted once at card import and, for whatever is still missing, once more after every
-reply a character sends (queued after the reply, never blocking it) — both fire-and-
-forget, so an unreachable backend at import time is not a failed import, just a retry
-that has not landed yet.
+`pfp_effect` is a CSS filter recipe (hue, saturate, brightness, contrast, sepia,
+grayscale) for a colour **ring around** that same picture, not a filter over the
+picture itself — a hue-rotated element hue-rotates everything it renders, so the ring
+is its own element (`.pfp-glow`) sitting behind the photo, never sharing a box with it.
+Same "belongs to the character, not the app" reasoning as `pfp_shape`, and drawn
+everywhere the shape is (the roster, the chat, the enlarged view). `reactions` holds
+three 5–8 word in-character lines (a reaction to being starred, unstarred, and
+permanently deleted) that the story never asks for but the app needs; starring or
+unstarring a character shows its line as a speech bubble over that character's own
+roster row rather than the plain toast every other action gets, when the line exists yet
+— see `showReactionBubble` in `static/app.js`. `app/character_reactions.py` generates
+whichever of the three is empty, using the backend behind the Messages tier, and never
+overwrites one that already has something in it — generated or typed by hand.
+Generation is attempted once at card import and, for whatever is still missing, once
+more after every reply a character sends (queued after the reply, never blocking it) —
+both fire-and-forget, so an unreachable backend at import time is not a failed import,
+just a retry that has not landed yet.
 
 ---
 
@@ -497,18 +503,22 @@ generic ("early afternoon", never "14:56"), per-field refresh animation. Hidden 
 the opening buttons under glass. (2) **chat area** — messages as rectangles, AI pfp on
 its messages, inline markup styled per §8. The portrait is framed to the character's own
 `pfp_shape` — 2:3, the shape a card is drawn in, or square — chosen when the picture is
-uploaded and cropped to there and then, and drawn through whatever `pfp_effect` colour
-treatment the character has (§11) — both apply everywhere the picture does: the roster,
-the chat, the enlarged view. Tapping one enlarges it and takes the width from the bubble
-beside it; enlarged, it offers the whole screen. (3) **edit button** on AI messages;
-**swipe** for variants (§9). (4) composer.
+uploaded and cropped to there and then, ringed with whatever `pfp_effect` colour the
+character has (§11) — both apply everywhere the picture does: the roster, the chat, the
+enlarged view. Tapping one enlarges it and takes the width from the bubble beside it;
+enlarged, it offers the whole screen. (3) **edit button** on AI messages; **swipe** for
+variants (§9). (4) composer.
 
 **Characters roster:** characters listed above personas ("You"), not below — the roster
 is what the panel is for. Tapping a row opens the chat that character was last active in
 (falling back to a new chat if it has none) — the roster is a contact list, not an index
 you have to open a sub-menu from. A starred character's whole card carries a soft
-animated gold glow, the roster's one purely celebratory touch. Deleting a character is
-the one destructive action in the app that gets a modal (everywhere else, two taps):
+animated gold glow, the roster's one purely celebratory touch. Starring or unstarring
+one shows its own reaction line (§11) as a WhatsApp-style speech bubble over that row,
+pointing at its portrait, for a few seconds — the plain toast every other action gets is
+the fallback for whichever direction that character has no line for yet. Deleting a
+character is the one destructive action in the app that gets a modal (everywhere else,
+two taps):
 the second tap on an already-armed delete opens it, and the character is gone only once
 "Delete" has been held for seven full seconds, filling a track underneath it — release
 early and it resets rather than closing, so a second attempt is another hold, not two

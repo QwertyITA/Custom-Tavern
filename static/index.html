@@ -1967,6 +1967,19 @@
                  tools alongside it stop the click from reaching here, the same
                  way a persona row's own buttons do below. -->
             <div class="char-head" @click="openLastChat(c)">
+              <!-- The character's own words on being starred/unstarred
+                   (§models.CharacterReactions), standing in for the plain
+                   toast whenever there is one — see toggleFavourite. Anchored
+                   to this row specifically since .reaction-bubble is
+                   position:absolute against .char-head, so it always points
+                   at the portrait it is actually about, not just "a" row. -->
+              <div class="reaction-bubble" @click.stop
+                   x-show="reactionBubbleOpen && reactionBubble && reactionBubble.id === c.id" x-cloak
+                   x-transition:enter="reaction-bubble-enter" x-transition:enter-start="reaction-bubble-from"
+                   x-transition:enter-end="reaction-bubble-to"
+                   x-transition:leave="reaction-bubble-leave" x-transition:leave-start="reaction-bubble-to"
+                   x-transition:leave-end="reaction-bubble-from"
+                   x-text="reactionBubble && reactionBubble.id === c.id ? reactionBubble.text : ''"></div>
               <!-- Every row gets a portrait slot, filled or not: a card can
                    name an image that was never copied in, and a character
                    written here has none at all. The fallback sits underneath

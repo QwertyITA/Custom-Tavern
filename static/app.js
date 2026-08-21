@@ -102,6 +102,9 @@ const CONFIRM_MS = 3000;
 const KILL_HOLD_MS = 7000;
 // How long a one-line confirmation ("Copied") stays on screen.
 const HINT_MS = 1900;
+// A character's own line, on the other hand, is a sentence to actually read —
+// longer than a two-word toast earns.
+const REACTION_BUBBLE_MS = 3400;
 // Quiet time after the last keystroke before the template preview re-renders.
 const PREVIEW_DEBOUNCE_MS = 200;
 // How long a prompt section takes to slide past its neighbour when reordered.
@@ -463,6 +466,13 @@ function tavern() {
     // "idle" (modal up, nothing pressed), "holding" (timing a press) or
     // "deleting" (the hold finished; the request is in flight).
     killHold: null,
+    // A character's own line, shown as a speech bubble over its own row when
+    // starring/unstarring it. `reactionBubble` is the content ({ id, text })
+    // and outlives the visible window on purpose — reactionBubbleOpen alone
+    // gates x-show, so the leave transition fades the actual sentence rather
+    // than the text blanking out a frame before the fade even starts.
+    reactionBubble: null,
+    reactionBubbleOpen: false,
     // Hold-to-open action wheel. `wheel` is null when closed; when open it
     // carries the message, where it was opened, and which option the finger
     // is currently over.
@@ -2378,7 +2388,25 @@ function tavern() {
           (a, b) => (b.favourite ? 1 : 0) - (a.favourite ? 1 : 0) || a.name.localeCompare(b.name),
         );
       });
-      this.flashHint(wanted ? `${character.name} starred` : `${character.name} unstarred`);
+      // The character's own reaction where there is one; the plain toast
+      // where there isn't yet (§ character_reactions.py — a card can still
+      // be waiting on its first generation).
+      const line = (character.reactions || {})[wanted ? "starred" : "unstarred"];
+      if (line) this.showReactionBubble(character.id, line);
+      else this.flashHint(wanted ? `${character.name} starred` : `${character.name} unstarred`);
+    },
+
+    // A speech bubble over the character's own row, in their own words,
+    // rather than the generic toast every other action here uses. Replaces
+    // whatever bubble was already showing instead of queuing behind it —
+    // the same "only the latest matters" reasoning as arm() below.
+    showReactionBubble(characterId, text) {
+      this.reactionBubble = { id: characterId, text };
+      this.reactionBubbleOpen = true;
+      clearTimeout(this._reactionBubbleTimer);
+      this._reactionBubbleTimer = setTimeout(() => {
+        this.reactionBubbleOpen = false;
+      }, REACTION_BUBBLE_MS);
     },
 
     flipCharacters(mutate) {

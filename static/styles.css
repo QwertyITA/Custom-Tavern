@@ -1283,7 +1283,47 @@ body {
    happened: on a 360px screen the row showed a portrait, a chat count and six
    icons, with the name at zero width. Giving the name a floor and letting the
    tools take their own line keeps every row legible at any width. */
-.char-head { display: flex; align-items: center; gap: 8px; row-gap: 0; flex-wrap: wrap; }
+.char-head { position: relative; display: flex; align-items: center; gap: 8px; row-gap: 0; flex-wrap: wrap; }
+
+/* A WhatsApp-style speech bubble over the character's own row (§ toggle
+   Favourite in app.js) — the tail is a rotated square half-hidden behind the
+   bubble's own bottom edge, the standard way to draw one in CSS without an
+   SVG or a clip-path. */
+.reaction-bubble {
+  position: absolute;
+  left: 0;
+  bottom: 100%;
+  margin-bottom: 12px;
+  max-width: 220px;
+  width: max-content;
+  padding: 8px 12px;
+  border-radius: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: 0 8px 20px -6px color-mix(in srgb, var(--text) 28%, transparent);
+  font-size: 13px;
+  line-height: 1.35;
+  z-index: 3;
+}
+.reaction-bubble::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 16px;
+  width: 12px;
+  height: 12px;
+  margin-top: -7px;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  transform: rotate(45deg);
+}
+.reaction-bubble-enter { transition: opacity var(--dur-fast) var(--ease-out),
+                                    transform var(--dur-base) var(--ease-back); }
+.reaction-bubble-leave { transition: opacity var(--dur-fast) var(--ease-in-out),
+                                    transform var(--dur-fast) var(--ease-in-out); }
+.reaction-bubble-from { opacity: 0; transform: scale(.85) translateY(6px); }
+.reaction-bubble-to { opacity: 1; transform: scale(1) translateY(0); }
 /* Right-aligned whether it shares the name's line or takes its own, so the
    row reads the same either way. No row-gap above: on the wrapped layout the
    buttons' own 44px height is already the separation. */
