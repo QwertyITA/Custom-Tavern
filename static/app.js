@@ -2415,8 +2415,10 @@ function tavern() {
           r.dataset.cid, r.getBoundingClientRect().top,
         ]),
       );
-      mutate();
-      this.$nextTick(() => {
+      let done = false;
+      const applyFlip = () => {
+        if (done) return;
+        done = true;
         for (const row of document.querySelectorAll(".char")) {
           const was = before.get(row.dataset.cid);
           if (was === undefined) continue;
@@ -2430,7 +2432,30 @@ function tavern() {
             setTimeout(() => { row.style.transition = ""; }, SECTION_MOVE_MS);
           });
         }
-      });
+      };
+      // Not $nextTick: this vendored Alpine resolves it through a bare
+      // setTimeout, which yields to the browser's paint first — so by the
+      // time the callback ran, the row had already been rendered sitting at
+      // its new spot with no compensating transform on it yet, one or two
+      // real frames before this code got a chance to jump it back. That
+      // painted frame is exactly the row disappearing from its old spot and
+      // reappearing, already settled, at the new one. A MutationObserver's
+      // callback is a microtask, which the spec guarantees runs before the
+      // next paint no matter when Alpine actually moves the rows, so it
+      // catches the reorder in the same tick it happens in, every time.
+      const roster = document.querySelector(".char-roster");
+      if (roster) {
+        const observer = new MutationObserver(() => {
+          observer.disconnect();
+          applyFlip();
+        });
+        observer.observe(roster, { childList: true });
+        // A re-sort that leaves everyone's rank exactly where it was moves
+        // nothing, so the observer has nothing to catch — fall back once
+        // Alpine's own tick confirms there was nothing more coming.
+        this.$nextTick(() => { observer.disconnect(); applyFlip(); });
+      }
+      mutate();
     },
 
     // ---- chat management (§10) ----
