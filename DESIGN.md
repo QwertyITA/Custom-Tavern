@@ -446,7 +446,9 @@ Declarative objects; a new behavior = a new object.
 ```
 Character   : id, name, version, pfp_set{emotion→img}, pfp_shape(portrait|square),
               pfp_effect(hue, saturate, brightness, contrast, sepia, grayscale),
-              reactions(starred, unstarred, killed), backgrounds[{img, metadata}],
+              reactions(starred, unstarred, killed),
+              avatar_video(enabled, idle_video, voice, prep_status) (§20),
+              backgrounds[{img, metadata}],
               persona, state_schema, lorebook_ref, default_toggles[]
 Chat        : id, character_id, version, created_at, settings(colours, toggle overrides)
 Message     : id, chat_id, turn, role, text(raw markup), variants[], active_variant, edited
@@ -506,8 +508,10 @@ its messages, inline markup styled per §8. The portrait is framed to the charac
 uploaded and cropped to there and then, ringed with whatever `pfp_effect` colour the
 character has (§11) — both apply everywhere the picture does: the roster, the chat, the
 enlarged view. Tapping one enlarges it and takes the width from the bubble beside it;
-enlarged, it offers the whole screen. (3) **edit button** on AI messages; **swipe** for
-variants (§9). (4) composer.
+enlarged, it offers the whole screen. The one exception: a character with a talking
+avatar switched on (§20) shows a lip-synced video instead, over the one reply it was
+just rendered for, and only there — every other appearance of the same picture stays a
+still image. (3) **edit button** on AI messages; **swipe** for variants (§9). (4) composer.
 
 **Characters roster:** characters listed above personas ("You"), not below — the roster
 is what the panel is for. Tapping a row opens the chat that character was last active in
@@ -643,3 +647,55 @@ observability instinct as a GPU overlay, applied to token spend.
 3. On-device model choice (Qwen2.5-3B vs Llama-3.2-3B).
 4. Colour system: per-character themes vs one global palette with per-element overrides.
 5. Memory retrieval/scope confirmed as keyword-first + per-character *(veto if wrong)*.
+
+---
+
+## 20. Talking avatar (AVATAR-VIDEO-CONTRACT.md)
+
+A lip-synced video plays over a character's portrait for the one reply it
+was rendered for, from a service the user runs themselves — a real-time
+lip-sync model (MuseTalk and similar) needs a GPU, which this app's deploy
+target (a phone) never has (§2). `AVATAR-VIDEO-CONTRACT.md` at the repo
+root is the full HTTP contract; this section is why it is shaped the way
+it is and why it sits outside every mechanism described above rather than
+reusing one of them.
+
+**Not a provider.** §13's provider abstraction (Ollama / OpenAI-compatible
+/ Horde / on-device) exists for one shape of call: a prompt and a sampling
+profile in, text out, against a backend assigned to a tier. An avatar
+render has none of that — no prompt, no sampling, no tier, and its request/
+response shape (submit a loop or a line of text, poll a job, get back a
+video URL) doesn't fit `GenRequest`/`GenResult`. It follows the *other*
+existing shape for "an external, self-hosted, non-LLM service you point a
+URL at" instead — `app/websearch.py`'s, config held as flat `_url`/`_key`
+fields on `Settings` rather than a `BackendConfig`, off until both a URL
+and a per-character switch are on, silent on failure.
+
+**Not a pass.** §5's pass system exists to decide, per turn, whether a
+prompt-shaped call is worth making, against rubric signals and a trigger.
+An avatar render has no such decision to make — it always happens, once,
+right after a reply whose character has the switch on — and it never
+writes a state slice. It follows `app/character_reactions.py`'s shape
+instead: fire-and-forget from the scheduler, right after `_run_reply`,
+same as the reaction-line retry sitting beside it.
+
+**Two phases, one asset.** `Character.avatar_video` (§11) holds `enabled`,
+`idle_video` (an uploaded loop, same "belongs to the character, lives in
+`data/`, not the tracked static tree" reasoning as a portrait) and
+`prep_status`. `prepare()` is the slow, one-time step — the service's own
+face-detection/parsing/encoding pass over the idle loop — kicked off once
+per upload; `render_for_reply()` is the fast, per-line step that assumes
+`prep_status == "ready"` and does nothing otherwise. Skipping the split
+and re-preparing on every line would cost the entire reason a real-time
+lip-sync model is worth using at all.
+
+**One video at a time, and never a replay.** Only the message a render just
+landed for ever shows a `<video>` — every other row, in every context
+(scrollback, the roster, the enlarged portrait, group chats), always shows
+the ordinary static portrait `pfp_set` already draws (§11, §12). The moment
+that one clip ends, the row reverts and nothing about it is remembered: no
+video URL is persisted on the `Message`, so scrolling back to an old reply
+never re-fetches or replays anything. This is a phone-performance decision
+as much as a design one — at most one decode/playback is ever live, which
+matters for exactly the reasons `.msg`'s `content-visibility` scroll
+optimisation does (§12's GUI note on the message list).

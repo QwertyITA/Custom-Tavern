@@ -118,6 +118,15 @@ matters: 36 and 37 both read whatever 35 lands on.
       one. Toggleable independently of 36 — a user may want the picture to
       change without the bubble motion changing, or the reverse. Depends on
       35 for what "the current emotion" actually is.
+- [x] **38. Talking video avatar.** A lip-synced clip (MuseTalk and similar)
+      plays over the portrait for the one reply it was rendered for, from a
+      service the user runs on their own GPU — never this app, whose deploy
+      target has none (§DESIGN.md §2, §20). `AVATAR-VIDEO-CONTRACT.md` is
+      the HTTP contract; `app/avatar_video.py` is the client. Off by
+      default, opt-in per character, and independent of 35–37 above — it
+      reads reply text, not the tracked emotion. Does **not** pull TTS (21)
+      into this app: the render request carries plain text, and the
+      external service is responsible for its own speech synthesis.
 
 ## The UX pass
 

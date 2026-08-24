@@ -156,6 +156,15 @@ ever grows), but a different trigger, and the cropper likely makes
 "replace the picture" a more common action than the old single-shot upload
 ever was.
 
+The talking-avatar idle loop (`avatar_video.idle_video`, `data/avatar_idle/`)
+shares the exact same gap for the exact same reason: `upload_avatar_idle`
+overwrites the field with no delete of whatever it used to point at, and
+`_forget_orphaned_avatar_idle` only runs on character deletion, only ever
+reading the *current* value. Replacing a character's idle loop twice leaves
+the first upload on disk forever. Not a new bug so much as this one
+extending itself to a second asset type that didn't exist yet when it was
+found — worth fixing both together rather than separately.
+
 ### A reply can quote the user's own turn back
 
 Measured over the same real chat: 1 of 47 stored variants echoed a phrase
