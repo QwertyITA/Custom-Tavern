@@ -371,36 +371,44 @@ body {
 .icon-btn.refresh.spinning { animation: spin 1.1s linear infinite; color: var(--accent); }
 .icon-btn.on { color: var(--accent); }
 
-/* A small floating capsule pinned just under the header — Dynamic Island,
-   not a toolbar row (§ the HTML comment above the markup for the full
-   reasoning). `position: fixed` takes it out of `.chat`'s flow entirely, so
-   `.chat` never gives up any of its own height reserving a place for this;
-   the pill sits on top of whatever `.chat` has scrolled to underneath it.
-   `top` reads --worldbar-h (set by initWorldbarHeight, app.js) rather than a
-   guessed pixel value, since the header's real height moves with the
-   safe-area inset. Centred with left/right auto over a fixed width-content
-   box rather than flex-centred in a row, since there is no longer a row —
-   this is the one element on the page actually taken out of normal flow.
+/* The chrome shared by both places this pill can render (§ world-pill-inline
+   and world-pill-float below): the rounded chip itself, not where it sits.
    Thinner than it once was — min-height and padding both trimmed — because
    this is a secondary reading, not a primary control: the fields are also
    reachable in full by tapping through to `.world-full` below, so the pill
    itself only has to be legible, not a full 44px target. */
 .world-pill {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 1px 3px 1px 9px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+/* Living in the header's own row beside the name, an ordinary flex child of
+   `.bar-row` — for whenever the name and the fields are short enough to
+   share that line (§ pillFitsInline in app.js). */
+.world-pill-inline { flex: 0 1 auto; min-width: 0; }
+.world-pill-inline .world-fields { min-width: 0; }
+/* The Dynamic Island: a floating capsule pinned just under the header, over
+   the chat rather than in a row of its own — for whenever the pill and the
+   name will not both fit on the header's line. `position: fixed` takes it
+   out of `.chat`'s flow entirely, so `.chat` never gives up any of its own
+   height reserving a place for this; the pill sits on top of whatever
+   `.chat` has scrolled to underneath it. `top` reads --worldbar-h (set by
+   initWorldbarHeight, app.js) rather than a guessed pixel value, since the
+   header's real height moves with the safe-area inset. */
+.world-pill-float {
   position: fixed;
   top: var(--worldbar-h, 52px);
   left: 50%;
   transform: translateX(-50%);
   z-index: 4;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  width: fit-content;
   max-width: calc(100% - 16px);
   margin-top: 6px;
-  padding: 1px 3px 1px 9px;
-  border-radius: 999px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
   /* Opaque, deliberately: chat content passing underneath must actually
      disappear behind it, the way it would behind a real floating island,
      not show through. */

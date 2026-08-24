@@ -108,6 +108,9 @@ const HINT_MS = 1900;
 const REACTION_BUBBLE_MS = 3400;
 // Quiet time after the last keystroke before the template preview re-renders.
 const PREVIEW_DEBOUNCE_MS = 200;
+// Character budget for the name and the world-info fields to share the
+// header's one line — see pillFitsInline.
+const WORLDBAR_INLINE_BUDGET = 30;
 // How long a prompt section takes to slide past its neighbour when reordered.
 const SECTION_MOVE_MS = 260;
 // The four samplers every pass ships with a tuned value for. "Turn the extras
@@ -826,6 +829,25 @@ function tavern() {
     // header shows the name alone rather than a row of placeholder dashes.
     get hasScene() {
       return !!(this.scene.place || this.scene.weather || this.scene.time);
+    },
+
+    // Whether the name and the world-info fields are short enough to share
+    // the header's one line (§ .world-pill-inline in index.html) rather than
+    // the pill floating over the chat instead (§ .world-pill, the Dynamic
+    // Island for whenever they don't). A character count, not a measured
+    // pixel width: the header holds a fixed 44px menu button and stretches
+    // over whatever width the phone actually has, so there is no one pixel
+    // budget to measure against without a ResizeObserver re-running on every
+    // keystroke of a streamed scene update — and the two texts are set in
+    // the same font at adjacent sizes, so length tracks width closely enough
+    // to draw the line. WORLDBAR_INLINE_BUDGET is tuned for a 360-412px
+    // phone, which is what this app is built for.
+    pillFitsInline() {
+      if (!this.character) return false;
+      const fields = [this.scene.place, this.scene.weather, this.scene.time].filter(Boolean);
+      if (!fields.length) return false;
+      const budget = this.character.name.length + fields.join("").length + fields.length;
+      return budget <= WORLDBAR_INLINE_BUDGET;
     },
 
     get portrait() {
