@@ -130,6 +130,17 @@ def isolated_avatars(tmp_path, monkeypatch):
     return path
 
 
+@pytest.fixture
+def isolated_avatar_idle(tmp_path, monkeypatch):
+    """Same reasoning as isolated_avatars, for the talking-avatar idle-loop
+    store."""
+    from app import config
+
+    path = tmp_path / "avatar_idle"
+    monkeypatch.setattr(config, "AVATAR_IDLE_DIR", path)
+    return path
+
+
 def sync(coro):
     """Run a coroutine from a sync test — keeps pytest-asyncio off the dep list,
     which matters when the dev machine is a phone."""

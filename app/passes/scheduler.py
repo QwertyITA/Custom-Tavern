@@ -30,6 +30,7 @@ from typing import Any
 
 from .. import assembly
 from .. import attachments
+from .. import avatar_video
 from .. import character_reactions
 from .. import groups
 from .. import macros, memory as memory_store, regex_rules, repo, state as state_mod
@@ -557,6 +558,20 @@ class PassScheduler:
             task = asyncio.create_task(
                 character_reactions.spawn(self.db, self.settings, ctx.character),
                 name=f"reactions:{ctx.character.id}:{turn}",
+            )
+            self._track(chat_id, task)
+        # A talking-video render for this reply, same fire-and-forget shape
+        # and same reasoning as the reaction lines just above — queued after
+        # the reply has already gone out, since a render can take longer
+        # than the line it illustrates (§ app/avatar_video.py). No-ops
+        # instantly when the character has no avatar video switched on.
+        if ctx.character.avatar_video.enabled:
+            task = asyncio.create_task(
+                avatar_video.render_for_reply(
+                    self.db, self.settings, ctx.character,
+                    chat_id, ctx.message_id, ctx.reply_text,
+                ),
+                name=f"avatar_video:{ctx.character.id}:{turn}",
             )
             self._track(chat_id, task)
         yield {"type": "turn_end", "turn": turn}

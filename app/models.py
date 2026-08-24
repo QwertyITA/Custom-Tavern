@@ -219,6 +219,25 @@ class CharacterReactions(BaseModel):
     killed: str = ""
 
 
+class AvatarVideo(BaseModel):
+    """A talking-video avatar over the portrait (AVATAR-VIDEO-CONTRACT.md) —
+    belongs to the character, same reasoning as `pfp_shape`/`pfp_effect`
+    above. Off by default: rendering needs a service configured in Settings
+    *and* this switched on, and either being missing falls back to the
+    ordinary static portrait with no error shown anywhere.
+
+    `idle_video` and `prep_status` are only ever written by the upload
+    endpoint and the prepare step it kicks off (app/avatar_video.py) — never
+    by a plain character edit, the same way a generated reaction line can be
+    edited by hand but `pfp_set` cannot be pointed at an arbitrary URL."""
+
+    enabled: bool = False
+    idle_video: str = ""
+    # Opaque to this app; forwarded to the avatar service as-is (§ contract).
+    voice: str = ""
+    prep_status: Literal["none", "pending", "ready", "failed"] = "none"
+
+
 class Character(BaseModel):
     id: str
     name: str
@@ -252,6 +271,8 @@ class Character(BaseModel):
     pfp_effect: PfpEffect = Field(default_factory=PfpEffect)
     # Starred/unstarred/deleted lines the app writes once and keeps (§ above).
     reactions: CharacterReactions = Field(default_factory=CharacterReactions)
+    # Talking-video avatar, off by default (§ AvatarVideo above).
+    avatar_video: AvatarVideo = Field(default_factory=AvatarVideo)
     backgrounds: list[dict[str, Any]] = Field(default_factory=list)  # {img, metadata}
     state_schema: dict[str, VariableSchema] = Field(default_factory=dict)
     # Rule-based keyword/regex nudges, applied before any model pass (§6).

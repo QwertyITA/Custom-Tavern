@@ -17,7 +17,7 @@ from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import assembly, attachments, cards, chat_files, character_reactions, config, groups, macros
+from . import assembly, attachments, avatar_video, cards, chat_files, character_reactions, config, groups, macros
 from . import memory as memory_store
 from . import prompt_layout
 from . import providers, regex_rules, repo, state as state_mod
@@ -29,6 +29,7 @@ from .markup import parse_to_dicts
 from .models import (
     REACTION_KEYS,
     AuthorsNote,
+    AvatarVideo,
     Character,
     CharacterReactions,
     CreateChatRequest,
@@ -414,6 +415,22 @@ async def update_character(character_id: str, payload: dict = Body(...)) -> dict
             if key in raw:
                 current[key] = str(raw[key] or "").strip()
         character.reactions = CharacterReactions.model_validate(current)
+    if "avatar_video" in payload:
+        # Only the two knobs a person actually edits here. `idle_video` and
+        # `prep_status` are written exclusively by the upload endpoint and
+        # the prepare step it starts (app/avatar_video.py) — the same
+        # "generated/uploaded fields aren't free text" reasoning as pfp_set
+        # below, so a plain card edit cannot claim a loop is ready that was
+        # never actually prepared.
+        raw = payload["avatar_video"]
+        if not isinstance(raw, dict):
+            raise HTTPException(400, "avatar_video must be an object")
+        current_av = character.avatar_video.model_dump()
+        if "enabled" in raw:
+            current_av["enabled"] = bool(raw["enabled"])
+        if "voice" in raw:
+            current_av["voice"] = str(raw["voice"] or "").strip()[:200]
+        character.avatar_video = AvatarVideo.model_validate(current_av)
     if "pfp_set" in payload:
         # Names and URLs only. A value from the editor is a path under
         # /avatars; one from a card is a filename that shipped beside it.
@@ -564,6 +581,7 @@ async def delete_character(character_id: str) -> dict:
     repo.delete_character(db, character_id)
     if character is not None:
         _forget_orphaned_avatars(db, character)
+        _forget_orphaned_avatar_idle(db, character)
     return {"ok": True}
 
 
@@ -587,6 +605,21 @@ def _forget_orphaned_avatars(db, character) -> None:
         path = config.avatar_path(name)
         if path is not None:
             path.unlink(missing_ok=True)
+
+
+def _forget_orphaned_avatar_idle(db, character) -> None:
+    """Delete a deleted character's idle loop, unless something else still
+    points at it — same reasoning as _forget_orphaned_avatars above, for the
+    talking-avatar's own asset directory."""
+    value = character.avatar_video.idle_video
+    if not value.startswith("/avatar_idle/"):
+        return
+    name = value[len("/avatar_idle/") :]
+    if repo.avatar_idle_still_wanted(db, name):
+        return
+    path = config.avatar_idle_path(name)
+    if path is not None:
+        path.unlink(missing_ok=True)
 
 
 @app.get("/api/characters/{character_id}/memories")
@@ -1261,6 +1294,73 @@ async def upload_avatar(request: Request, filename: str = Query(...)) -> dict:
     if not url:
         raise HTTPException(500, "could not save image")
     return {"name": url.rsplit("/", 1)[-1], "url": url}
+
+
+# --------------------------------------------------------- talking avatar
+
+
+@app.get("/avatar_idle/{filename}")
+async def serve_avatar_idle(filename: str) -> FileResponse:
+    path = config.avatar_idle_path(filename)
+    if path is None:
+        raise HTTPException(404, "idle loop not found")
+    return FileResponse(path)
+
+
+@app.post("/api/characters/{character_id}/avatar-idle")
+async def upload_avatar_idle(
+    character_id: str, request: Request, filename: str = Query(...)
+) -> dict:
+    """Add or replace a character's talking-avatar idle loop, then kick off
+    the one-time prep step against whatever service Settings points
+    `avatar_url` at (AVATAR-VIDEO-CONTRACT.md). Body is the raw video, as
+    every other upload here."""
+    db = get_db()
+    character = repo.get_character(db, character_id)
+    if character is None:
+        raise HTTPException(404, "character not found")
+
+    suffix = Path(filename).suffix.lower()
+    if suffix not in config.AVATAR_IDLE_SUFFIXES:
+        allowed = ", ".join(config.AVATAR_IDLE_SUFFIXES)
+        raise HTTPException(400, f"unsupported video type {suffix or '(none)'} — use {allowed}")
+
+    payload = await request.body()
+    if not payload:
+        raise HTTPException(400, "empty upload")
+    if len(payload) > config.MAX_AVATAR_IDLE_BYTES:
+        limit = config.MAX_AVATAR_IDLE_BYTES // (1024 * 1024)
+        raise HTTPException(400, f"video is larger than {limit} MB")
+
+    config.AVATAR_IDLE_DIR.mkdir(parents=True, exist_ok=True)
+    name = _safe_upload_name(filename, set(config.user_avatar_idles()), "idle-loop")
+    try:
+        (config.AVATAR_IDLE_DIR / name).write_bytes(payload)
+    except OSError as exc:
+        raise HTTPException(500, f"could not save video: {exc}") from exc
+
+    url = f"/avatar_idle/{name}"
+    # "pending" only when prep is actually about to be attempted — nothing
+    # configured yet is not the same state as a prep genuinely in flight,
+    # and leaving it at "none" says so honestly rather than showing a
+    # spinner that will never resolve.
+    will_prepare = avatar_video.configured(config.SETTINGS) and character.avatar_video.enabled
+    character.avatar_video = character.avatar_video.model_copy(
+        update={"idle_video": url, "prep_status": "pending" if will_prepare else "none"}
+    )
+    repo.save_character(db, character)
+
+    if will_prepare:
+        # See Settings.avatar_self_url: the request's own base URL is a
+        # fallback that only works when the browser and the avatar service
+        # happen to share a reachable address, which the default 127.0.0.1
+        # bind never is.
+        base = config.SETTINGS.avatar_self_url or str(request.base_url)
+        asyncio.create_task(
+            avatar_video.prepare(db, config.SETTINGS, character, base.rstrip("/") + url),
+            name=f"avatar_prepare:{character.id}",
+        )
+    return json.loads(character.model_dump_json())
 
 
 # -------------------------------------------------------------- backdrops

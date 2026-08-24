@@ -244,6 +244,23 @@ def avatar_still_wanted(db: Database, filename: str) -> bool:
     return db.query_one("SELECT 1 FROM personas WHERE avatar=?", (filename,)) is not None
 
 
+def avatar_idle_still_wanted(db: Database, filename: str) -> bool:
+    """Whether any character still points at this file in data/avatar_idle/.
+
+    Same reasoning as avatar_still_wanted above, checked after the character
+    row is gone so the character being deleted never counts as a reason to
+    keep its own idle loop."""
+    needle = f"/avatar_idle/{filename}"
+    for row in db.query("SELECT data FROM characters"):
+        try:
+            card = json.loads(row["data"])
+        except (TypeError, ValueError):
+            continue
+        if needle == (card.get("avatar_video") or {}).get("idle_video"):
+            return True
+    return False
+
+
 # -------------------------------------------------------------------- chats
 
 

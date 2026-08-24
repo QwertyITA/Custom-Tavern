@@ -195,6 +195,15 @@ MAX_BACKGROUND_BYTES = 12 * 1024 * 1024
 AVATAR_DIR = DATA_DIR / "avatars"
 MAX_AVATAR_BYTES = 4 * 1024 * 1024
 
+# Idle-loop clips for the talking avatar (AVATAR-VIDEO-CONTRACT.md) — a
+# character's own asset, same "belongs to the character, lives in the
+# gitignored data dir" reasoning as its portrait. A short 5-15s loop, so the
+# byte ceiling is generous compared to a portrait but still nowhere near what
+# an actual render would be.
+AVATAR_IDLE_DIR = DATA_DIR / "avatar_idle"
+AVATAR_IDLE_SUFFIXES = (".mp4", ".webm", ".mov")
+MAX_AVATAR_IDLE_BYTES = 40 * 1024 * 1024
+
 
 def _listing(directory: Path) -> list[str]:
     if not directory.is_dir():
@@ -259,6 +268,24 @@ def avatar_path(name: str) -> Path | None:
     if name not in user_avatars():
         return None
     path = AVATAR_DIR / name
+    return path if path.is_file() else None
+
+
+def user_avatar_idles() -> list[str]:
+    if not AVATAR_IDLE_DIR.is_dir():
+        return []
+    return [
+        f.name for f in AVATAR_IDLE_DIR.iterdir()
+        if f.is_file() and f.suffix.lower() in AVATAR_IDLE_SUFFIXES
+    ]
+
+
+def avatar_idle_path(name: str) -> Path | None:
+    """Resolve an idle-loop name to a file, same matched-against-the-listing
+    reasoning as avatar_path above."""
+    if name not in user_avatar_idles():
+        return None
+    path = AVATAR_IDLE_DIR / name
     return path if path.is_file() else None
 
 
@@ -362,6 +389,25 @@ class Settings:
     search_key: str = ""
     search_results: int = 4
 
+    # Talking avatar (AVATAR-VIDEO-CONTRACT.md). No bundled provider, same
+    # reasoning as search above: a lip-sync render needs a real GPU, which is
+    # never this phone, so this is a URL you point at a service you run
+    # yourself. Empty is off, and it is off by default. avatar_timeout bounds
+    # the whole prepare-or-render round trip, submit through poll — a stuck
+    # render should give up rather than hang a background task forever.
+    avatar_url: str = ""
+    avatar_key: str = ""
+    avatar_timeout: float = 60.0
+    # Where the avatar service should fetch an idle loop back from — the
+    # service runs on a different machine, so "the address this app is
+    # running at" is not knowable from inside the process (a phone bound to
+    # 127.0.0.1 has no other address to give out). Left blank, whatever
+    # address the browser itself used to reach this app is tried instead,
+    # which is right whenever that happens to be the same network the
+    # avatar service is on (e.g. both reached over the same Tailscale
+    # address) and wrong otherwise — set this explicitly when it is wrong.
+    avatar_self_url: str = ""
+
     # Appearance overrides: CSS variable -> value. Only keys in THEME_TOKENS,
     # only values matching that token's shape (§12, §18.4).
     theme: dict[str, str] = field(default_factory=dict)
@@ -412,6 +458,8 @@ class Settings:
         # The search key is a credential too, and the settings screen shows it.
         if d.get("search_key"):
             d["search_key"] = MASK
+        if d.get("avatar_key"):
+            d["avatar_key"] = MASK
         return d
 
 
@@ -684,6 +732,18 @@ def build_settings(payload: dict[str, Any], current: Settings) -> Settings:
             "search_results", current.search_results))))
     except (TypeError, ValueError):
         settings.search_results = current.search_results
+    settings.avatar_url = str(payload.get("avatar_url", current.avatar_url) or "").strip()[:500]
+    # Masked on the way out like any credential, same reasoning as search_key.
+    avatar_key = str(payload.get("avatar_key", current.avatar_key) or "")
+    settings.avatar_key = current.avatar_key if avatar_key == MASK else avatar_key.strip()[:200]
+    try:
+        settings.avatar_timeout = max(5.0, min(600.0, float(payload.get(
+            "avatar_timeout", current.avatar_timeout))))
+    except (TypeError, ValueError):
+        settings.avatar_timeout = current.avatar_timeout
+    settings.avatar_self_url = str(
+        payload.get("avatar_self_url", current.avatar_self_url) or ""
+    ).strip()[:500]
     return settings
 
 
