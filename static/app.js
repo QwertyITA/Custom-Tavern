@@ -19,6 +19,7 @@ function softenMasks(settings) {
     if (b.api_key === "***") b.api_key = MASK_DISPLAY;
   });
   if (settings.search_key === "***") settings.search_key = MASK_DISPLAY;
+  if (settings.avatar_key === "***") settings.avatar_key = MASK_DISPLAY;
   return settings;
 }
 
@@ -423,6 +424,10 @@ function tavern() {
     toggleStates: {},
     expression: "neutral",
     background: "",
+    // The one talking-avatar clip currently live, if any (AVATAR-VIDEO-
+    // CONTRACT.md) — { messageId, url } for the single message it was
+    // rendered for, or null. Never more than one at a time (§ liveVideoFor).
+    liveAvatarVideo: null,
 
     draft: "",
     editing: null,
@@ -544,6 +549,7 @@ function tavern() {
     personaError: "",
     uploadingAvatar: false,
     uploadingPfp: false,
+    uploadingAvatarIdle: false,
     // Right at its default until it is not, same as the Advanced fold below.
     pfpEffectOpen: false,
     confirmPersona: "",
@@ -872,6 +878,26 @@ function tavern() {
         if (who) return pfpUrl(who.pfp || "");
       }
       return this.portrait;
+    },
+
+    // The talking-video clip for one message, only while it is the one
+    // currently live (AVATAR-VIDEO-CONTRACT.md) — every other row, and
+    // every row in a group chat, always shows the static portrait above.
+    // Group chats are out of scope for now: the contract renders against
+    // one character's own idle loop, and a group's per-speaker version of
+    // that isn't built.
+    liveVideoFor(message) {
+      if (!message || message.role !== "assistant") return "";
+      if (this.cast.length > 1) return "";
+      if (!this.liveAvatarVideo || this.liveAvatarVideo.messageId !== message.id) return "";
+      if (!this.character || !(this.character.avatar_video || {}).enabled) return "";
+      return this.liveAvatarVideo.url;
+    },
+
+    // The video plays once; once it has, the row falls back to the ordinary
+    // static portrait with nothing left to track — no replay on scrollback.
+    endAvatarVideo() {
+      this.liveAvatarVideo = null;
     },
 
     async newChat(characterId) {
@@ -1838,6 +1864,49 @@ function tavern() {
       return ["starred", "unstarred", "killed"].filter((k) => !(r[k] || "").trim());
     },
 
+    // ---- talking avatar (AVATAR-VIDEO-CONTRACT.md) ----
+
+    async uploadAvatarIdle(event) {
+      const file = (event.target.files || [])[0];
+      if (!file) return;
+      this.uploadingAvatarIdle = true;
+      this.charError = "";
+      try {
+        const response = await fetch(
+          `/api/characters/${this.draftCharacter.id}/avatar-idle?filename=${encodeURIComponent(file.name)}`,
+          { method: "POST", body: file },
+        );
+        if (!response.ok) throw await apiError(response);
+        // Merged onto the draft rather than replacing it: the server hands
+        // back the character as it is actually stored, and this is the one
+        // field that just changed under it — a whole-object overwrite would
+        // also discard whatever the rest of the form has unsaved.
+        this.draftCharacter.avatar_video = (await response.json()).avatar_video;
+      } catch (e) {
+        this.charError = errorText(e);
+      } finally {
+        this.uploadingAvatarIdle = false;
+        event.target.value = "";
+      }
+    },
+
+    // The prep step runs in the background and can take a while; this is a
+    // deliberate re-check rather than a poll loop, so opening the editor
+    // does not start a timer that outlives it.
+    async refreshAvatarPrepStatus() {
+      try {
+        const updated = await api.get(`/api/characters/${this.draftCharacter.id}`);
+        this.draftCharacter.avatar_video = updated.avatar_video;
+      } catch (_) { /* the character may have been deleted meanwhile */ }
+    },
+
+    avatarPrepLabel() {
+      const status = (this.draftCharacter.avatar_video || {}).prep_status;
+      return {
+        pending: "Preparing…", ready: "Ready", failed: "Preparation failed",
+      }[status] || "";
+    },
+
     // ---- composer actions ----
 
     composerActions() {
@@ -2587,6 +2656,10 @@ function tavern() {
           pfp_shape: draft.pfp_shape || "portrait",
           pfp_effect: draft.pfp_effect || {},
           reactions: draft.reactions || {},
+          avatar_video: {
+            enabled: !!(draft.avatar_video || {}).enabled,
+            voice: (draft.avatar_video || {}).voice || "",
+          },
         });
         this.characters = await api.get("/api/characters");
         // The open chat holds its own copy of the card, and the header reads
@@ -3052,6 +3125,14 @@ function tavern() {
           break;
         case "summary":
           this.summary = { text: event.text, covered_turn: event.covered_turn };
+          break;
+        // A render can land well after the turn's own request has closed
+        // (§ app/avatar_video.py), so — like every other background-pass
+        // result — this only ever arrives over the ambient stream.
+        case "avatar_video":
+          if (event.message_id && event.video_url) {
+            this.liveAvatarVideo = { messageId: event.message_id, url: event.video_url };
+          }
           break;
         case "error":
           if (!fromTurn) this.error = event.error;
@@ -4407,6 +4488,8 @@ function tavern() {
         // see to retype.
         search_key: this.settings.search_key === MASK_DISPLAY
           ? "***" : this.settings.search_key,
+        avatar_key: this.settings.avatar_key === MASK_DISPLAY
+          ? "***" : this.settings.avatar_key,
         tiers_off: [...(this.settings.tiers_off || [])],
         pass_every: { ...(this.settings.pass_every || {}) },
         backends: this.settings.backends.map((b) => ({

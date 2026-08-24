@@ -395,8 +395,18 @@
           <span class="pfp pfp-blank" aria-hidden="true">
             <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
           </span>
-          <template x-if="portraitFor(m)">
+          <template x-if="portraitFor(m) && !liveVideoFor(m)">
             <img class="pfp pfp-over" :src="portraitFor(m)" alt="" @error="$el.remove()">
+          </template>
+          <!-- The talking clip for this one reply, while it is live
+               (AVATAR-VIDEO-CONTRACT.md) — the only place in the app a
+               portrait is ever anything but a still image, and only for the
+               one message it was rendered for. Falls back to the ordinary
+               portrait above the moment it ends, with nothing left to
+               track: there is no scrollback replay. -->
+          <template x-if="liveVideoFor(m)">
+            <video class="pfp pfp-over" :src="liveVideoFor(m)"
+                   autoplay playsinline @ended="endAvatarVideo()"></video>
           </template>
           <span class="pfp-glow" x-show="pfpEffectOn(portraitEffect(m))" x-cloak
                 :style="pfpEffectStyle(portraitEffect(m))" aria-hidden="true"></span>
@@ -1114,6 +1124,34 @@
           can say where something came from. One request per message and no
           extra model call — but it does happen before the reply starts, so a
           slow engine is a slow turn.
+        </p>
+
+        <h3>Talking avatar</h3>
+        <p class="note">
+          Nothing ships with a lip-sync renderer either — point this at a
+          service you run yourself and see AVATAR-VIDEO-CONTRACT.md for what
+          it needs to answer. Then switch a character's own
+          <strong>Talking avatar</strong> on in its editor: it stays off
+          until both are done, same as search above.
+        </p>
+        <label class="row"><span class="row-label">Avatar URL</span>
+          <input x-model="settings.avatar_url" spellcheck="false" inputmode="url"
+                 placeholder="http://100.1.2.3:8000">
+        </label>
+        <label class="row"><span class="row-label">Key</span>
+          <input type="password" x-model="settings.avatar_key" autocomplete="off"
+                 spellcheck="false" placeholder="Only if yours needs one">
+        </label>
+        <label class="row"><span class="row-label">Reachable at</span>
+          <input x-model="settings.avatar_self_url" spellcheck="false" inputmode="url"
+                 placeholder="http://100.4.5.6:8787 — leave blank to guess">
+        </label>
+        <p class="kind-note">
+          Where your avatar service should fetch an idle loop back from —
+          this app's own address is not knowable from inside it, so this has
+          to be told rather than detected. Left blank, whatever address the
+          browser used to reach this app is tried, which rarely works
+          once this app and the avatar service are on different machines.
         </p>
       </div>
 
@@ -2294,6 +2332,43 @@
           <textarea x-model="draftCharacter.reactions.killed" rows="2"
                     placeholder="Their very last line, if this character is ever deleted. 5–8 words."></textarea>
         </label>
+
+        <!-- A lip-synced clip over the portrait after each reply, from a
+             service run outside this app (AVATAR-VIDEO-CONTRACT.md) — off
+             until both that service is pointed at in Settings and this
+             switch is on; either missing falls back to the ordinary
+             portrait with nothing shown here or in the chat. -->
+        <h3>Talking avatar</h3>
+        <p class="note">
+          A short clip plays over the portrait after each of this
+          character's replies, rendered by a service you run yourself.
+          Needs <code>avatar_url</code> set in Settings first.
+        </p>
+        <label class="toggle" x-show="draftCharacter.avatar_video">
+          <input type="checkbox" x-model="draftCharacter.avatar_video.enabled">
+          <span>Talking avatar</span>
+        </label>
+        <div class="fold" :class="{ open: (draftCharacter.avatar_video || {}).enabled }">
+          <div class="fold-clip">
+            <div class="pfp-edit-actions">
+              <label class="link file-link">
+                <span x-text="uploadingAvatarIdle ? 'Uploading…' :
+                  ((draftCharacter.avatar_video || {}).idle_video ? 'Replace idle loop' : 'Add an idle loop')"></span>
+                <input type="file" accept="video/mp4,video/webm,video/quicktime"
+                       @change="uploadAvatarIdle($event)" hidden>
+              </label>
+              <span class="kind-note" x-show="avatarPrepLabel()" x-text="avatarPrepLabel()"></span>
+              <button class="link" x-show="(draftCharacter.avatar_video || {}).prep_status === 'pending'"
+                      @click="refreshAvatarPrepStatus()">Check status</button>
+            </div>
+            <label class="col-field">
+              <span class="row-label wide-label">Voice</span>
+              <input x-model="draftCharacter.avatar_video.voice"
+                     placeholder="Meaning defined by your avatar service">
+              <span class="kind-note">Sent with the reply text on every render; this app never reads it.</span>
+            </label>
+          </div>
+        </div>
 
         <div class="sheet-actions">
           <button class="wide primary" @click="saveCharacter()" :disabled="savingCharacter">
