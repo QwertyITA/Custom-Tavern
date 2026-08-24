@@ -299,6 +299,43 @@ function makePacer(apply) {
   };
 }
 
+// "Realistic chat speed" (Brain → Settings, on by default) — see runStream.
+// Every range below is rolled once per turn, not re-rolled per word: the
+// point is that a turn's own pace varies from the next one's, not that it
+// wobbles within itself. Silence first — a person reads what was said and
+// starts composing an answer before anything of theirs shows up at all —
+// sized to how much there was to read; then the typing cue itself holds for
+// at least a floor of its own, however fast the reply actually arrives.
+const REALISTIC_SILENCE_BASE_MS = [800, 1800];
+const REALISTIC_SILENCE_PER_WORD_MS = [40, 80];
+// A very long message still gets an answer in a bounded time — the point is
+// pacing, not making someone wait minutes for a paragraph.
+const REALISTIC_SILENCE_CAP_MS = 6000;
+const REALISTIC_TYPING_MIN_MS = [1000, 2000];
+
+function randRange([min, max]) {
+  return min + Math.random() * (max - min);
+}
+
+function wordCount(text) {
+  const m = String(text || "").trim().match(/\S+/g);
+  return m ? m.length : 0;
+}
+
+// { silenceMs, typingMinMs } for one turn of "Realistic chat speed" — see
+// runStream, which is the only thing that reads this. Based on the *sent*
+// message's length alone: what the model does with reasoning tokens on the
+// way to a reply is its own business, not a measure of how long a person
+// would sit reading a message before they started answering it.
+function realisticPacing(text) {
+  const words = wordCount(text);
+  const silenceMs = Math.min(
+    REALISTIC_SILENCE_CAP_MS,
+    randRange(REALISTIC_SILENCE_BASE_MS) + randRange(REALISTIC_SILENCE_PER_WORD_MS) * words,
+  );
+  return { silenceMs, typingMinMs: randRange(REALISTIC_TYPING_MIN_MS) };
+}
+
 // How far from the bottom still counts as "following the conversation". Big
 // enough to absorb sub-pixel scroll heights and the rubber-band at the end of
 // a touch scroll, small enough that one deliberate flick upward detaches.
@@ -3315,6 +3352,16 @@ function tavern() {
 
     // ---- turn ----
 
+    // null when the setting is off, otherwise this turn's { silenceMs,
+    // typingMinMs } (§ realisticPacing) — the one thing runStream needs to
+    // know to run "Realistic chat speed" for a send or a retry. `!== false`
+    // rather than `=== true`: settings loads before any chat can open (§
+    // boot), so the only gap this covers is that fetch having failed
+    // outright, and the setting defaults on.
+    realisticPacingFor(text) {
+      return this.settings.realistic_chat_speed !== false ? realisticPacing(text) : null;
+    },
+
     async send() {
       const text = this.draft.trim();
       const files = this.stagedIds();
@@ -3339,7 +3386,7 @@ function tavern() {
       this.nextSpeaker = "";
       const sent = await this.runStream(`/api/chats/${this.chatId}/send`, {
         text, attachments: files, speaker_id: speaker,
-      });
+      }, undefined, this.realisticPacingFor(text));
       // It never reached the server, so there is no stored message to retry
       // and nothing on screen — the words would simply have been gone. Put
       // them back where they were typed. A request that *did* land leaves the
@@ -3357,7 +3404,11 @@ function tavern() {
       if (this.streaming || !this.chatId) return;
       this.error = "";
       this.scrollDown();
-      await this.runStream(`/api/chats/${this.chatId}/retry`, {});
+      // The message being answered, for the pacing's word count — it is
+      // always the last one (§ the `unanswered` getter this button answers).
+      const last = this.messages[this.messages.length - 1];
+      const realistic = this.realisticPacingFor(last && last.role === "user" ? last.text : "");
+      await this.runStream(`/api/chats/${this.chatId}/retry`, {}, undefined, realistic);
     },
 
     async swipe(message) {
@@ -3518,11 +3569,32 @@ function tavern() {
 
     // Returns whether the turn actually started — a caller that never reached
     // the server has a message on its hands that nothing else will account for.
-    async runStream(url, body, swipeMessageId) {
+    //
+    // `realistic`, when given (§ realisticPacing, "Realistic chat speed" in
+    // settings), holds { silenceMs, typingMinMs } for this one turn — see
+    // send() and retryTurn(), the only two callers that ever pass it; swipe()
+    // never does, on purpose (§ AskUserQuestion this was scoped by).
+    // Everything below it gates on `gateOpen`, which starts closed only when
+    // there is a plan to open it: every call with no `realistic` behaves
+    // exactly as this function always has, gate open from the first line.
+    async runStream(url, body, swipeMessageId, realistic) {
       let reached = false;
       this.streaming = true;
       this.streamAbort = new AbortController();
-      this.composing = !swipeMessageId;
+
+      let gateOpen = !realistic;
+      // What the cue should say once it is actually shown — tracked even
+      // while nothing is visible, so a reasoning event that arrives during
+      // the silence does not get lost and have the cue open on the wrong
+      // word the moment it appears.
+      let pendingKind = "typing";
+      // A reply/variant event that finished before the gate opened — held
+      // rather than applied immediately, so a server that answers inside the
+      // silence still waits out the same pacing as a slow one (§ below).
+      let pendingFinal = null;
+      let realisticTimer = null;
+
+      this.composing = !swipeMessageId && gateOpen;
       this.composingKind = "typing";
       this.composingSpeaker = "";
       this.thinkChars = 0;
@@ -3539,6 +3611,123 @@ function tavern() {
         if (target) target.text = text;
         this.markFlowing();
       });
+
+      // Creates the placeholder bubble (or finds the one being swiped) and
+      // hands whatever has accumulated in `buffer` to the pacer. Called from
+      // the delta case once the gate is already open, and from the gate's own
+      // timer to catch up on whatever arrived while it was still closed —
+      // both need the exact same thing to happen, so this is the one place
+      // that does it.
+      const reveal = () => {
+        if (!target) {
+          if (swipeMessageId) {
+            target = this.messages.find((m) => m.id === swipeMessageId);
+          } else {
+            // Read it back rather than keeping the object that went in.
+            // Alpine stores a *proxy* of what you push, and only writes
+            // through that proxy are seen: holding the raw object meant
+            // every `target.text = buffer` below landed on something
+            // nothing was watching. The reply then arrived in one frame
+            // at the end of the stream — the bubble sat at the size of
+            // the first token for the whole generation and then snapped
+            // open, and the per-token fade (§2.1) never ran at all. The
+            // swipe path never had this because `find()` hands back the
+            // proxy already.
+            this.messages.push({
+              id: "streaming",
+              role: "assistant",
+              turn: this.turn,
+              text: "",
+              variant_count: 1,
+              variant_index: 0,
+              edited: false,
+            });
+            target = this.messages[this.messages.length - 1];
+          }
+          this.composing = false;
+
+          if (target && this.regenId === target.id) {
+            // First token of a regeneration: grow out of the typing cue
+            // instead of snapping open. The callback writes the buffer as
+            // it stands when the animation measures, so it cannot undo a
+            // later delta the way a captured copy would.
+            this.endRegen(target, () => { target.text = buffer; });
+            return;
+          }
+        }
+        // Trailing whitespace is trimmed from what is *shown*, never
+        // from the buffer. `pre-wrap` renders a trailing newline as a
+        // real empty line, so a reply that streams one mid-paragraph
+        // stood a blank line tall until the server's cleaned copy
+        // arrived and took it away — the bubble lost a line of height at
+        // the moment the reply settled, which is the one moment nothing
+        // should move.
+        pacer.push(buffer.replace(/\s+$/, ""));
+        if (!firstToken) { firstToken = true; buzz(6); }
+        // `content-visibility: auto` on a message row skips style and
+        // layout for its whole subtree, so the per-token fade ran as a
+        // perfectly healthy animation that never moved a pixel. The
+        // `:has(.mk-new)` rule cannot fix it — the animation starts in
+        // the frame the subtree is still being skipped in. Marking the
+        // row for the length of the stream can, and there is exactly one
+        // row streaming at a time.
+        this.markStreamingRow(target.id);
+      };
+
+      // Applies a reply/variant event exactly as the switch below always
+      // has — pulled out so a pending one (§ pendingFinal) can be run from
+      // the gate's own timer once it opens, not only from the loop.
+      const applyFinal = async (final) => {
+        await pacer.done();
+        if (final.type === "reply") {
+          const index = this.messages.findIndex((m) => m.id === "streaming");
+          const message = { ...final.event.message, text: final.event.message.text };
+          if (index === -1) this.messages.push(message);
+          else this.messages[index] = message;
+        } else {
+          const message = this.messages.find((m) => m.id === final.event.message_id);
+          if (message) {
+            message.text = final.event.variant.text;
+            message.variant_index = final.event.variant.idx;
+            message.variant_count = final.event.variant.idx + 1;
+            message.edited = false;
+            message.has_thinking = !!final.event.variant.has_thinking;
+          }
+        }
+        this.setBands(final.event.state.bands || []);
+        this.stateProvisional = !!final.event.state.provisional;
+      };
+
+      // Resolved once the gate's own timers actually open it — see the
+      // await right after the loop below. A fast server finishes the SSE
+      // stream long before silenceMs + typingMinMs have elapsed, and the
+      // `for await` loop exits the moment the connection closes; without
+      // this, `finally` would run on its heels, clearTimeout the still-
+      // pending gate and tear the turn down with the reply held in
+      // `pendingFinal` and never shown. Left null when there is no
+      // `realistic` to wait for.
+      let gateOpenResolve = null;
+      const gateOpenSettled = realistic
+        ? new Promise((resolve) => { gateOpenResolve = resolve; })
+        : null;
+
+      if (realistic) {
+        realisticTimer = setTimeout(() => {
+          // The silence is over. Show the cue — in whichever kind a
+          // reasoning event during the silence said it should open on —
+          // and give it its own floor before the gate can open under it.
+          this.composing = true;
+          this.composingKind = pendingKind;
+          this.composingLabel = this.cueLabel(pendingKind);
+          realisticTimer = setTimeout(async () => {
+            gateOpen = true;
+            if (buffer) reveal();
+            if (pendingFinal) await applyFinal(pendingFinal);
+            gateOpenResolve();
+          }, realistic.typingMinMs);
+        }, realistic.silenceMs);
+      }
+
       try {
         const response = await fetch(url, {
           method: "POST",
@@ -3589,61 +3778,12 @@ function tavern() {
 
             case "delta":
               buffer += event.text;
-              if (!target) {
-                // Stream into a placeholder so the reply renders live, with
-                // markup colouring applied on every frame (§8).
-                if (swipeMessageId) {
-                  target = this.messages.find((m) => m.id === swipeMessageId);
-                } else {
-                  this.messages.push({
-                    id: "streaming",
-                    role: "assistant",
-                    turn: this.turn,
-                    text: "",
-                    variant_count: 1,
-                    variant_index: 0,
-                    edited: false,
-                  });
-                  // Read it back rather than keeping the object that went in.
-                  // Alpine stores a *proxy* of what you push, and only writes
-                  // through that proxy are seen: holding the raw object meant
-                  // every `target.text = buffer` below landed on something
-                  // nothing was watching. The reply then arrived in one frame
-                  // at the end of the stream — the bubble sat at the size of
-                  // the first token for the whole generation and then snapped
-                  // open, and the per-token fade (§2.1) never ran at all. The
-                  // swipe path never had this because `find()` hands back the
-                  // proxy already.
-                  target = this.messages[this.messages.length - 1];
-                }
-                this.composing = false;
-
-                if (target && this.regenId === target.id) {
-                  // First token of a regeneration: grow out of the typing cue
-                  // instead of snapping open. The callback writes the buffer as
-                  // it stands when the animation measures, so it cannot undo a
-                  // later delta the way a captured copy would.
-                  this.endRegen(target, () => { target.text = buffer; });
-                  break;
-                }
-              }
-              // Trailing whitespace is trimmed from what is *shown*, never
-              // from the buffer. `pre-wrap` renders a trailing newline as a
-              // real empty line, so a reply that streams one mid-paragraph
-              // stood a blank line tall until the server's cleaned copy
-              // arrived and took it away — the bubble lost a line of height at
-              // the moment the reply settled, which is the one moment nothing
-              // should move.
-              pacer.push(buffer.replace(/\s+$/, ""));
-              if (!firstToken) { firstToken = true; buzz(6); }
-              // `content-visibility: auto` on a message row skips style and
-              // layout for its whole subtree, so the per-token fade ran as a
-              // perfectly healthy animation that never moved a pixel. The
-              // `:has(.mk-new)` rule cannot fix it — the animation starts in
-              // the frame the subtree is still being skipped in. Marking the
-              // row for the length of the stream can, and there is exactly one
-              // row streaming at a time.
-              this.markStreamingRow(target.id);
+              // Still silent, or still holding the typing cue's own floor
+              // (§ realistic above) — accumulate and wait. The gate's timer
+              // calls reveal() itself once it opens, to catch up on exactly
+              // this backlog; there is nothing more to do with this one.
+              if (!gateOpen) break;
+              reveal();
               // No scroll call here on purpose: the observer follows the text
               // as it grows, and forcing it per delta would drag the user back
               // down every token if they had scrolled up to read.
@@ -3662,8 +3802,16 @@ function tavern() {
               if (!this.thinkChars || this.depthFor(chars) - this.thinkDepth >= 0.005) {
                 this.thinkChars = chars;
               }
-              this.composingKind = "thinking";
-              this.composingLabel = this.cueLabel("thinking");
+              // Remembered regardless of whether the cue is on screen yet, so
+              // the gate's own timer (§ realistic above) opens it already
+              // reading "thinking" instead of defaulting to "typing" for a
+              // frame. Only actually repainted here when there is a cue up to
+              // repaint — during the silence there is nothing to update.
+              pendingKind = "thinking";
+              if (this.composing) {
+                this.composingKind = "thinking";
+                this.composingLabel = this.cueLabel("thinking");
+              }
               break;
             }
 
@@ -3674,47 +3822,41 @@ function tavern() {
             case "reply_reset":
               buffer = "";
               pacer.reset();
+              pendingFinal = null;
               if (swipeMessageId) {
                 if (target) target.text = "";
               } else {
                 this.messages = this.messages.filter((m) => m.id !== "streaming");
                 target = null;
-                this.composing = true;
-                this.composingKind = "thinking";
-                this.composingLabel = this.cueLabel("thinking");
+                pendingKind = "thinking";
+                // Only during the typing-cue phase does this belong on
+                // screen; during the silence there is still nothing to show,
+                // and forcing composing on here would open the cue early,
+                // ahead of the gate's own timer.
+                if (this.composing) {
+                  this.composingKind = "thinking";
+                  this.composingLabel = this.cueLabel("thinking");
+                }
               }
               break;
 
-            case "reply": {
+            case "reply":
               // Not before the paced text has caught up: swapping in the
               // finished reply while the bubble is still filling would skip
-              // the last of it into place.
-              await pacer.done();
-              const index = this.messages.findIndex((m) => m.id === "streaming");
-              const message = { ...event.message, text: event.message.text };
-              if (index === -1) this.messages.push(message);
-              else this.messages[index] = message;
-              this.setBands(event.state.bands || []);
-              this.stateProvisional = !!event.state.provisional;
+              // the last of it into place. While the gate is still closed
+              // there is no bubble to catch up yet — held instead, and
+              // applied by the gate's own timer once it opens (§ realistic
+              // above), so a server that answers inside the silence or the
+              // typing cue's floor still waits out the same pacing as a slow
+              // one rather than snapping the reply in early.
+              if (!gateOpen) { pendingFinal = { type: "reply", event }; break; }
+              await applyFinal({ type: "reply", event });
               break;
-            }
 
-            case "variant": {
-              await pacer.done();
-              const message = this.messages.find((m) => m.id === event.message_id);
-              if (message) {
-                message.text = event.variant.text;
-                message.variant_index = event.variant.idx;
-                message.variant_count = event.variant.idx + 1;
-                message.edited = false;
-                // Per variant, like the reasoning itself: this swipe may have
-                // thought where the one before it did not.
-                message.has_thinking = !!event.variant.has_thinking;
-              }
-              this.setBands(event.state.bands || []);
-              this.stateProvisional = !!event.state.provisional;
+            case "variant":
+              if (!gateOpen) { pendingFinal = { type: "variant", event }; break; }
+              await applyFinal({ type: "variant", event });
               break;
-            }
 
             case "error":
               this.error = event.error;
@@ -3724,6 +3866,14 @@ function tavern() {
               this.handleEvent(event, true);
           }
         }
+        // The stream itself just finished — often before the gate does, on
+        // a fast server. Wait for the gate's own timers to run their course
+        // and actually open it (§ gateOpenSettled above), so a reply held
+        // in `pendingFinal` gets shown rather than torn down unseen the
+        // moment `finally` clears the timer that was still going to reveal
+        // it. Only reached on a clean finish, never on error/abort below —
+        // there is nothing worth pacing out once the turn has failed.
+        if (realistic && !gateOpen) await gateOpenSettled;
       } catch (e) {
         pacer.flush();
         if (e.name === "AbortError") {
@@ -3742,6 +3892,11 @@ function tavern() {
           if (original && !original.text) original.text = this.regenPrevious;
         }
       } finally {
+        // Whichever of the two (§ realistic above) is still pending: the
+        // stream is done, one way or another, and a timer that fired after
+        // this would reveal or finalize against state this has already torn
+        // down or reloaded.
+        clearTimeout(realisticTimer);
         await pacer.done();
         this.streaming = false;
         this.composing = false;

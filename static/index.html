@@ -68,6 +68,15 @@
       <path d="M4 12h3M10 12h10"/><circle cx="7.5" cy="12" r="2"/>
       <path d="M4 17h10M18 17h2"/><circle cx="16" cy="17" r="2"/>
     </g>
+    <!-- A plain gear: this tab is app-behaviour toggles that don't share a
+         home with the model config, the appearance panel or a single pass —
+         the one place here that earns the generic "settings" glyph the rest
+         of this sprite otherwise avoids in favour of something that means
+         its own destination specifically. -->
+    <g id="i-gear">
+      <circle cx="12" cy="12" r="3.2"/>
+      <path d="M12 3.6v2.4M12 18v2.4M20.4 12h-2.4M6 12H3.6M17.6 6.4l-1.7 1.7M8.1 15.9l-1.7 1.7M17.6 17.6l-1.7-1.7M8.1 8.1 6.4 6.4"/>
+    </g>
     <g id="i-menu">
       <path d="M4 7h16M4 12h16M4 17h16"/>
     </g>
@@ -982,6 +991,13 @@
             <svg class="menu-glyph" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-advanced"/></svg>
             <span class="menu-label">Advanced</span>
           </button>
+          <button class="menu-btn brain-tab" :class="{ on: brainTab === 'settings' }"
+                  @click="brainTab = 'settings'" role="tab"
+                  :aria-selected="brainTab === 'settings'"
+                  aria-label="Settings" title="Settings">
+            <svg class="menu-glyph" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-gear"/></svg>
+            <span class="menu-label">Settings</span>
+          </button>
         </div>
 
       <template x-if="brainTab === 'backends'">
@@ -1883,6 +1899,35 @@
           </div>
         </div>
       </div>
+      </template>
+
+      <!-- ----------------------------------------------------- settings tab -->
+      <!-- App-behaviour toggles that don't belong to model config, appearance,
+           or any one pass — the catch-all the other four tabs deliberately
+           aren't. Saves through the same settings object and the same Save
+           bar as Backends/Passes/Advanced (§ .sheet-actions below), since
+           realistic_chat_speed lives on Settings like everything else here. -->
+      <template x-if="brainTab === 'settings'">
+        <div
+           x-transition:enter="braintab-enter" x-transition:enter-start="braintab-from"
+           x-transition:enter-end="braintab-to">
+        <h3>Chat pacing</h3>
+        <label class="toggle">
+          <input type="checkbox" x-model="settings.realistic_chat_speed">
+          <span>Realistic chat speed</span>
+        </label>
+        <p class="kind-note">
+          A reply doesn't land the instant the server has one to give: your
+          message still appears right away, but there's a silent beat first
+          — longer for a longer message — before the typing cue even shows,
+          and once it does it holds for at least a moment of its own. A fast
+          backend gets paced down to something closer to a person replying;
+          a slow one gets the same cue to watch instead of a blank wait
+          either way. Applies to a new message and to answering one that
+          never got a reply — not to regenerating or continuing a reply
+          already on screen, both of which stay instant.
+        </p>
+        </div>
       </template>
 
       <!-- Story options saves each field as it changes (saveNote(),

@@ -370,6 +370,15 @@ class Settings:
     # Rendering / hygiene.
     strip_user_turn_leakage: bool = True
 
+    # Client-side pacing only (Brain → Settings) — the server has nothing to
+    # do with this, it never changes what is sent or when the pass actually
+    # runs, only whether the browser is allowed to show what it already has
+    # the instant it has it. Stored here anyway rather than in localStorage,
+    # same as every other Brain/Theme toggle: this is a personal install with
+    # one settings.json as its one source of truth, not a multi-browser app
+    # where per-device state would make sense.
+    realistic_chat_speed: bool = True
+
     # Which prompt sections are built and in what order inside each band (§14).
     # Empty means "the defaults", so a settings file written before this existed
     # keeps working and every section arrives switched on.
@@ -677,6 +686,9 @@ def build_settings(payload: dict[str, Any], current: Settings) -> Settings:
     settings.host = str(payload.get("host", current.host)) or current.host
     settings.strip_user_turn_leakage = bool(
         payload.get("strip_user_turn_leakage", current.strip_user_turn_leakage)
+    )
+    settings.realistic_chat_speed = bool(
+        payload.get("realistic_chat_speed", current.realistic_chat_speed)
     )
     settings.theme = (
         validate_theme(payload["theme"]) if "theme" in payload else dict(current.theme)
