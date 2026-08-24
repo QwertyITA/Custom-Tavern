@@ -11,6 +11,9 @@ Written generically — no field or endpoint here assumes MuseTalk
 specifically. Point `avatar_url` (in Settings) at anything that implements
 this and it works the same way.
 
+Setting up MuseTalk itself and a reference server implementing everything
+below: [MUSETALK-SETUP.md](MUSETALK-SETUP.md).
+
 ## Why two phases
 
 MuseTalk's own design (and the reasoning applies to any similar model)
