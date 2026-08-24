@@ -2130,40 +2130,39 @@
                 </span>
                 <span class="char-meta" x-text="`${c.chats} chat${c.chats === 1 ? '' : 's'}`"></span>
               </div>
-              <!-- Off on its own corner rather than in the tool row below: a
-                   mark of favour reads differently from an action, and
-                   sharing a row with "delete" priced it the same as one. -->
-              <button class="glyph-btn star corner" :class="{ on: c.favourite }"
-                      @click.stop="toggleFavourite(c)"
-                      :title="c.favourite ? 'Starred — sorts to the top' : 'Star this character'"
-                      :aria-pressed="c.favourite" aria-label="Star character">
-                <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-star"/></svg>
-              </button>
+              <!-- One corner column, not a corner plus a row of its own
+                   below the head: star on top since a mark of favour reads
+                   differently from an action, edit/export/delete stacked
+                   right under it. Everything management-shaped lives beside
+                   the portrait instead of adding a whole extra row under
+                   it — the height that would have cost is the height the
+                   portrait was already spending. -->
+              <div class="char-head-tools">
+                <button class="glyph-btn star" :class="{ on: c.favourite }"
+                        @click.stop="toggleFavourite(c)"
+                        :title="c.favourite ? 'Starred — sorts to the top' : 'Star this character'"
+                        :aria-pressed="c.favourite" aria-label="Star character">
+                  <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-star"/></svg>
+                </button>
+                <div class="char-head-secondary">
+                  <button class="glyph-btn" @click.stop="editCharacter(c.id)"
+                          title="Edit character" aria-label="Edit character">
+                    <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-edit"/></svg>
+                  </button>
+                  <a class="glyph-btn" :href="`/api/characters/${c.id}/export?download=true`"
+                     :download="`${c.name}.card.json`" @click.stop
+                     title="Export card" aria-label="Export card">
+                    <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-export"/></svg>
+                  </a>
+                  <button class="glyph-btn danger" :class="{ armed: confirmChar === c.id }"
+                          @click.stop="deleteCharacter(c)"
+                          :title="confirmChar === c.id ? 'Tap again to delete — this deletes its chats too' : 'Delete character'"
+                          aria-label="Delete character"
+                          x-text="confirmChar === c.id ? '⚠&#xFE0E;' : '✕&#xFE0E;'"></button>
+                </div>
+              </div>
             </div>
 
-            <!-- Management (edit, export, delete) first and icon-only, the
-                 two things you actually came here to do — said in words,
-                 since "continue" and "start over" don't have a universal
-                 glyph the way "delete" does — second: management is reached
-                 less often, but reading top-to-bottom as "housekeeping, then
-                 the actual action" put the row you want most below one you
-                 don't, every single time. -->
-            <div class="char-actions-secondary">
-              <button class="glyph-btn" @click.stop="editCharacter(c.id)"
-                      title="Edit character" aria-label="Edit character">
-                <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-edit"/></svg>
-              </button>
-              <a class="glyph-btn" :href="`/api/characters/${c.id}/export?download=true`"
-                 :download="`${c.name}.card.json`" @click.stop
-                 title="Export card" aria-label="Export card">
-                <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-export"/></svg>
-              </a>
-              <button class="glyph-btn danger" :class="{ armed: confirmChar === c.id }"
-                      @click.stop="deleteCharacter(c)"
-                      :title="confirmChar === c.id ? 'Tap again to delete — this deletes its chats too' : 'Delete character'"
-                      aria-label="Delete character"
-                      x-text="confirmChar === c.id ? '⚠&#xFE0E;' : '✕&#xFE0E;'"></button>
-            </div>
             <div class="char-actions">
               <button class="char-action-btn" @click.stop="newChat(c.id)"
                       title="New chat" aria-label="New chat">

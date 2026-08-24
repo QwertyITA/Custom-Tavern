@@ -1391,11 +1391,8 @@ body {
    happened: on a 360px screen the row showed a portrait, a chat count and six
    icons, with the name at zero width. Giving the name a floor and letting the
    tools take their own line keeps every row legible at any width. */
-/* padding-right reserves room for the star, which sits position:absolute in
-   this same corner (§ .glyph-btn.star.corner) — without it a long name runs
-   straight under the button instead of wrapping or eliding clear of it. */
 .char-head { position: relative; display: flex; align-items: center; gap: 8px; row-gap: 0;
-             flex-wrap: wrap; padding-right: 40px; }
+             flex-wrap: wrap; }
 
 /* A WhatsApp-style speech bubble over the character's own row (§ toggle
    Favourite in app.js) — the tail is a rotated square half-hidden behind the
@@ -1454,11 +1451,17 @@ body {
    blank fallback), just a wider --pfp-w. */
 .pfp-slot-roster { --pfp-w: 52px; }
 
-/* The star used to sit in the tool row beside edit/export/delete, priced
-   the same as all four — a mark of favour is not a management action, so it
-   moved to its own corner of the head instead (§ HTML). position:absolute
-   against .char-head, same trick .reaction-bubble uses one row up. */
-.glyph-btn.star.corner { position: absolute; top: 4px; right: 4px; }
+/* Star on top, edit/export/delete stacked under it — one column at the
+   head's own right edge, not a corner badge plus a separate full-width row
+   underneath (§ HTML). flex:none so it keeps its own width regardless of
+   how little room .char-id has left; align-items:flex-end pins both rows
+   flush to the same right edge the star used to occupy alone. Costs no
+   extra height of its own: the column is shorter than the portrait beside
+   it, so the row's height is still set by the portrait, same as before
+   this existed. */
+.char-head-tools { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: none; }
+.char-head-secondary { display: flex; gap: 2px; }
+.char-head-secondary .glyph-btn { min-width: 30px; min-height: 30px; padding: 4px; }
 
 .char-name-row { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .char-name-row .char-name { min-width: 0; }
@@ -1478,12 +1481,9 @@ body {
   padding: 2px 7px;
 }
 
-/* The three things a row exists to manage, read top-to-bottom before the two
-   things it exists to do — housekeeping first, action second (§ HTML for
-   why) — and both shorter than they were: neither is a primary 44px target
-   any more, the head's own star and the fold this row opens already are. */
-.char-actions-secondary { display: flex; gap: 2px; justify-content: flex-end; margin-top: 6px; }
-.char-actions-secondary .glyph-btn { min-height: 34px; }
+/* The two things a row exists to do, said in words — management now lives
+   in the head itself (§ .char-head-tools), so this row is only ever these
+   two. */
 .char-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .char-action-btn {
   flex: 1 1 40%;
