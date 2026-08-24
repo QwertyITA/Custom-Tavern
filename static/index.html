@@ -270,6 +270,11 @@
           <svg class="menu-glyph" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chats"/></svg>
           <span class="menu-label">Characters</span>
         </button>
+        <button class="menu-btn" :class="{ on: panelOpen && panel === 'settings' }" @click="openPanel('settings')"
+                aria-label="Settings" title="Settings">
+          <svg class="menu-glyph" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-gear"/></svg>
+          <span class="menu-label">Settings</span>
+        </button>
       </nav>
     </div>
   </div>
@@ -990,13 +995,6 @@
                   aria-label="Advanced" title="Advanced">
             <svg class="menu-glyph" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-advanced"/></svg>
             <span class="menu-label">Advanced</span>
-          </button>
-          <button class="menu-btn brain-tab" :class="{ on: brainTab === 'settings' }"
-                  @click="brainTab = 'settings'" role="tab"
-                  :aria-selected="brainTab === 'settings'"
-                  aria-label="Settings" title="Settings">
-            <svg class="menu-glyph" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-gear"/></svg>
-            <span class="menu-label">Settings</span>
           </button>
         </div>
 
@@ -1901,16 +1899,28 @@
       </div>
       </template>
 
-      <!-- ----------------------------------------------------- settings tab -->
-      <!-- App-behaviour toggles that don't belong to model config, appearance,
-           or any one pass — the catch-all the other four tabs deliberately
-           aren't. Saves through the same settings object and the same Save
-           bar as Backends/Passes/Advanced (§ .sheet-actions below), since
-           realistic_chat_speed lives on Settings like everything else here. -->
-      <template x-if="brainTab === 'settings'">
-        <div
-           x-transition:enter="braintab-enter" x-transition:enter-start="braintab-from"
-           x-transition:enter-end="braintab-to">
+      <!-- Story options saves each field as it changes (saveNote(),
+           setToggle(), ...), the same as it did as its own panel — nothing
+           there belongs to `settings`, so this bar would ride along doing
+           nothing on that tab and offering a "Save" that saves nothing. -->
+      <div class="sheet-actions" x-show="brainTab !== 'story'">
+          <button class="wide primary" @click="saveSettings()" :disabled="saving">
+            <span x-text="saving ? 'Saving…' : 'Save'"></span>
+          </button>
+          <span class="save-msg" :class="{ bad: saveError }" x-text="saveError || saveMsg"></span>
+        </div>
+      </div>
+    </template>
+
+    <!-- -------------------------------------------------------- settings -->
+    <!-- App-behaviour toggles that don't belong to model config (Brain),
+         appearance (Theme), or the roster (Characters) — a destination of
+         its own for exactly the same reason those three are, not a tab
+         tucked inside one of them. Saves through the same settings object
+         and Save bar as Theme, since realistic_chat_speed lives on Settings
+         like everything else here. -->
+    <template x-if="panel === 'settings'">
+      <div>
         <h3>Chat pacing</h3>
         <label class="toggle">
           <input type="checkbox" x-model="settings.realistic_chat_speed">
@@ -1927,14 +1937,8 @@
           never got a reply — not to regenerating or continuing a reply
           already on screen, both of which stay instant.
         </p>
-        </div>
-      </template>
 
-      <!-- Story options saves each field as it changes (saveNote(),
-           setToggle(), ...), the same as it did as its own panel — nothing
-           there belongs to `settings`, so this bar would ride along doing
-           nothing on that tab and offering a "Save" that saves nothing. -->
-      <div class="sheet-actions" x-show="brainTab !== 'story'">
+        <div class="sheet-actions">
           <button class="wide primary" @click="saveSettings()" :disabled="saving">
             <span x-text="saving ? 'Saving…' : 'Save'"></span>
           </button>

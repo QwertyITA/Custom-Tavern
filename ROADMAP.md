@@ -225,6 +225,21 @@ STscript (26).
       and how it behaves across the multi-device case group chats already
       raise (§8) — whichever device the reply lands on, or all of them.
       Recorded on request; not started, not designed.
+- [ ] **40. Time-in-chat timer, per character.** Tracks how long the user has
+      actually been engaged with a character, not just how long the tab has
+      sat open. Counts while active, then holds for a 5-minute window from
+      the last interaction before it stops — scrolling the chat, sending a
+      message, regenerating and deleting a message all count as an
+      interaction and restart the window, so a phone left open on the chat
+      does not run the clock indefinitely. Open questions before this is
+      buildable: where the accumulated time is kept and shown (per
+      character? per chat, rolled up to the character?), whether it survives
+      across sessions and devices, and how to keep the clock itself cheap —
+      a live ticking counter is the wrong shape for something that only
+      needs to know "was there activity in the last 5 minutes"; more likely
+      a single last-interaction timestamp bumped on each interaction, with
+      elapsed time computed from it on read rather than polled continuously.
+      Recorded on request; not started, not designed.
 
 ## Undecided — needs a call
 

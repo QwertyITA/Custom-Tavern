@@ -1113,6 +1113,8 @@ function tavern() {
           // Every history starts closed: a roster of characters is the thing
           // being looked at, and one of them unrolled pushes the rest down.
           this.historyFor = "";
+        } else if (name === "settings") {
+          await this.loadSettings();
         }
       } catch (e) {
         this.error = errorText(e);
@@ -1133,6 +1135,7 @@ function tavern() {
         brain: "Model & engine",
         theme: "Appearance",
         chats: "Characters & chats",
+        settings: "Settings",
         character: "Edit character",
         persona: "Edit persona",
         story: "Story state",
@@ -3378,6 +3381,12 @@ function tavern() {
       if (this.policy === "manual" && this.cast.length > 1 && !this.nextSpeaker) {
         return this.flashHint("Pick who answers first");
       }
+      // The menu row stays open once opened (§ its own comment in
+      // index.html) for browsing between Brain/Theme/Characters/Settings,
+      // but sending is leaving that browsing behind for the conversation —
+      // so this is the one moment it closes on its own rather than waiting
+      // to be told to.
+      this.menu = false;
       this.draft = "";
       this.staged = [];
       this.error = "";
@@ -3530,6 +3539,34 @@ function tavern() {
       bubble.classList.remove("clipping");
     },
 
+    // A brand-new reply has no bubble of its own to shrink into first the
+    // way a regeneration does (§ endRegen) — only the cue's, snapshotted in
+    // reveal() the instant before it disappeared. Pins the new bubble to
+    // that same footprint the moment it exists, then grows it out to
+    // whatever the first chunk of text needs, so the cue and the reply read
+    // as one shape changing continuously rather than two elements trading
+    // places in a single frame — the same difference §5 draws between a
+    // sent message that pops into place and one that flies up from the
+    // composer.
+    growFromCue(messageId, size) {
+      this.$nextTick(() => {
+        const bubble = this.bubbleFor(messageId);
+        if (!bubble) return;
+        bubble.classList.add("clipping");
+        this.pinInstant(bubble, `${size.width}px`, `${size.height}px`);
+        requestAnimationFrame(() => {
+          const natural = this.measureNatural(bubble);
+          this.pinTo(bubble, `${natural.width}px`, `${natural.height}px`);
+          // Release entirely once landed, so streaming text can keep
+          // growing the bubble the way it always has, unpinned.
+          setTimeout(() => {
+            this.setPin(bubble, "", "");
+            bubble.classList.remove("clipping");
+          }, BUBBLE_RESIZE_MS());
+        });
+      });
+    },
+
     isRegenerating(message) {
       return this.regenId === message.id && !message.text;
     },
@@ -3620,9 +3657,20 @@ function tavern() {
       // that does it.
       const reveal = () => {
         if (!target) {
+          let cueSize = null;
           if (swipeMessageId) {
             target = this.messages.find((m) => m.id === swipeMessageId);
           } else {
+            // The cue's own on-screen footprint, snapshotted the instant
+            // before it disappears — a regeneration has an existing bubble
+            // to shrink into and grow back out of (§ endRegen); a brand-new
+            // reply has nothing but the cue's, so that is what this one
+            // opens from instead of popping straight to whatever the first
+            // chunk of text needs.
+            if (this.composing) {
+              const cue = document.querySelector(".bubble.composing");
+              if (cue) cueSize = { width: cue.offsetWidth, height: cue.offsetHeight };
+            }
             // Read it back rather than keeping the object that went in.
             // Alpine stores a *proxy* of what you push, and only writes
             // through that proxy are seen: holding the raw object meant
@@ -3654,6 +3702,8 @@ function tavern() {
             this.endRegen(target, () => { target.text = buffer; });
             return;
           }
+
+          if (cueSize) this.growFromCue(target.id, cueSize);
         }
         // Trailing whitespace is trimmed from what is *shown*, never
         // from the buffer. `pre-wrap` renders a trailing newline as a
