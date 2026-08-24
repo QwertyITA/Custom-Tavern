@@ -108,9 +108,6 @@ const HINT_MS = 1900;
 const REACTION_BUBBLE_MS = 3400;
 // Quiet time after the last keystroke before the template preview re-renders.
 const PREVIEW_DEBOUNCE_MS = 200;
-// Character budget for the name and the world-info fields to share the
-// header's one line — see pillFitsInline.
-const WORLDBAR_INLINE_BUDGET = 30;
 // How long a prompt section takes to slide past its neighbour when reordered.
 const SECTION_MOVE_MS = 260;
 // The four samplers every pass ships with a tuned value for. "Turn the extras
@@ -533,6 +530,9 @@ function tavern() {
     previewTimer: 0,
     samplerBook: {},
     advancedFor: "",
+    // Which passes' "More samplers" fold has been opened at least once this
+    // visit to the Passes tab — see the x-if beside .fold in index.html.
+    advancedSeen: {},
     rulesOpen: false,
     staged: [],
     cast: [],
@@ -828,25 +828,6 @@ function tavern() {
       return !!(this.scene.place || this.scene.weather || this.scene.time);
     },
 
-    // Whether the name and the world-info fields are short enough to share
-    // the header's one line (§ .world-pill-inline in index.html) rather than
-    // the pill dropping to its own row underneath, the way it always used
-    // to. A character count, not a measured pixel width: the header holds a
-    // fixed 44px menu button and stretches over whatever width the phone
-    // actually has, so there is no one pixel budget to measure against
-    // without a ResizeObserver re-running on every keystroke of a streamed
-    // scene update — and the two texts are set in the same font at
-    // adjacent sizes, so length tracks width closely enough to draw the
-    // line. WORLDBAR_INLINE_BUDGET is tuned for a 360-412px phone, which is
-    // what this app is built for.
-    pillFitsInline() {
-      if (!this.character) return false;
-      const fields = [this.scene.place, this.scene.weather, this.scene.time].filter(Boolean);
-      if (!fields.length) return false;
-      const budget = this.character.name.length + fields.join("").length + fields.length;
-      return budget <= WORLDBAR_INLINE_BUDGET;
-    },
-
     get portrait() {
       if (!this.character) return "";
       const set = this.character.pfp_set || {};
@@ -1032,25 +1013,44 @@ function tavern() {
       this.saveMsg = "";
       this.saveError = "";
       try {
+        // Every load below is independent — none reads a value another one
+        // sets — so they run as one round trip's worth of *wall time*
+        // instead of stacking their latencies in a chain. Sequential
+        // `await`s here used to be exactly why opening Brain in particular
+        // (five separate fetches) read as the sheet stalling partway
+        // through its own opening animation on a slow connection: the sheet
+        // itself opens the instant `panelOpen` above is set, independent of
+        // any of this, but a phone's single thread still has to get through
+        // all this JSON before it can spend a frame on paint, so five fetches
+        // in a row costs five fetches' worth of stall even though the sheet
+        // was technically already "open".
         if (name === "brain") {
           this.passMsg = "";
-          await this.loadSettings();
-          this.passes = await api.get("/api/passes");
-          // Served rather than duplicated here: a slider for a parameter no
-          // backend is sent would be worse than no slider.
-          this.samplerBook = await api.get("/api/samplers");
-          // "Story options" is one of Brain's four tabs (§12) rather than its
-          // own panel, so what it needs loads on the way into Brain too.
-          await this.loadNote();
-          await this.loadEventChance();
+          await Promise.all([
+            this.loadSettings(),
+            // Served rather than duplicated here: a slider for a parameter
+            // no backend is sent would be worse than no slider.
+            api.get("/api/samplers").then((s) => { this.samplerBook = s; }),
+            // "Story options" is one of Brain's four tabs (§12) rather than
+            // its own panel, so what it needs loads on the way into Brain
+            // too.
+            this.loadNote(),
+            api.get("/api/passes").then((p) => { this.passes = p; }),
+          ]);
+          // Folded in here rather than calling the loadEventChance this
+          // replaced: that method fetched /api/passes a second time for a
+          // list the line above already has.
+          const randomEvent = this.passes.find((p) => p.id === "random_event");
+          this.eventChance = randomEvent ? (randomEvent.trigger.probability || 0) : 0;
         } else if (name === "theme") {
           this.bgMsg = "";
-          await this.loadSettings();
-          await this.loadBackdrops();
+          await Promise.all([this.loadSettings(), this.loadBackdrops()]);
         } else if (name === "chats") {
-          await this.loadCharacters();
-          this.chats = await api.get("/api/chats");
-          await this.loadPersonas();
+          await Promise.all([
+            this.loadCharacters(),
+            api.get("/api/chats").then((c) => { this.chats = c; }),
+            this.loadPersonas(),
+          ]);
           // Every history starts closed: a roster of characters is the thing
           // being looked at, and one of them unrolled pushes the rest down.
           this.historyFor = "";
@@ -2179,14 +2179,10 @@ function tavern() {
 
     // How often the world intrudes. It lives on the pass's own trigger rather
     // than in settings, so there is one number rather than a setting and a
-    // trigger that have to agree.
-    async loadEventChance() {
-      try {
-        const passes = await api.get("/api/passes");
-        const found = passes.find((p) => p.id === "random_event");
-        this.eventChance = found ? (found.trigger.probability || 0) : 0;
-      } catch { /* the slider just stays where it is */ }
-    },
+    // trigger that have to agree. Read straight from this.passes wherever
+    // it's set from (openPanel('brain') is the only caller today) rather
+    // than a dedicated loader — the list is one fetch either way, and this
+    // used to be a second, redundant one.
 
     setEventChance(raw) {
       const value = parseFloat(raw);
@@ -4940,6 +4936,21 @@ function tavern() {
     autosize(el, cap = 0.3) {
       el.style.height = "auto";
       el.style.height = Math.min(el.scrollHeight, viewportHeight() * cap) + "px";
+    },
+
+    // Keeps --worldbar-h in step with the header's own rendered height, so
+    // the floating world-info pill (§ .world-pill in styles.css) can sit
+    // flush under it without a hard-coded pixel guess. The header's height
+    // isn't constant: the safe-area inset differs by phone, and the menu
+    // row folding open adds a whole nav strip's worth of height while it's
+    // open — the pill is hidden then (x-show="!menu"), but it re-measures
+    // anyway so it's correct the instant the menu closes again.
+    initWorldbarHeight(el) {
+      const set = () => {
+        document.documentElement.style.setProperty("--worldbar-h", `${el.offsetHeight}px`);
+      };
+      set();
+      if (window.ResizeObserver) new ResizeObserver(set).observe(el);
     },
 
     // ---- stick to bottom ----

@@ -179,7 +179,7 @@
 <!-- (1) pinned header: everything identifying the conversation on one line —
      the menu, who you are talking to, and where they are. The menu row opens
      underneath it. -->
-<header class="worldbar">
+<header class="worldbar" x-init="initWorldbarHeight($el)">
 
   <div class="bar-row">
     <button class="icon-btn" :class="{ on: menu }" @click="menu = !menu"
@@ -198,44 +198,6 @@
       <svg class="who-caret" x-show="character" x-cloak viewBox="0 0 24 24" aria-hidden="true"><use href="#i-down"/></svg>
     </button>
 
-    <!-- The inline twin of the world-pill below (§ that comment for the full
-         reasoning) — same fields, same refresh button, living in the header
-         row beside the name instead of a row of its own, for whenever the
-         two are short enough to fit there together. Textually duplicated
-         rather than shared, since Alpine has no partial to pull one copy of
-         a template into two different places in the tree — but both read
-         the same state, so the two can never show different values, only
-         render in different spots. See pillFitsInline for the rule that
-         decides which one is showing. -->
-    <div class="world-pill world-pill-inline" x-show="!menu && hasScene && pillFitsInline()" x-cloak>
-      <div class="world-fields"
-           role="button" tabindex="0" :aria-expanded="worldOpen"
-           aria-label="Show the setting in full"
-           @click="worldOpen = !worldOpen"
-           @keydown.enter.prevent="worldOpen = !worldOpen"
-           @keydown.space.prevent="worldOpen = !worldOpen">
-        <span class="field" :class="{ refreshing: refreshing.scene }"
-              :title="`Place: ${scene.place || 'unknown'}`" x-show="scene.place">
-          <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-place"/></svg>
-          <span class="field-value" x-text="scene.place"></span>
-        </span>
-        <span class="field" :class="{ refreshing: refreshing.scene }"
-              :title="`Weather: ${scene.weather || 'unknown'}`" x-show="scene.weather">
-          <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-weather"/></svg>
-          <span class="field-value" x-text="scene.weather"></span>
-        </span>
-        <span class="field" :class="{ refreshing: refreshing.scene }"
-              :title="`Time: ${scene.time || 'unknown'}`" x-show="scene.time">
-          <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-time"/></svg>
-          <span class="field-value" x-text="scene.time"></span>
-        </span>
-      </div>
-      <button class="icon-btn refresh" :class="{ spinning: refreshing.scene }"
-              @click="refreshWorld()" :disabled="refreshing.scene || !chatId"
-              aria-label="Refresh world info" title="Refresh world info">
-        <svg class="icon" viewBox="0 0 24 24"><use href="#i-refresh"/></svg>
-      </button>
-    </div>
   </div>
 
   <!-- The row of destinations. Collapsed to nothing until the menu opens; see
@@ -266,24 +228,21 @@
   </div>
 </header>
 
-<!-- The world-info pill's own row — the fallback for whenever it and the
-     name will not both fit on the header's line (§ world-pill-inline
-     above), and the only place it has ever lived before that existed. Also
-     where it lives before there is a scene at all: pillFitsInline only
-     asks the question once there is real text to measure, so a bare
-     "generate this" button with no fields yet always lands here rather than
-     trying the header row first.
-     Centred in its own row below the header rather than sharing the name's
-     line or living inside the header itself. Hidden outright while the menu
-     is open rather than left for the opening buttons to cover — a
-     covered-but-still-there pill bled through the gaps between them under
-     glass, which looked broken, and there is nothing to bleed through when
-     it is not rendered at all. It needs no sticky positioning or offset math
-     of its own: `.chat` below is the only element in the page that scrolls,
-     so everything above it — header and pill alike — stays on screen simply
-     by sitting in that fixed, non-scrolling region, on its own solid
-     background rather than over whatever the chat has scrolled to. -->
-<div class="world-pill" :class="{ empty: !hasScene }" x-show="!menu && (!hasScene || !pillFitsInline())" x-cloak
+<!-- The world-info pill: a small floating capsule pinned just under the
+     header, over the chat rather than in a row of its own above it — the
+     Dynamic Island model, not a toolbar. `position: fixed` (§ styles.css)
+     takes it out of the document flow entirely, so `.chat` no longer gives
+     up any of its own height to reserve a place for this; the pill simply
+     sits on top of whatever `.chat` has scrolled to underneath it, on its
+     own solid background so that content is genuinely covered there, not
+     bleeding through. `--worldbar-h` (§ initWorldbarHeight in app.js) is
+     what lets `top` sit flush under the header without hard-coding its
+     height, which changes with the safe-area inset and isn't the same on
+     every phone. Hidden outright while the menu is open rather than left
+     for the opening buttons to cover, same reasoning as before this was
+     floating: a covered-but-still-there pill bled through the gaps between
+     them under glass. -->
+<div class="world-pill" :class="{ empty: !hasScene }" x-show="!menu" x-cloak
      x-transition:enter="braintab-enter" x-transition:enter-start="braintab-from"
      x-transition:enter-end="braintab-to">
   <!-- Hidden entirely until a scene exists. Three em-dashes said nothing
@@ -984,7 +943,8 @@
           </button>
         </div>
 
-      <div x-show="brainTab === 'backends'"
+      <template x-if="brainTab === 'backends'">
+        <div
            x-transition:enter="braintab-enter" x-transition:enter-start="braintab-from"
            x-transition:enter-end="braintab-to">
         <p class="note">
@@ -1245,8 +1205,10 @@
           once this app and the avatar service are on different machines.
         </p>
       </div>
+      </template>
 
-      <div x-show="brainTab === 'passes'"
+      <template x-if="brainTab === 'passes'">
+        <div
            x-transition:enter="braintab-enter" x-transition:enter-start="braintab-from"
            x-transition:enter-end="braintab-to">
         <h3>Passes</h3>
@@ -1389,15 +1351,28 @@
                      the request while it is. The count is what is actually
                      being sent beyond the defaults. -->
                 <button class="disclose" :class="{ open: advancedFor === p.id }"
-                        @click="advancedFor = advancedFor === p.id ? '' : p.id"
+                        @click="advancedFor = advancedFor === p.id ? '' : p.id; if (advancedFor) advancedSeen[p.id] = true"
                         :aria-expanded="advancedFor === p.id">
                   <svg class="disclose-arrow" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-back"/></svg>
                   <span>More samplers</span>
                   <span class="p-count" x-show="changedCount(p)"
                         x-text="`${changedCount(p)} on`"></span>
                 </button>
+                <!-- Mounted on first open and left mounted, not gated purely by
+                     `.open` the way the fold's own CSS is: every pass in every
+                     tier used to render this whole block — every sampler group,
+                     every slider — whether or not its disclosure had ever been
+                     tapped, which was most of the cost in opening the Passes
+                     tab at all (§ ROADMAP/known-issues, menu-open lag). Once a
+                     pass's advanced samplers have been looked at they stay
+                     mounted for the rest of this visit to the tab, so the fold
+                     animation (which needs real content to measure a height to
+                     animate to) still plays exactly as before on every open and
+                     close after the first. -->
                 <div class="fold" :class="{ open: advancedFor === p.id }">
                   <div class="fold-clip">
+                    <template x-if="advancedSeen[p.id]">
+                    <div>
                     <template x-for="g in samplerBook.groups || []" :key="g.id">
                       <section class="s-group" x-show="samplersIn(g.id).length">
                         <h5 x-text="g.label"></h5>
@@ -1422,6 +1397,8 @@
                       </section>
                     </template>
                     <button class="link" @click="resetSamplers(p)">Turn the extras off</button>
+                    </div>
+                    </template>
                   </div>
                 </div>
               </div>
@@ -1541,13 +1518,15 @@
           </div>
         </div>
       </div>
+      </template>
 
       <!-- Formerly its own top-level panel; merged in here as the third tab
            rather than redrawn, per the same "move it, don't redesign it yet"
            rule as "What goes into the prompt" above. Everything in it saves
            itself as it changes, which is why it gets no Save bar of its own —
            see the note on .sheet-actions below. -->
-      <div x-show="brainTab === 'story'"
+      <template x-if="brainTab === 'story'">
+        <div
            x-transition:enter="braintab-enter" x-transition:enter-start="braintab-from"
            x-transition:enter-end="braintab-to">
         <h3>Author's note</h3>
@@ -1711,8 +1690,10 @@
           <span>Pass HUD and cost</span>
         </label>
       </div>
+      </template>
 
-      <div x-show="brainTab === 'advanced'"
+      <template x-if="brainTab === 'advanced'">
+        <div
            x-transition:enter="braintab-enter" x-transition:enter-start="braintab-from"
            x-transition:enter-end="braintab-to">
         <h3>Languages</h3>
@@ -1861,6 +1842,7 @@
           </div>
         </div>
       </div>
+      </template>
 
       <!-- Story options saves each field as it changes (saveNote(),
            setToggle(), ...), the same as it did as its own panel — nothing
@@ -2159,11 +2141,29 @@
               </button>
             </div>
 
-            <!-- The two things you actually came here to do, said in words
-                 rather than left for an icon to imply — "continue" and
-                 "start over" don't have a universal glyph the way "delete"
-                 does. Management (edit, export, delete) is secondary, so it
-                 stays icon-only and drops to the row's own right. -->
+            <!-- Management (edit, export, delete) first and icon-only, the
+                 two things you actually came here to do — said in words,
+                 since "continue" and "start over" don't have a universal
+                 glyph the way "delete" does — second: management is reached
+                 less often, but reading top-to-bottom as "housekeeping, then
+                 the actual action" put the row you want most below one you
+                 don't, every single time. -->
+            <div class="char-actions-secondary">
+              <button class="glyph-btn" @click.stop="editCharacter(c.id)"
+                      title="Edit character" aria-label="Edit character">
+                <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-edit"/></svg>
+              </button>
+              <a class="glyph-btn" :href="`/api/characters/${c.id}/export?download=true`"
+                 :download="`${c.name}.card.json`" @click.stop
+                 title="Export card" aria-label="Export card">
+                <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-export"/></svg>
+              </a>
+              <button class="glyph-btn danger" :class="{ armed: confirmChar === c.id }"
+                      @click.stop="deleteCharacter(c)"
+                      :title="confirmChar === c.id ? 'Tap again to delete — this deletes its chats too' : 'Delete character'"
+                      aria-label="Delete character"
+                      x-text="confirmChar === c.id ? '⚠&#xFE0E;' : '✕&#xFE0E;'"></button>
+            </div>
             <div class="char-actions">
               <button class="char-action-btn" @click.stop="newChat(c.id)"
                       title="New chat" aria-label="New chat">
@@ -2176,22 +2176,6 @@
                 <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-history"/></svg>
                 <span>Recent chats</span>
               </button>
-              <div class="char-actions-secondary">
-                <button class="glyph-btn" @click.stop="editCharacter(c.id)"
-                        title="Edit character" aria-label="Edit character">
-                  <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-edit"/></svg>
-                </button>
-                <a class="glyph-btn" :href="`/api/characters/${c.id}/export?download=true`"
-                   :download="`${c.name}.card.json`" @click.stop
-                   title="Export card" aria-label="Export card">
-                  <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-export"/></svg>
-                </a>
-                <button class="glyph-btn danger" :class="{ armed: confirmChar === c.id }"
-                        @click.stop="deleteCharacter(c)"
-                        :title="confirmChar === c.id ? 'Tap again to delete — this deletes its chats too' : 'Delete character'"
-                        aria-label="Delete character"
-                        x-text="confirmChar === c.id ? '⚠&#xFE0E;' : '✕&#xFE0E;'"></button>
-              </div>
             </div>
 
             <ul class="chat-list" x-show="historyFor === c.id" x-cloak>
