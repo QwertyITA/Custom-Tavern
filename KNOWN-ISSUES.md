@@ -32,31 +32,31 @@ glass, a CSS specificity bug (`:root.glass .glyph-btn.danger` beating
 `.glyph-btn.armed` on nothing but selector count). None of those are
 repeated below.
 
+Fixed in the mobile-UX pass on 2026-08-24: the composer `+` hold-drag
+selecting text instead of picking an item, below —
+`user-select: none`, `-webkit-user-select: none` and `-webkit-touch-callout:
+none` added to `.composer-sheet`/`.composer-menu` (inherited by
+`.composer-item`), the same three `.crop-stage` already carried, plus the
+same three on `.kill-sheet` for the character-deletion hold, which shared the
+exact gap. Still not independently reproduced live — a phone's native
+long-press text-selection remains untriggerable from this headless setup —
+so this is the diagnosis in the removed entry below acted on, not a
+confirmed-fixed repro; genuinely verifying it wants a real touchscreen.
+Also found and fixed while in the area, not from a prior report: `.pfp-glow`
+across all five places it is drawn (message rows, the roster, the character
+editor, the enlarged-portrait view, the header) used `x-show`, whose hide
+path was not reliably clearing the element's `display` on these — the ring
+could stay visibly rendered regardless of whether the character's
+`pfp_effect` was actually on, and dropping in and out across a long chat as
+other reactive updates raced it. Switched to `x-if` (full mount/unmount
+instead of a style toggle) on all five, which does not exhibit the bug in
+the same testing that reproduced it on `x-show`. §pinCurrentCharacter and
+the roster/header rework are new features from that session's own request
+list, not bugfixes, and are not recorded here.
+
 ---
 
 ## Medium
-
-### The composer `+` hold-drag selects text instead of picking an item
-
-Reported, not independently reproduced here — a phone's native long-press
-text-selection is not something this headless setup can trigger, so this is
-recorded on the report plus what the code shows, not on a live repro like the
-rest of this file asks for.
-
-`.composer-more` (`static/styles.css`) got `touch-action: none` when the
-hold-drag gesture was built, to stop the drag from being read as a page
-scroll — but not `user-select: none` / `-webkit-user-select: none` /
-`-webkit-touch-callout: none`, which is the separate thing that actually
-suppresses a long-press turning into text selection (iOS Safari's callout
-menu needs the third one specifically). `.crop-stage`, a few hundred lines
-away, is the same shape of gesture — a press-and-drag that must not become a
-built-in browser gesture instead — and does carry all three; the composer
-button was never given the same treatment. Tap-to-open and tapping an item
-directly both still work; only the hold-and-drag layer is affected, on
-whichever browsers treat a held touch on a button as selectable text. Fix is
-probably to add the same three properties `.crop-stage` has, to
-`.composer-more` and likely `.composer-item` too, since the drag continues
-onto those.
 
 ### Upload endpoints read the whole body before checking its size
 

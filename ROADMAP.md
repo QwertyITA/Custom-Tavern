@@ -211,6 +211,21 @@ and folders (part of 11).
 Image generation (20), TTS (21), speech to text (22), slash commands and
 STscript (26).
 
+- [ ] **39. Music manager.** The character plays music, the way a person in
+      the room with a speaker would — not a background-music toggle for the
+      app itself. A library of tracks lives on the server (`data/`,
+      alongside portraits and avatars); the character can start, stop or
+      switch a track, and it plays on the device actually in the chat, the
+      same room a talking avatar or a scene reading is happening in. Open
+      questions before this is buildable: how the character *decides* to
+      play something (a tool call from the reply pass? a regex-rule-style
+      trigger on its own text? a manual picker beside the composer?), how a
+      track is picked out of a library rather than named exactly, whether
+      per-character libraries make sense the way `pfp_set` is per-character,
+      and how it behaves across the multi-device case group chats already
+      raise (§8) — whichever device the reply lands on, or all of them.
+      Recorded on request; not started, not designed.
+
 ## Undecided — needs a call
 
 Answers stopped at 28, so these were never ruled in or out:

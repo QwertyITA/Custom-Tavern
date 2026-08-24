@@ -108,6 +108,9 @@ const HINT_MS = 1900;
 const REACTION_BUBBLE_MS = 3400;
 // Quiet time after the last keystroke before the template preview re-renders.
 const PREVIEW_DEBOUNCE_MS = 200;
+// Character budget for the name and the world-info fields to share the
+// header's one line — see pillFitsInline.
+const WORLDBAR_INLINE_BUDGET = 30;
 // How long a prompt section takes to slide past its neighbour when reordered.
 const SECTION_MOVE_MS = 260;
 // The four samplers every pass ships with a tuned value for. "Turn the extras
@@ -135,6 +138,20 @@ const WHEEL_MAGNET_MAX = 14;
 const WHEEL_SETTLE_MS = 340 + 34 * 5;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// The actually-visible height, keyboard included. `window.innerHeight` is
+// the layout viewport, which most mobile browsers do *not* shrink when the
+// on-screen keyboard opens — it stays the full screen height while the
+// keyboard covers the bottom of it. `visualViewport.height` is the one that
+// tracks the keyboard, where the API exists (every browser this app targets;
+// the fallback is only for a window with no visualViewport at all, such as
+// a non-browser test harness). Anything sized as a fraction of "the screen"
+// while a text field can be focused — the edit box chief among them — needs
+// this rather than innerHeight, or the fraction is of a screen the keyboard
+// has already eaten part of.
+function viewportHeight() {
+  return (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+}
 
 // A card's picture, wherever it came from. An imported card names a file that
 // shipped with it; one uploaded here is stored with the persona avatars and
@@ -626,7 +643,7 @@ function tavern() {
         this.applyTheme();
       } catch (_) { /* defaults are already in the stylesheet */ }
       try {
-        this.characters = await api.get("/api/characters");
+        await this.loadCharacters();
         if (!this.characters.length) {
           // Not an error — a new install is supposed to look like this. It
           // used to raise a red banner telling the user to put a file in a
@@ -811,6 +828,25 @@ function tavern() {
       return !!(this.scene.place || this.scene.weather || this.scene.time);
     },
 
+    // Whether the name and the world-info fields are short enough to share
+    // the header's one line (§ .world-pill-inline in index.html) rather than
+    // the pill dropping to its own row underneath, the way it always used
+    // to. A character count, not a measured pixel width: the header holds a
+    // fixed 44px menu button and stretches over whatever width the phone
+    // actually has, so there is no one pixel budget to measure against
+    // without a ResizeObserver re-running on every keystroke of a streamed
+    // scene update — and the two texts are set in the same font at
+    // adjacent sizes, so length tracks width closely enough to draw the
+    // line. WORLDBAR_INLINE_BUDGET is tuned for a 360-412px phone, which is
+    // what this app is built for.
+    pillFitsInline() {
+      if (!this.character) return false;
+      const fields = [this.scene.place, this.scene.weather, this.scene.time].filter(Boolean);
+      if (!fields.length) return false;
+      const budget = this.character.name.length + fields.join("").length + fields.length;
+      return budget <= WORLDBAR_INLINE_BUDGET;
+    },
+
     get portrait() {
       if (!this.character) return "";
       const set = this.character.pfp_set || {};
@@ -946,6 +982,7 @@ function tavern() {
       this.chatId = id;
       this.character = data.character;
       this.characterId = data.chat.character_id;
+      this.pinCurrentCharacter();
       this.messages = data.messages;
       this.setBands(data.state.bands || [], { quiet: true });
       this.summary = data.summary;
@@ -1011,7 +1048,7 @@ function tavern() {
           await this.loadSettings();
           await this.loadBackdrops();
         } else if (name === "chats") {
-          this.characters = await api.get("/api/characters");
+          await this.loadCharacters();
           this.chats = await api.get("/api/chats");
           await this.loadPersonas();
           // Every history starts closed: a roster of characters is the thing
@@ -1983,6 +2020,10 @@ function tavern() {
       try { event.currentTarget.setPointerCapture(event.pointerId); } catch (_) { /* mouse */ }
       this.composerMenu = true;
       this.composerActive = -1;
+      // See dismissComposerSheet: the backdrop it just opened now sits under
+      // this same finger, and this timestamp is what stops that from
+      // reading as a tap on it.
+      this._composerOpenedAt = performance.now();
     },
 
     onPlusMove(event) {
@@ -2011,6 +2052,22 @@ function tavern() {
     onPlusCancel() {
       this.plusHold = null;
       this.composerActive = -1;
+    },
+
+    // The backdrop's own "tap outside closes it" handler — not a bare
+    // `composerMenu = false` on the element, because the same press that
+    // opens the sheet (onPlusDown, above) ends with the finger sitting on
+    // top of that now-visible backdrop. Some engines dispatch the
+    // compatibility `click` that follows a pointerup to whatever is under
+    // the pointer rather than to the button that actually captured the
+    // gesture, which read as the menu opening and immediately closing again
+    // on the very tap meant to open it. A tap can't physically land here
+    // less than a frame or two after the press that raised it, so anything
+    // this soon after _composerOpenedAt is that stray click, not a real
+    // "dismiss" tap, and is ignored rather than undoing the press it rode in on.
+    dismissComposerSheet() {
+      if (performance.now() - (this._composerOpenedAt || 0) < 250) return;
+      this.composerMenu = false;
     },
 
     // Which composer-item the given point is over, skipping disabled ones —
@@ -2430,7 +2487,7 @@ function tavern() {
         );
         if (!response.ok) throw await apiError(response);
         const added = await response.json();
-        this.characters = await api.get("/api/characters");
+        await this.loadCharacters();
         this.importMsg = `Imported ${added.name}`;
       } catch (e) {
         this.importError = errorText(e);
@@ -2453,9 +2510,7 @@ function tavern() {
       }
       character.favourite = wanted;
       this.flipCharacters(() => {
-        this.characters = [...this.characters].sort(
-          (a, b) => (b.favourite ? 1 : 0) - (a.favourite ? 1 : 0) || a.name.localeCompare(b.name),
-        );
+        this.characters = [...this.characters].sort((a, b) => this.compareCharacters(a, b));
       });
       // The character's own reaction where there is one; the plain toast
       // where there isn't yet (§ character_reactions.py — a card can still
@@ -2476,6 +2531,38 @@ function tavern() {
       this._reactionBubbleTimer = setTimeout(() => {
         this.reactionBubbleOpen = false;
       }, REACTION_BUBBLE_MS);
+    },
+
+    // The roster's one true order: whoever is open right now first — see
+    // pinCurrentCharacter and the note on .char.current in styles.css —
+    // then starred, then alphabetical. Every place that touches the order
+    // of `characters` (a fresh fetch, a star toggle, switching chats) reads
+    // this same comparator, so they can never disagree about where a row
+    // belongs.
+    compareCharacters(a, b) {
+      const aCurrent = a.id === this.characterId, bCurrent = b.id === this.characterId;
+      if (aCurrent !== bCurrent) return aCurrent ? -1 : 1;
+      if (!!a.favourite !== !!b.favourite) return a.favourite ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    },
+
+    // The one place `characters` is fetched from the server. The backend's
+    // own ORDER BY (favourite DESC, name) does not know which character is
+    // open — that is client state — so this re-sorts with compareCharacters
+    // on every load rather than trusting the wire order.
+    async loadCharacters() {
+      this.characters = (await api.get("/api/characters")).sort((a, b) => this.compareCharacters(a, b));
+    },
+
+    // Moves whichever character is now open to the top of an already-loaded
+    // roster, the same animated way toggleFavourite moves a newly-starred
+    // row (see flipCharacters) — called from openChat, where characterId
+    // changes without characters itself being refetched.
+    pinCurrentCharacter() {
+      if (!this.characters.length) return;
+      this.flipCharacters(() => {
+        this.characters = [...this.characters].sort((a, b) => this.compareCharacters(a, b));
+      });
     },
 
     flipCharacters(mutate) {
@@ -2540,7 +2627,7 @@ function tavern() {
         if (!response.ok) throw await apiError(response);
         const body = await response.json();
         this.chats = await api.get("/api/chats");
-        this.characters = await api.get("/api/characters");
+        await this.loadCharacters();
         // Open the history of whoever it belongs to, so the imported chat is
         // visible rather than merely reported.
         this.historyFor = body.chat.character_id;
@@ -2610,7 +2697,7 @@ function tavern() {
     async newCharacter() {
       try {
         const created = await api.post("/api/characters", { name: "New character" });
-        this.characters = await api.get("/api/characters");
+        await this.loadCharacters();
         await this.editCharacter(created.id);
       } catch (e) {
         this.error = errorText(e);
@@ -2661,7 +2748,7 @@ function tavern() {
             voice: (draft.avatar_video || {}).voice || "",
           },
         });
-        this.characters = await api.get("/api/characters");
+        await this.loadCharacters();
         // The open chat holds its own copy of the card, and the header reads
         // the name off that — without this the title keeps the old name until
         // the chat is reopened.
@@ -2699,7 +2786,7 @@ function tavern() {
     // a tap is one instant, indistinguishable from the two that armed it, and
     // the whole point is a gesture that cannot happen by accident.
     openKillModal(character) {
-      this.killHold = { character, state: "idle" };
+      this.killHold = { character, state: "idle", previewShown: false };
       buzz(14);
     },
 
@@ -2721,11 +2808,21 @@ function tavern() {
       // The fill is written straight to the element every frame, the same as
       // the message wheel's magnetise() — seven seconds of Alpine re-render on
       // every frame is exactly the kind of work that costs frames on a phone,
-      // and nothing here needs to be reactive except the three state names.
+      // and nothing here needs to be reactive on every frame except the
+      // three state names. previewShown is the one exception: a single
+      // reactive flip partway through, not a per-frame write, so it costs
+      // nothing like the fill would.
       const tick = (now) => {
         if (!this.killHold || this.killHold.state !== "holding") return;
         const progress = Math.min(1, (now - startedAt) / KILL_HOLD_MS);
         if (this.$refs.killFill) this.$refs.killFill.style.transform = `scaleX(${progress})`;
+        // The character's own goodbye — the same line star/unstar shows,
+        // from §models.CharacterReactions — surfacing partway through the
+        // hold rather than only after it finishes: by the time the fill
+        // bar is this close to done, the character has as good as noticed.
+        // Held past 60% rather than the moment the hold starts, so a stray
+        // brush of the button doesn't raise it for a press going nowhere.
+        if (!this.killHold.previewShown && progress >= 0.6) this.killHold.previewShown = true;
         if (progress >= 1) { this.finishKill(); return; }
         this._killRaf = requestAnimationFrame(tick);
       };
@@ -2744,6 +2841,7 @@ function tavern() {
       cancelAnimationFrame(this._killRaf);
       this._killRaf = null;
       hold.state = "idle";
+      hold.previewShown = false;
       if (this.$refs.killFill) this.$refs.killFill.style.transform = "scaleX(0)";
     },
 
@@ -2757,7 +2855,7 @@ function tavern() {
       const character = hold.character;
       try {
         await api.del(`/api/characters/${character.id}`);
-        this.characters = await api.get("/api/characters");
+        await this.loadCharacters();
         this.chats = await api.get("/api/chats");
         // Deleting the character behind the open chat takes the chat with it,
         // so the app has to land somewhere real rather than on a dead id.
@@ -2781,7 +2879,7 @@ function tavern() {
       try {
         await api.del(`/api/chats/${chat.id}`);
         this.chats = await api.get("/api/chats");
-        this.characters = await api.get("/api/characters");
+        await this.loadCharacters();
         if (chat.id === this.chatId) await this.fallbackChat();
       } catch (e) {
         this.error = errorText(e);
@@ -3675,14 +3773,30 @@ function tavern() {
         // Never taller than a little over half the screen, whatever the
         // rendered text measured: the bubble it came from can be the whole
         // screen, and a text box that tall has nowhere to put the keyboard.
+        // viewportHeight(), not window.innerHeight — see that function's own
+        // note. Without it this cap was computed against the keyboard-less
+        // full screen, so a box already at the cap could still end up taller
+        // than the room actually left once the keyboard focus() just
+        // triggered finished opening underneath it.
         if (this.editHeight) {
-          box.style.minHeight = `${Math.min(this.editHeight, window.innerHeight * 0.55)}px`;
+          box.style.minHeight = `${Math.min(this.editHeight, viewportHeight() * 0.55)}px`;
         }
         // A frame after the tick, not in it: `x-model` writes the value during
         // the same flush, and a box measured before its text is in it reports
         // the height of an empty one — which is how a six-paragraph reply got
         // three lines to be edited in.
         requestAnimationFrame(() => this.autosize(box, 0.55));
+        // The keyboard can still be mid-animation at this point — focus()
+        // starts it, it does not wait for it — so the cap above may yet be
+        // measured against a viewport that has not finished shrinking.
+        // visualViewport fires its own resize as the keyboard settles (and
+        // again if it is dismissed, or the phone rotates), so re-running the
+        // same cap then is what actually keeps the box inside the screen
+        // rather than just inside the screen at the instant editing opened.
+        if (window.visualViewport) {
+          this._editViewportResize = () => this.autosize(box, 0.55);
+          window.visualViewport.addEventListener("resize", this._editViewportResize);
+        }
       });
     },
 
@@ -3692,6 +3806,10 @@ function tavern() {
         const box = this.editingEl.querySelector(".edit-box");
         if (box) { box.style.minHeight = ""; box.style.height = ""; }
       }
+      if (this._editViewportResize && window.visualViewport) {
+        window.visualViewport.removeEventListener("resize", this._editViewportResize);
+      }
+      this._editViewportResize = null;
       this.editingEl = null;
       this.editHeight = 0;
       this.editing = null;
@@ -4821,7 +4939,7 @@ function tavern() {
     // `overflow: hidden`, so anything past the cap was simply gone.
     autosize(el, cap = 0.3) {
       el.style.height = "auto";
-      el.style.height = Math.min(el.scrollHeight, window.innerHeight * cap) + "px";
+      el.style.height = Math.min(el.scrollHeight, viewportHeight() * cap) + "px";
     },
 
     // ---- stick to bottom ----

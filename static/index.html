@@ -71,6 +71,17 @@
     <g id="i-menu">
       <path d="M4 7h16M4 12h16M4 17h16"/>
     </g>
+    <!-- A clock face with its sweep drawn backwards into a corner, rather
+         than a plain clock (already spoken for by i-time, the world-info
+         reading) or the three-line i-menu a character row's "recent chats"
+         button used to borrow — that glyph means "more options" everywhere
+         else in the app, not "history", and reused here it promised a menu
+         this button never opened. -->
+    <g id="i-history">
+      <path d="M4.4 12a7.6 7.6 0 1 0 2.3-5.4"/>
+      <path d="M4.4 4.4v4.3h4.3"/>
+      <path d="M12 8v4.3l2.7 1.6"/>
+    </g>
     <g id="i-place">
       <path d="M12 21s6.5-5.7 6.5-10.2a6.5 6.5 0 0 0-13 0C5.5 15.3 12 21 12 21z"/>
       <circle cx="12" cy="10.6" r="2.4"/>
@@ -178,10 +189,53 @@
     </button>
 
     <!-- The name is the obvious thing to press when you want a different
-         character, so it is the control that does that. -->
+         character, so it is the control that does that. The caret says so:
+         plain bold text read as a title, not a control, until this gave it
+         the same "opens something" mark a select or a dropdown carries. -->
     <button class="who" @click="openCharacters()" :disabled="!character"
-            :aria-label="character ? `${character.name} — characters and chats` : 'Characters'"
-            x-text="character ? character.name : ''"></button>
+            :aria-label="character ? `${character.name} — characters and chats` : 'Characters'">
+      <span class="who-text" x-text="character ? character.name : ''"></span>
+      <svg class="who-caret" x-show="character" x-cloak viewBox="0 0 24 24" aria-hidden="true"><use href="#i-down"/></svg>
+    </button>
+
+    <!-- The inline twin of the world-pill below (§ that comment for the full
+         reasoning) — same fields, same refresh button, living in the header
+         row beside the name instead of a row of its own, for whenever the
+         two are short enough to fit there together. Textually duplicated
+         rather than shared, since Alpine has no partial to pull one copy of
+         a template into two different places in the tree — but both read
+         the same state, so the two can never show different values, only
+         render in different spots. See pillFitsInline for the rule that
+         decides which one is showing. -->
+    <div class="world-pill world-pill-inline" x-show="!menu && hasScene && pillFitsInline()" x-cloak>
+      <div class="world-fields"
+           role="button" tabindex="0" :aria-expanded="worldOpen"
+           aria-label="Show the setting in full"
+           @click="worldOpen = !worldOpen"
+           @keydown.enter.prevent="worldOpen = !worldOpen"
+           @keydown.space.prevent="worldOpen = !worldOpen">
+        <span class="field" :class="{ refreshing: refreshing.scene }"
+              :title="`Place: ${scene.place || 'unknown'}`" x-show="scene.place">
+          <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-place"/></svg>
+          <span class="field-value" x-text="scene.place"></span>
+        </span>
+        <span class="field" :class="{ refreshing: refreshing.scene }"
+              :title="`Weather: ${scene.weather || 'unknown'}`" x-show="scene.weather">
+          <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-weather"/></svg>
+          <span class="field-value" x-text="scene.weather"></span>
+        </span>
+        <span class="field" :class="{ refreshing: refreshing.scene }"
+              :title="`Time: ${scene.time || 'unknown'}`" x-show="scene.time">
+          <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-time"/></svg>
+          <span class="field-value" x-text="scene.time"></span>
+        </span>
+      </div>
+      <button class="icon-btn refresh" :class="{ spinning: refreshing.scene }"
+              @click="refreshWorld()" :disabled="refreshing.scene || !chatId"
+              aria-label="Refresh world info" title="Refresh world info">
+        <svg class="icon" viewBox="0 0 24 24"><use href="#i-refresh"/></svg>
+      </button>
+    </div>
   </div>
 
   <!-- The row of destinations. Collapsed to nothing until the menu opens; see
@@ -212,17 +266,24 @@
   </div>
 </header>
 
-<!-- The world-info pill: place, weather, time and the button that fills them
-     in, centered in its own row below the header rather than sharing the
-     name's line or living inside the header itself. Hidden outright while
-     the menu is open rather than left for the opening buttons to cover — a
+<!-- The world-info pill's own row — the fallback for whenever it and the
+     name will not both fit on the header's line (§ world-pill-inline
+     above), and the only place it has ever lived before that existed. Also
+     where it lives before there is a scene at all: pillFitsInline only
+     asks the question once there is real text to measure, so a bare
+     "generate this" button with no fields yet always lands here rather than
+     trying the header row first.
+     Centred in its own row below the header rather than sharing the name's
+     line or living inside the header itself. Hidden outright while the menu
+     is open rather than left for the opening buttons to cover — a
      covered-but-still-there pill bled through the gaps between them under
      glass, which looked broken, and there is nothing to bleed through when
      it is not rendered at all. It needs no sticky positioning or offset math
      of its own: `.chat` below is the only element in the page that scrolls,
      so everything above it — header and pill alike — stays on screen simply
-     by sitting in that fixed, non-scrolling region. -->
-<div class="world-pill" x-show="!menu" x-cloak
+     by sitting in that fixed, non-scrolling region, on its own solid
+     background rather than over whatever the chat has scrolled to. -->
+<div class="world-pill" :class="{ empty: !hasScene }" x-show="!menu && (!hasScene || !pillFitsInline())" x-cloak
      x-transition:enter="braintab-enter" x-transition:enter-start="braintab-from"
      x-transition:enter-end="braintab-to">
   <!-- Hidden entirely until a scene exists. Three em-dashes said nothing
@@ -366,8 +427,7 @@
   </div>
 
   <template x-for="m in messages" :key="m.id">
-    <article class="msg" :class="[m.role, sendingId === m.id ? 'sending' : '',
-                                   pfpEffectOn(portraitEffect(m)) ? 'pfp-glowing' : '']">
+    <article class="msg" :class="[m.role, sendingId === m.id ? 'sending' : '']">
       <!-- x-if for the same reason as the rows below, and one worse: an empty
            `src` is not "no image", it is the current page, which the browser
            re-fetches once per bubble. -->
@@ -408,8 +468,9 @@
             <video class="pfp pfp-over" :src="liveVideoFor(m)"
                    autoplay playsinline @ended="endAvatarVideo()"></video>
           </template>
-          <span class="pfp-glow" x-show="pfpEffectOn(portraitEffect(m))" x-cloak
-                :style="pfpEffectStyle(portraitEffect(m))" aria-hidden="true"></span>
+          <template x-if="pfpEffectOn(portraitEffect(m))">
+            <span class="pfp-glow" :style="pfpEffectStyle(portraitEffect(m))" aria-hidden="true"></span>
+          </template>
           <!-- Only once it is big: at 34px a button over the face would be
                most of the face. -->
           <button class="pfp-full" x-show="bigPfp === m.id && portraitFor(m)" x-cloak
@@ -544,6 +605,23 @@
           </template>
         </div>
       </div>
+      <!-- The user's own face, mirroring the assistant's — same slot, same
+           blank-then-photo fallback (§ above), just simpler: no effect ring,
+           no talking-avatar clip, no tap-to-enlarge, none of which a persona
+           card carries. Comes after `.bubble` rather than before it: with
+           `.msg.user`'s justify-content: flex-end, DOM order is visual
+           order, and the portrait belongs on the outer edge the way the
+           assistant's does, not wedged between the bubble and the wall. -->
+      <template x-if="m.role === 'user'">
+        <span class="pfp-slot">
+          <span class="pfp pfp-blank" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
+          </span>
+          <template x-if="persona && persona.avatar">
+            <img class="pfp pfp-over" :src="`/avatars/${persona.avatar}`" alt="" @error="$el.remove()">
+          </template>
+        </span>
+      </template>
     </article>
   </template>
 
@@ -558,8 +636,9 @@
       <template x-if="portrait">
         <img class="pfp pfp-over" :src="portrait" alt="" @error="$el.remove()">
       </template>
-      <span class="pfp-glow" x-show="pfpEffectOn(character && character.pfp_effect)" x-cloak
-            :style="pfpEffectStyle(character && character.pfp_effect)" aria-hidden="true"></span>
+      <template x-if="pfpEffectOn(character && character.pfp_effect)">
+        <span class="pfp-glow" :style="pfpEffectStyle(character && character.pfp_effect)" aria-hidden="true"></span>
+      </template>
     </span>
     <!-- Three cues in one box, cross-fading. Which one is showing says what
          is actually happening: the dots mean the backend has not answered
@@ -636,8 +715,9 @@
     <span class="pfp-full-wrap" @click.stop>
       <img class="pfp-full-image" :class="'shape-' + pfpFull.shape"
            :src="pfpFull.src" alt="">
-      <span class="pfp-glow pfp-glow-full" x-show="pfpEffectOn(pfpFull.effect)" x-cloak
-            :style="pfpEffectStyle(pfpFull.effect)" aria-hidden="true"></span>
+      <template x-if="pfpEffectOn(pfpFull.effect)">
+        <span class="pfp-glow pfp-glow-full" :style="pfpEffectStyle(pfpFull.effect)" aria-hidden="true"></span>
+      </template>
     </span>
     <button class="pfp-full-close" @click.stop="closePfpFull()" aria-label="Close">
       <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg>
@@ -656,6 +736,17 @@
        x-transition:leave="crop-leave" x-transition:leave-start="crop-to"
        x-transition:leave-end="crop-from">
     <div class="kill-sheet" @click.stop>
+      <!-- The character's own goodbye (§models.CharacterReactions, the same
+           "killed" line toggleFavourite's bubble draws on for starred and
+           unstarred), surfacing once the hold is far enough along to mean
+           it — see the 60% threshold in onKillDown's tick. Its own floating
+           bubble above the sheet rather than a line laid into the sheet's
+           own flow, so it can appear without pushing the Delete button a
+           single pixel out from under the finger already holding it down. -->
+      <div class="reaction-bubble kill-preview" x-show="killHold && killHold.previewShown && killHold.character.reactions && killHold.character.reactions.killed" x-cloak
+           x-transition:enter="reaction-bubble-enter" x-transition:enter-start="reaction-bubble-from"
+           x-transition:enter-end="reaction-bubble-to"
+           x-text="killHold ? killHold.character.reactions.killed : ''"></div>
       <h3 class="kill-title" x-text="`Delete ${(killHold && killHold.character.name) || ''}?`"></h3>
       <p class="kind-note">
         Keep holding &ldquo;Delete&rdquo; to permanently eliminate the character.
@@ -821,7 +912,7 @@
      was not enough: the menu's own bottom padding is what sits over the
      composer, so a tap there landed on the padding rather than on the scrim. -->
 <div class="composer-sheet" x-show="composerMenu" x-cloak
-     @click="composerMenu = false">
+     @click="dismissComposerSheet()">
   <div class="composer-menu">
     <template x-for="(a, i) in composerActions()" :key="a.id">
       <button class="composer-item" :class="{ soon: a.soon, dragged: composerActive === i }"
@@ -2030,7 +2121,7 @@
                    the fixed round .char-pfp personas and cast members still
                    use — a roster of standing figures framed as circles was
                    the one place pfp_shape was chosen and then ignored. -->
-              <span class="pfp-slot" :class="'shape-' + (c.pfp_shape || 'portrait')">
+              <span class="pfp-slot pfp-slot-roster" :class="'shape-' + (c.pfp_shape || 'portrait')">
                 <span class="pfp pfp-blank" aria-hidden="true">
                   <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
                 </span>
@@ -2042,48 +2133,64 @@
                 <template x-if="c.pfp">
                   <img class="pfp pfp-over" :src="pfpUrl(c.pfp)" alt="" @error="$el.remove()">
                 </template>
-                <span class="pfp-glow" x-show="pfpEffectOn(c.pfp_effect)" x-cloak
-                      :style="pfpEffectStyle(c.pfp_effect)" aria-hidden="true"></span>
+                <template x-if="pfpEffectOn(c.pfp_effect)">
+                  <span class="pfp-glow" :style="pfpEffectStyle(c.pfp_effect)" aria-hidden="true"></span>
+                </template>
               </span>
               <div class="char-id">
-                <span class="char-name" x-text="c.name"></span>
+                <span class="char-name-row">
+                  <span class="char-name" x-text="c.name"></span>
+                  <!-- Position alone stopped saying this once the current
+                       character started sorting to the top with everyone
+                       else who has a reason to be there (§ pinCurrentCharacter)
+                       — "first" no longer meant "open". -->
+                  <span class="char-current-badge" x-show="c.id === characterId" x-cloak>Open</span>
+                </span>
                 <span class="char-meta" x-text="`${c.chats} chat${c.chats === 1 ? '' : 's'}`"></span>
               </div>
-              <!-- Grouped so the row can drop them onto a line of their own
-                   rather than squeezing the name out of existence. Six 40px
-                   buttons and a portrait do not fit beside a name on a 360px
-                   screen, and flex was resolving that by giving the name zero
-                   width. -->
-              <div class="char-tools">
-              <button class="glyph-btn star" :class="{ on: c.favourite }"
+              <!-- Off on its own corner rather than in the tool row below: a
+                   mark of favour reads differently from an action, and
+                   sharing a row with "delete" priced it the same as one. -->
+              <button class="glyph-btn star corner" :class="{ on: c.favourite }"
                       @click.stop="toggleFavourite(c)"
                       :title="c.favourite ? 'Starred — sorts to the top' : 'Star this character'"
                       :aria-pressed="c.favourite" aria-label="Star character">
                 <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-star"/></svg>
               </button>
-              <button class="glyph-btn" @click.stop="editCharacter(c.id)"
-                      title="Edit character" aria-label="Edit character">
-                <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-edit"/></svg>
-              </button>
-              <a class="glyph-btn" :href="`/api/characters/${c.id}/export?download=true`"
-                 :download="`${c.name}.card.json`" @click.stop
-                 title="Export card" aria-label="Export card">
-                <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-export"/></svg>
-              </a>
-              <button class="glyph-btn" @click.stop="newChat(c.id)"
+            </div>
+
+            <!-- The two things you actually came here to do, said in words
+                 rather than left for an icon to imply — "continue" and
+                 "start over" don't have a universal glyph the way "delete"
+                 does. Management (edit, export, delete) is secondary, so it
+                 stays icon-only and drops to the row's own right. -->
+            <div class="char-actions">
+              <button class="char-action-btn" @click.stop="newChat(c.id)"
                       title="New chat" aria-label="New chat">
                 <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-plus"/></svg>
+                <span>New chat</span>
               </button>
-              <button class="glyph-btn" :class="{ on: historyFor === c.id }"
+              <button class="char-action-btn" :class="{ on: historyFor === c.id }"
                       @click.stop="toggleHistory(c.id)"
-                      title="Chat history" aria-label="Chat history">
-                <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-menu"/></svg>
+                      title="Recent chats" aria-label="Recent chats">
+                <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-history"/></svg>
+                <span>Recent chats</span>
               </button>
-              <button class="glyph-btn danger" :class="{ armed: confirmChar === c.id }"
-                      @click.stop="deleteCharacter(c)"
-                      :title="confirmChar === c.id ? 'Tap again to delete — this deletes its chats too' : 'Delete character'"
-                      aria-label="Delete character"
-                      x-text="confirmChar === c.id ? '⚠&#xFE0E;' : '✕&#xFE0E;'"></button>
+              <div class="char-actions-secondary">
+                <button class="glyph-btn" @click.stop="editCharacter(c.id)"
+                        title="Edit character" aria-label="Edit character">
+                  <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-edit"/></svg>
+                </button>
+                <a class="glyph-btn" :href="`/api/characters/${c.id}/export?download=true`"
+                   :download="`${c.name}.card.json`" @click.stop
+                   title="Export card" aria-label="Export card">
+                  <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-export"/></svg>
+                </a>
+                <button class="glyph-btn danger" :class="{ armed: confirmChar === c.id }"
+                        @click.stop="deleteCharacter(c)"
+                        :title="confirmChar === c.id ? 'Tap again to delete — this deletes its chats too' : 'Delete character'"
+                        aria-label="Delete character"
+                        x-text="confirmChar === c.id ? '⚠&#xFE0E;' : '✕&#xFE0E;'"></button>
               </div>
             </div>
 
@@ -2223,8 +2330,9 @@
             <template x-if="draftPortrait()">
               <img class="pfp pfp-large pfp-over" :src="draftPortrait()" alt="" @error="$el.remove()">
             </template>
-            <span class="pfp-glow" x-show="pfpEffectActive()" x-cloak
-                  :style="pfpEffectStyle(draftCharacter.pfp_effect)" aria-hidden="true"></span>
+            <template x-if="pfpEffectActive()">
+              <span class="pfp-glow" :style="pfpEffectStyle(draftCharacter.pfp_effect)" aria-hidden="true"></span>
+            </template>
           </span>
           <div class="pfp-edit-actions">
             <label class="link file-link">

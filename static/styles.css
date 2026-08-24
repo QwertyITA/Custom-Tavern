@@ -184,7 +184,13 @@ body {
 .worldbar {
   display: flex;
   flex-direction: column;
-  padding: calc(6px + var(--safe-top)) 8px 6px;
+  /* Trimmed from 6px/6px: collapsed (menu shut, which is most of the time
+     this is on screen) this bar's whole job is one line of text and a
+     couple of icon buttons, and the old padding gave that line more air
+     than a title bar needs. The buttons inside keep their own 44px tap
+     target regardless — this only pulls in the bar's outer margin, not
+     their hit area. */
+  padding: calc(4px + var(--safe-top)) 8px 4px;
   background: var(--surface);
   border-bottom: 1px solid var(--line);
   position: sticky;
@@ -205,19 +211,39 @@ body {
   text-align: left;
   flex: 0 1 auto;
   min-width: 3.5em;
+  gap: 3px;
   /* Real height rather than the invisible overlay the switches use: the header
      clips a pseudo-element that reaches past its row, so the extra area
-     hit-tested to the bar instead of to the button. There is room for it
-     anyway now that the icon buttons beside it are 44 tall. */
+     hit-tested to the bar instead of to the button. Trimmed from 44 along
+     with .worldbar's own padding above — the row around it no longer holds
+     44px of its own air, so the button doesn't need to supply it alone. */
   display: inline-flex;
   align-items: center;
-  min-height: 44px;
+  min-height: 36px;
   font-size: 14px;
   font-weight: 600;
   color: var(--text);
+  min-width: 0;
+}
+.who-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
+}
+/* The mark of a control that opens something, the way a native select or a
+   dropdown carries one — plain bold text read as a title before this, not
+   as a button. Dimmer than the name and a little smaller, so it reads as
+   punctuation on the button rather than a second piece of information. */
+.who-caret {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 /* ------------------------------------------------------------- icons */
@@ -334,6 +360,12 @@ body {
 .braintab-to { opacity: 1; transform: translateY(0); }
 
 .icon-btn.refresh { flex: none; }
+/* Shrunk to match the thinner pill around it (§ .world-pill) — 44px is the
+   phone-wide minimum everywhere else, but this button's whole hit area is
+   already inside a chip that is no longer that tall, and growing the button
+   back out to 44 would just make the chip that contains it look clipped. */
+.world-pill .icon-btn.refresh { min-width: 26px; min-height: 26px; padding: 3px; }
+.world-pill .icon-btn.refresh .icon { width: 15px; height: 15px; }
 /* A continuous rotation is the one thing that must stay linear — easing it
    makes the spinner hesitate once per turn. */
 .icon-btn.refresh.spinning { animation: spin 1.1s linear infinite; color: var(--accent); }
@@ -344,7 +376,11 @@ body {
    the menu rather than being covered by it. It sits directly in the
    fixed-height flex column above `.chat` (see the note on `.chat` for why
    that needs no sticky positioning), and centers itself there rather than
-   hugging either edge. */
+   hugging either edge.
+   Thinner than it once was throughout — min-height and padding both trimmed
+   — because this is a secondary reading, not a primary control: the fields
+   are also reachable in full by tapping through to `.world-full` below, so
+   the pill itself only has to be legible, not a full 44px target. */
 .world-pill {
   display: flex;
   align-items: center;
@@ -352,23 +388,41 @@ body {
   gap: 2px;
   width: fit-content;
   max-width: 100%;
-  margin: 0 8px 6px;
-  padding: 2px 4px 2px 10px;
+  margin: 0 8px 5px;
+  padding: 1px 3px 1px 9px;
   border-radius: 999px;
   background: var(--panel-2);
   border: 1px solid var(--line);
 }
+/* Before there is a scene, .world-fields renders nothing (x-show="hasScene")
+   and the refresh button is this pill's only content — the lopsided padding
+   above exists to balance a row of text against the button beside it, and
+   with no text left to balance it just pushed the button off-centre inside
+   an oval it didn't fill, which is the "ugly blob" this fixes. Even padding
+   around one round button reads as a plain icon button instead. */
+.world-pill.empty { padding: 1px; gap: 0; }
+/* The same pill, living in the header's own row beside the name instead of
+   underneath it (§ pillFitsInline) — everything above still applies, this
+   only cancels the standalone row's own centering and outer margin so it
+   behaves like an ordinary flex child of `.bar-row` instead. */
+.world-pill-inline {
+  align-self: auto;
+  margin: 0;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.world-pill-inline .world-fields { min-width: 0; }
 .world-fields {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   /* It opens the full line, so it behaves like the button it now is. */
   cursor: pointer;
-  min-height: 44px;
-  font-size: 12px;
+  min-height: 28px;
+  font-size: 11.5px;
 }
 
 /* Each reading is its own icon-and-value pair. The icon says which reading it
@@ -982,6 +1036,7 @@ body {
   background: color-mix(in srgb, #000 62%, transparent);
 }
 .kill-sheet {
+  position: relative;
   width: 100%;
   max-width: 420px;
   padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
@@ -991,6 +1046,16 @@ body {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 16px 16px 0 0;
+  /* The whole sheet, not just the button: a seven-second hold is easily the
+     longest a finger sits still anywhere in this app, which is exactly what
+     a phone's own "select this text" gesture is watching for. Without this
+     a long-enough press anywhere on the warning copy — not only the button
+     itself — could raise the system selection UI mid-hold and steal the
+     pointer capture onKillDown depends on, aborting the deletion it was
+     timing. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 .kill-title { margin: 0; font-size: 16px; }
 /* Always drawn as the danger action it is, not just once armed — unlike
@@ -1001,6 +1066,11 @@ body {
   color: var(--on-accent);
   border-color: transparent;
   font-weight: 600;
+  /* onKillDown holds a pointer capture for the full seven seconds; without
+     this the browser's own touch-scroll/selection heuristics can still try
+     to intercept a finger that sits still that long, same reasoning as
+     .composer-more's own touch-action: none. */
+  touch-action: none;
 }
 .kill-btn:disabled { opacity: .7; }
 /* The fill lives in its own track below the button rather than inside it —
@@ -1031,6 +1101,16 @@ body {
 /* A file input is unstyleable, so the label is the button and the input hides
    behind it. */
 .file-link { cursor: pointer; }
+
+/* An assistant reply gets more of the row than a user line does: the
+   portrait beside it already carries the "who said this" cue a right-aligned
+   user bubble gets from its own edge, so pinning it to the same 86% just
+   left unused width on the one side nothing else was claiming — the gap
+   read as margin rather than as room for a future portrait or action. Local
+   to `.msg.assistant` rather than raising --bubble-max itself, so a user
+   line (and the enlarged-portrait formula below, which is assistant-only
+   anyway) aren't affected by a number tuned for this one case. */
+.msg.assistant { --bubble-max: 94%; }
 
 /* messages as rectangles (§12) */
 .bubble {
@@ -1074,13 +1154,21 @@ body {
 .mk-dialogue.mk-strong { color: var(--c-dialogue); font-weight: 700; }
 
 .msg-tools {
-  margin-top: 6px;
+  margin-top: 3px;
   transition: opacity var(--dur-fast) var(--ease-out);
 }
 /* While a reply is streaming. Space is still reserved — that is the point —
    and nothing here can be tapped by a finger aiming at text that moved. */
 .msg-tools.busy { opacity: 0; pointer-events: none; }
 .tools-row { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); }
+/* Shorter than the 44px phone-wide minimum on purpose: every message on
+   screen carries a row of these, so their height is paid for once per
+   bubble rather than once per screen the way a menu or a roster row is —
+   and the hold-to-open wheel (§ wheel) is still one press away from the
+   bubble itself for whoever wants the same actions at the full target
+   size. Width stays untouched, only the vertical padding shrinks, so the
+   tap area narrows less than it shortens. */
+.tools-row .glyph-btn { min-height: 30px; padding: 3px 8px; }
 
 /* Message controls are symbols, never words or emoji. The U+FE0E variation
    selector in the markup forces text presentation, so these stay monochrome
@@ -1131,7 +1219,7 @@ body {
   color: var(--on-accent);
   animation: field-refresh 1.2s var(--ease-in-out) infinite;
 }
-.variant-count { font-size: 11px; opacity: .75; padding: 0 2px; }
+.variant-count { font-size: 11px; opacity: .75; padding: 0 1px; }
 .link {
   background: none; border: none;
   color: var(--muted); font-size: 12px; text-decoration: underline;
@@ -1146,7 +1234,11 @@ body {
 .link:disabled { opacity: .4; text-decoration: none; }
 /* `1 / 3` is one thing to read, not three. Without this it wraps to three
    lines the moment the bubble gives up width to an enlarged portrait. */
-.variants { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
+.variants { display: inline-flex; gap: 0; align-items: center; white-space: nowrap; }
+/* Narrower than an ordinary glyph-btn: these two are a pair flanking a
+   number, read together as one compact control, not as two separate
+   40px-wide buttons with a counter floating between them. */
+.variants .glyph-btn { min-width: 26px; padding: 3px 2px; }
 .edited { opacity: .45; font-size: 12px; padding-left: 4px; }
 
 .edit-box {
@@ -1227,7 +1319,12 @@ body {
 .composer {
   display: flex;
   gap: 8px;
-  padding: 8px 10px calc(8px + var(--safe-bottom));
+  /* Trimmed from 8px/8px top and bottom: the text box and the round send
+     button set the footer's real height between them (see below), and the
+     old padding added a second helping of air on top of that rather than
+     framing it. The safe-area inset is untouched — that space belongs to
+     the phone, not to this bar's own design. */
+  padding: 5px 10px calc(5px + var(--safe-bottom));
   background: var(--surface);
   border-top: 1px solid var(--line);
 }
@@ -1293,7 +1390,11 @@ body {
    happened: on a 360px screen the row showed a portrait, a chat count and six
    icons, with the name at zero width. Giving the name a floor and letting the
    tools take their own line keeps every row legible at any width. */
-.char-head { position: relative; display: flex; align-items: center; gap: 8px; row-gap: 0; flex-wrap: wrap; }
+/* padding-right reserves room for the star, which sits position:absolute in
+   this same corner (§ .glyph-btn.star.corner) — without it a long name runs
+   straight under the button instead of wrapping or eliding clear of it. */
+.char-head { position: relative; display: flex; align-items: center; gap: 8px; row-gap: 0;
+             flex-wrap: wrap; padding-right: 40px; }
 
 /* A WhatsApp-style speech bubble over the character's own row (§ toggle
    Favourite in app.js) — the tail is a rotated square half-hidden behind the
@@ -1334,10 +1435,79 @@ body {
                                     transform var(--dur-fast) var(--ease-in-out); }
 .reaction-bubble-from { opacity: 0; transform: scale(.85) translateY(6px); }
 .reaction-bubble-to { opacity: 1; transform: scale(1) translateY(0); }
+
+/* The same bubble, floating above the kill-sheet instead of a roster row —
+   centred on it rather than flush left, since the sheet it anchors to spans
+   the full width of the screen instead of one narrow row. */
+.kill-preview { left: 50%; transform: translateX(-50%); margin-bottom: 14px; }
+.kill-preview.reaction-bubble-from { transform: translateX(-50%) scale(.85) translateY(6px); }
+.kill-preview.reaction-bubble-to { transform: translateX(-50%) scale(1) translateY(0); }
+.kill-preview::after { left: 50%; margin-left: -6px; }
 /* Right-aligned whether it shares the name's line or takes its own, so the
    row reads the same either way. No row-gap above: on the wrapped layout the
    buttons' own 44px height is already the separation. */
-.char-tools { display: flex; gap: 2px; margin-left: auto; }
+/* A visibly bigger face than the 34px default everything else on the page
+   draws portraits at (messages, cast chips) — this is the one list whose
+   entire job is "which of these people is this", so it gets to spend the
+   width on it. Still the same shared .pfp-slot machinery (ratio, glow,
+   blank fallback), just a wider --pfp-w. */
+.pfp-slot-roster { --pfp-w: 52px; }
+
+/* The star used to sit in the tool row beside edit/export/delete, priced
+   the same as all four — a mark of favour is not a management action, so it
+   moved to its own corner of the head instead (§ HTML). position:absolute
+   against .char-head, same trick .reaction-bubble uses one row up. */
+.glyph-btn.star.corner { position: absolute; top: 4px; right: 4px; }
+
+.char-name-row { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.char-name-row .char-name { min-width: 0; }
+/* Position alone said "this one's open" back when the current character sat
+   wherever the sort left it; now that it sorts to the top with every other
+   reason a row has to be there (§ pinCurrentCharacter in app.js), the row
+   needs to say so itself. */
+.char-current-badge {
+  flex: none;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  color: var(--on-accent);
+  background: var(--accent);
+  border-radius: 999px;
+  padding: 2px 7px;
+}
+
+/* The two things a row exists to do, said in words, and the three things it
+   exists to manage, left as icons the way "edit", "export" and "delete"
+   already read everywhere else in the app. */
+.char-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.char-action-btn {
+  flex: 1 1 40%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.char-action-btn .icon-btn-glyph { color: var(--accent); }
+.char-action-btn:active { background: var(--panel-2); }
+.char-action-btn.on { color: var(--accent); border-color: var(--accent); background: var(--panel-2); }
+/* Icon-only and unlabelled, so it stays compact instead of claiming a third
+   of the row the way each labelled button above does — management is
+   secondary here, not an equal. Pushed to the row's own right when there is
+   room, and wraps onto its own line rather than crushing the two labelled
+   buttons when there is not. */
+.char-actions-secondary { display: flex; gap: 2px; margin-left: auto; }
+
 .char-pfp {
   position: relative;
   width: 38px; height: 38px; flex: none;
@@ -1699,7 +1869,12 @@ body {
    the same number they fix the box at an exact size, which is what actually
    animates. --dur-bubble-resize is what app.js waits on. */
 .bubble {
-  transition: transform .18s var(--ease-out),
+  /* The snap-back is a bubble travelling from wherever the finger left it
+     back to its resting place, not something newly arriving — that is
+     --ease-in-out's case in the motion taxonomy (§ the token comments in
+     :root), not --ease-out's, and using the wrong one here was what read as
+     a near-linear slide rather than a settle. */
+  transition: transform .18s var(--ease-in-out),
               min-width var(--dur-bubble-resize) var(--ease-in-out),
               max-width var(--dur-bubble-resize) var(--ease-in-out),
               min-height var(--dur-bubble-resize) var(--ease-in-out),
@@ -2170,7 +2345,12 @@ body {
 .composer-more { flex: none; touch-action: none; }
 
 /* Rises from the composer rather than dropping from the top: that is where
-   the button is and where the eye already is. */
+   the button is and where the eye already is.
+   user-select and -webkit-touch-callout are off for the whole sheet, same
+   reasoning as .composer-more's touch-action above: the press that opens
+   this can turn into a drag across it (§ onPlusMove), and without these a
+   phone reads that drag as "select this text" or offers to copy it rather
+   than letting the gesture reach the item underneath. */
 .composer-sheet {
   position: fixed;
   inset: 0;
@@ -2179,6 +2359,9 @@ body {
   display: flex;
   align-items: flex-end;
   animation: scrim-in 180ms var(--ease-out) both;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 .composer-menu {
   width: 100%;
@@ -2186,6 +2369,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  touch-action: none;
 }
 .composer-item {
   display: flex;
@@ -2359,14 +2543,23 @@ body {
    actually being skipped. .pfp-glow's ring bleeds a few px past .pfp-slot,
    which sits flush against .msg's own left edge, so that containment sliced
    the ring off on exactly that side — the other three sides stayed inside
-   .msg's much larger box (bubble included) and were never touched. A row
-   whose speaker has a colour effect chosen carries pfp-glowing for exactly
-   this reason, not because it is mid-animation. */
+   .msg's much larger box (bubble included) and were never touched. `:has(.pfp-glow)`
+   catches every row with a ring drawn, for exactly that reason — reading the
+   ring's own presence in the DOM rather than re-deriving the same boolean a
+   second time. That second copy used to be a `.pfp-glowing` class computed
+   by its own `pfpEffectOn(portraitEffect(m))` call sitting beside the
+   ring's own `x-show="pfpEffectOn(portraitEffect(m))"` — two independent
+   Alpine bindings reading the same character state, each free to re-run on
+   its own effect a frame apart from the other. Whenever they disagreed for
+   that one frame, the class briefly went missing while the ring itself was
+   still drawn (or the reverse), and content-visibility clipped it — which
+   is what "the border flickers during long chats" actually was. `:has()`
+   cannot disagree with the element it is matching. */
 .msg.sending,
 .msg.collapsing,
 .msg.animating,
 .msg.streaming,
-.msg.pfp-glowing,
+.msg:has(.pfp-glow),
 .msg:has(.bubble.leaving),
 .msg:has(.bubble.clipping),
 .msg:has(.mk-new) {
