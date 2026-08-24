@@ -69,11 +69,50 @@ enable_hooks() {
 
 # ------------------------------------------------------------------ update
 
+# This install may have been cloned back when the repo's line of development
+# ran under a different branch name — the project has since settled on the
+# usual main/dev split, where `main` is what a running install tracks and
+# `dev` is where work happens before being published to it. A checkout still
+# sitting on an old branch has no way to notice that on its own, so this
+# checks on every launch and moves it over — with the same care the rest of
+# `update` takes: never with local changes underfoot, never by force, and
+# never touching a detached HEAD someone put themselves in on purpose.
+# Self-correcting rather than one-shot: if a checkout is ever back on
+# something other than `main` for any reason, the next launch fixes it again.
+switch_to_main() {
+  local branch
+  branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" || branch=""
+  if [ -z "$branch" ] || [ "$branch" = "HEAD" ] || [ "$branch" = "main" ]; then
+    return 0
+  fi
+
+  if [ -n "$(git status --porcelain --untracked-files=no 2>/dev/null)" ]; then
+    warn "on '$branch' with local changes — not switching to 'main' automatically"
+    echo "     commit or discard them, then run again to switch."
+    return 0
+  fi
+
+  if ! git fetch --quiet "$REMOTE" main 2>/dev/null; then
+    # No 'main' on the remote yet, or offline — stay put. update() below
+    # still tries to pull whatever branch this actually is.
+    return 0
+  fi
+
+  bold "This checkout is on '$branch'; the project now runs from 'main' — switching…"
+  if git show-ref --verify --quiet refs/heads/main; then
+    git checkout --quiet main
+  else
+    git checkout --quiet -b main --track "$REMOTE/main"
+  fi
+}
+
 update() {
   if ! have git || [ ! -d "$HERE/.git" ]; then
     warn "not a git checkout — skipping update"
     return 0
   fi
+
+  switch_to_main
 
   local branch
   branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" || branch=""
