@@ -48,11 +48,13 @@ class _Marker:
     force: str = ""  # "open" / "close" for directional quotes
 
 
-def _paragraphs(text: str) -> list[tuple[int, int]]:
-    """Delimiters only pair inside a paragraph.
-
-    This is the main guard against a single stray marker capturing the whole
-    message: the damage is bounded to the paragraph it appears in.
+def split_paragraphs(text: str) -> list[tuple[int, int]]:
+    """Spans of text between blank-line breaks, in the original text's own
+    coordinates. Delimiters only pair inside one — the main guard against a
+    single stray marker capturing the whole message, the damage bounded to
+    the paragraph it appears in — and it's also what "paragraph" means to
+    reply_length.py's cut, so a reply and the count judging it agree on
+    where one paragraph ends and the next begins.
     """
     spans: list[tuple[int, int]] = []
     cursor = 0
@@ -139,7 +141,7 @@ def parse(text: str) -> list[Run]:
     styles: list[set[str]] = [set() for _ in range(length)]
     hidden = [False] * length
 
-    for para_start, para_end in _paragraphs(text):
+    for para_start, para_end in split_paragraphs(text):
         for style, span_start, span_end, consumed in _pair(_lex(text, para_start, para_end)):
             for index in range(max(0, span_start), min(length, span_end)):
                 styles[index].add(style)
@@ -186,7 +188,7 @@ def repair_markup(text: str) -> str:
     if "*" not in text:
         return text
     doomed: set[int] = set()
-    for para_start, para_end in _paragraphs(text):
+    for para_start, para_end in split_paragraphs(text):
         markers = [m for m in _lex(text, para_start, para_end) if not m.keep]
         paired: set[int] = set()
         for _style, _start, _end, consumed in _pair(markers):

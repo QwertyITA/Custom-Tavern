@@ -54,6 +54,10 @@ CREATE TABLE IF NOT EXISTS message_variants (
     -- channel. Never displayed inline — it is not what the character said —
     -- and kept per variant, because a re-roll thought different things.
     thinking   TEXT NOT NULL DEFAULT '',
+    -- What "Cut excess paragraphs" (§ app/reply_length.py) removed, kept so
+    -- one message can be restored to what the model actually wrote. Empty
+    -- means this variant was never cut.
+    full_text  TEXT NOT NULL DEFAULT '',
     created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_variants_message ON message_variants(message_id, idx);

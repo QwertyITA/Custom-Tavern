@@ -4753,6 +4753,20 @@ function tavern() {
       }
     },
 
+    // Undoes a "Cut excess paragraphs" cut (§ Settings.cut_excess_paragraphs)
+    // on this one message. The button only shows when has_full_text is true
+    // (§ index.html), so there is always something on the server to put back.
+    async restoreFullLength(message) {
+      try {
+        const updated = await api.post(`/api/messages/${message.id}/restore`);
+        message.text = updated.text;
+        message.has_full_text = false;
+        this.flashHint("Restored to full length");
+      } catch (e) {
+        this.error = errorText(e);
+      }
+    },
+
     // Hidden messages stay on screen and leave the prompt. Not a `stage`: the
     // eviction ladder owns that and would promote it back.
     async toggleHidden(message) {

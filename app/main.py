@@ -1241,6 +1241,22 @@ async def edit_message(message_id: str, payload: EditMessageRequest) -> dict:
     return result
 
 
+@app.post("/api/messages/{message_id}/restore")
+async def restore_message(message_id: str) -> dict:
+    """Undo a "Cut excess paragraphs" cut on this message's active variant
+    (§ app/reply_length.py). A no-op turned error rather than a silent
+    no-op: the button that calls this only ever shows for a message that
+    was actually cut, so a 400 here means the frontend's own idea of that
+    was already stale — worth surfacing, not swallowing."""
+    db = get_db()
+    message = repo.get_message(db, message_id)
+    if message is None:
+        raise HTTPException(404, "message not found")
+    if repo.restore_full_text(db, message["variant_id"]) is None:
+        raise HTTPException(400, "this message was not cut")
+    return repo.get_message(db, message_id)
+
+
 @app.delete("/api/messages/{message_id}")
 async def delete_message(message_id: str) -> dict:
     db = get_db()

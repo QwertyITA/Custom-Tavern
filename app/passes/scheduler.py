@@ -34,6 +34,7 @@ from .. import avatar_video
 from .. import character_reactions
 from .. import groups
 from .. import macros, memory as memory_store, regex_rules, repo, state as state_mod
+from .. import reply_length
 from .. import translation
 from .. import websearch
 from ..config import Settings
@@ -905,6 +906,14 @@ class PassScheduler:
             yield {"type": "error", "error": reason, "pass_id": "basic"}
             return
 
+        # A hard backstop for craft:length, when the toggle wants one (§
+        # reply_length.py) — after the empty-reply retry above, so it never
+        # cuts against a reply that is about to be thrown away, and before
+        # everything below, so state, memory and translation all judge the
+        # reply the person is actually going to see rather than the tail end
+        # nobody will.
+        reply, full_text = reply_length.cut(reply, self.settings)
+
         message = repo.add_message(
             self.db,
             ctx.chat_id,
@@ -919,6 +928,7 @@ class PassScheduler:
             # "did it actually think?" a minute later — the question a
             # reasoning model raises on every single turn.
             thinking=thinking,
+            full_text=full_text,
         )
         ctx.message_id = message["id"]
         ctx.variant_id = message["variant_id"]
@@ -1619,6 +1629,10 @@ class PassScheduler:
             yield {"type": "error", "error": reason, "pass_id": "basic"}
             return
 
+        # Same hard backstop as the initial reply (§ reply_length.py) — a
+        # swipe is judged and stored exactly the same way a first attempt is.
+        reply, full_text = reply_length.cut(reply, self.settings)
+
         variant = repo.add_variant(
             self.db,
             message_id,
@@ -1626,6 +1640,7 @@ class PassScheduler:
             provider=provider.name,
             model=sink.model or provider.model,
             thinking=thinking,
+            full_text=full_text,
         )
         ctx.variant_id = variant["id"]
         self._record_run(

@@ -379,6 +379,15 @@ class Settings:
 
     # Rendering / hygiene.
     strip_user_turn_leakage: bool = True
+    # A hard backstop for craft:length (§ prompt_sections below), for anyone
+    # who wants the paragraph ceiling actually enforced rather than merely
+    # asked for — see app/reply_length.py for why a prompt-only version
+    # drifts past it under real conversation pressure on most models. Runs
+    # right after a reply is written, before it is stored: nothing
+    # downstream ever sees the excess, but it is not thrown away — the full
+    # reply is kept alongside, so one message can be restored to what the
+    # model actually wrote.
+    cut_excess_paragraphs: bool = False
 
     # Client-side pacing only (Brain → Settings) — the server has nothing to
     # do with this, it never changes what is sent or when the pass actually
@@ -717,6 +726,9 @@ def build_settings(payload: dict[str, Any], current: Settings) -> Settings:
     settings.host = str(payload.get("host", current.host)) or current.host
     settings.strip_user_turn_leakage = bool(
         payload.get("strip_user_turn_leakage", current.strip_user_turn_leakage)
+    )
+    settings.cut_excess_paragraphs = bool(
+        payload.get("cut_excess_paragraphs", current.cut_excess_paragraphs)
     )
     settings.realistic_chat_speed = bool(
         payload.get("realistic_chat_speed", current.realistic_chat_speed)

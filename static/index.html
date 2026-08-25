@@ -664,6 +664,16 @@
                       aria-label="Delete">
                 <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-delete"/></svg>
               </button>
+              <!-- Only for a reply "Cut excess paragraphs" (Brain -> Prompt)
+                   actually shortened — has_full_text means there is
+                   something to put back. One tap, no confirm: unlike delete
+                   this can't lose anything, the cut text is still sitting
+                   right there in the shorter version on screen. -->
+              <button class="glyph-btn" x-show="m.role === 'assistant' && m.has_full_text"
+                      @click="restoreFullLength(m)"
+                      title="Restore full length" aria-label="Restore full length">
+                <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-expand"/></svg>
+              </button>
               <!-- Only on the newest reply, and there even at 1/1: the right
                    arrow past the last variant is what generates another, so
                    hiding these until a second variant exists would leave a
@@ -1754,6 +1764,19 @@
                           Passes) generously above what this needs, or a long
                           reply gets cut off mid-sentence regardless of what
                           the prompt asks for.
+                        </p>
+                        <label class="toggle">
+                          <input type="checkbox" x-model="settings.cut_excess_paragraphs">
+                          <span>Cut excess paragraphs</span>
+                        </label>
+                        <p class="kind-note">
+                          The range above is only ever a request — most models
+                          drift past it, especially in a longer chat. With
+                          this on, a reply that runs past the upper number is
+                          trimmed down to it after the fact, right at a
+                          paragraph break. Nothing is thrown away: the message
+                          action row gets a "Restore full length" button on
+                          any reply this actually shortened.
                         </p>
                       </div>
                       <label class="col-field tight">
