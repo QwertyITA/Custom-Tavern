@@ -76,11 +76,12 @@ def test_the_shipped_prompt_stays_affordable():
 
 
 def test_the_reply_budget_holds_what_the_length_block_asks_for():
-    """The two are coupled and used not to be: the block asks for up to seven
-    hundred words by default (more, with the paragraph range turned up), which
-    is around a thousand tokens, and the state suffix goes after them. Under
-    that the reply is cut mid-sentence and the suffix never arrives, which
-    looks like the state engine having quietly died."""
+    """The two are coupled and used not to be: the block asks for up to two
+    hundred words by default, far more with the paragraph range turned up,
+    and the state suffix goes after them. Under that the reply is cut
+    mid-sentence and the suffix never arrives, which looks like the state
+    engine having quietly died — so the pass budget stays generous even
+    though the shipped default itself is short."""
     from app.passes.registry import CANONICAL_PASSES
 
     reply = next(p for p in CANONICAL_PASSES if p.id == "basic")

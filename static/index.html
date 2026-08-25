@@ -1690,13 +1690,13 @@
                         <span class="row-label wide-label">Paragraphs</span>
                         <div class="len-range">
                           <input class="num-box" type="number" min="1" max="60"
-                                 :value="lengthRange(s)?.min ?? 4"
-                                 @change="setLengthRange(s, $event.target.value, lengthRange(s)?.max ?? 8)"
+                                 :value="lengthRange(s)?.min ?? 1"
+                                 @change="setLengthRange(s, $event.target.value, lengthRange(s)?.max ?? 2)"
                                  aria-label="Fewest paragraphs">
                           <span class="len-to">to</span>
                           <input class="num-box" type="number" min="1" max="60"
-                                 :value="lengthRange(s)?.max ?? 8"
-                                 @change="setLengthRange(s, lengthRange(s)?.min ?? 4, $event.target.value)"
+                                 :value="lengthRange(s)?.max ?? 2"
+                                 @change="setLengthRange(s, lengthRange(s)?.min ?? 1, $event.target.value)"
                                  aria-label="Most paragraphs">
                         </div>
                         <p class="kind-note">

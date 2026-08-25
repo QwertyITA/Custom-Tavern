@@ -339,15 +339,15 @@ do.
         # shipped default has to stay in the exact "N to M paragraphs,
         # roughly A to B words." shape static/app.js's setLengthRange()
         # produces — words = round(paragraphs * 90 / 50) * 50 there, which is
-        # where 350 and 700 below come from.
+        # where 100 and 200 below come from.
         "id": "craft:length", "band": "volatile", "label": "How long a reply runs",
-        "note": "4 to 8 paragraphs by default — set with the stepper in the "
+        "note": "1 to 2 paragraphs by default — set with the stepper in the "
                 "editor below rather than typing prose. Kept in the volatile "
                 "band, right before House style, so it's one of the last "
                 "things the model reads: a length target buried early in a "
                 "long system prompt is exactly what a smaller model forgets.",
         "text": """\
-4 to 8 paragraphs, roughly 350 to 700 words. Close enough is close enough.
+1 to 2 paragraphs, roughly 100 to 200 words. Close enough is close enough.
 
 Do not take the length of earlier messages in the conversation as the target.
 """,

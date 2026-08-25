@@ -127,7 +127,7 @@ const SECTION_MOVE_MS = 260;
 // setLengthRange. Rounded to the nearest 50 words so the number reads like
 // someone chose it, not like a formula did. Kept in sync by hand with the
 // shipped default in app/prompt_layout.py, which is this formula's output at
-// 4-8 paragraphs.
+// 1-2 paragraphs.
 const WORDS_PER_PARAGRAPH = 90;
 // The four samplers every pass ships with a tuned value for. "Turn the extras
 // off" leaves these alone: a pass's own temperature is a decision, not leftover
@@ -1731,7 +1731,7 @@ function tavern() {
     // setLengthRange writes keeps the boxes in step with whatever is actually
     // there, including a shipped default nobody has touched yet. Returns null
     // for wording that doesn't start that way (hand-edited past recognition),
-    // and the boxes fall back to the shipped 4-8 for display until touched.
+    // and the boxes fall back to the shipped 1-2 for display until touched.
     lengthRange(section) {
       const m = /^(\d+)(?:\s*to\s*(\d+))?\s*paragraphs?\b/i.exec((section.text || "").trim());
       if (!m) return null;
