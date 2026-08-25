@@ -625,6 +625,17 @@ function tavern() {
     // Starts false on every open, flips true one frame later so the preview
     // has a "from" size already painted to grow out of — see openPfpEffect.
     pfpEffectGrown: false,
+    // The picture-effect sheet's own sub-view: the six sliders that used to
+    // sit under the swatch grid for everyone now only appear here, while
+    // building a hue to add to the grid (§ openHueEditor). draftHue is that
+    // in-progress value set; customHues is what's been saved from it,
+    // loaded from and written back to localStorage since a hue someone
+    // mixed themselves belongs to this browser, not to any one character.
+    hueEditorOpen: false,
+    draftHue: {},
+    customHues: [],
+    armedHue: "",
+    armedHueTimer: 0,
     // The system prompt / stop strings / final instruction — technical
     // fields most edits never touch, folded away by default same as
     // showAdvancedBrain below.
@@ -708,6 +719,7 @@ function tavern() {
     async boot() {
       window.Markup = window.Markup || {};
       this.guardSliders();
+      this.loadCustomHues();
       // Load settings first: the saved palette should be on screen before the
       // first paint of any message, not applied a beat later.
       try {
@@ -2069,25 +2081,71 @@ function tavern() {
 
     // ---- picture effect (§models.PfpEffect) ----
 
-    // Named starting points, each a full set of values rather than one knob —
-    // picking one is meant to be the fast path, with the sliders below for
-    // anyone who wants to keep going from there.
+    // The ring is just a colour, so the sheet is just a grid of colours —
+    // a fresh, wider wheel replacing the old warm/cool/vivid/sepia/noir/dream
+    // mix of six-knob looks (§KNOWN-ISSUES.md history), none of which read as
+    // a "hue" at a glance. 360 rather than 0 for Red: hue-rotate(0) and
+    // hue-rotate(360) draw identically, but 0 is also "untouched" (see
+    // pfpEffectOn), and Red picked would otherwise vanish back into None.
     pfpEffectPresets() {
+      const wheel = [
+        ["Red", 360], ["Orange", 30], ["Yellow", 60], ["Lime", 90],
+        ["Green", 120], ["Teal", 150], ["Cyan", 180], ["Sky", 210],
+        ["Blue", 240], ["Violet", 270], ["Purple", 300], ["Pink", 330],
+      ];
       return [
-        // Its own id, not "" — "" is what a freehand-tuned slider clears
-        // `preset` to (see tunePfpEffect), and reusing it here would make
-        // the "None" swatch light up for values that are anything but.
+        // Its own id, not "" — "" is what a freehand-tuned custom hue clears
+        // `preset` to (see addCustomHue), and reusing it here would make the
+        // "None" swatch light up for values that are anything but.
         { id: "none", label: "None", values: { hue: 0, saturate: 1, brightness: 1, contrast: 1, sepia: 0, grayscale: 0 } },
-        { id: "warm", label: "Warm", values: { hue: 15, saturate: 1.15, brightness: 1.03, contrast: 1, sepia: 0.15, grayscale: 0 } },
-        { id: "cool", label: "Cool", values: { hue: 200, saturate: 1.1, brightness: 1, contrast: 1.05, sepia: 0, grayscale: 0 } },
-        { id: "vivid", label: "Vivid", values: { hue: 0, saturate: 1.6, brightness: 1.02, contrast: 1.1, sepia: 0, grayscale: 0 } },
-        { id: "sepia", label: "Sepia", values: { hue: 0, saturate: 1, brightness: 1, contrast: 1, sepia: 0.65, grayscale: 0 } },
-        { id: "noir", label: "Noir", values: { hue: 0, saturate: 1, brightness: 0.98, contrast: 1.15, sepia: 0, grayscale: 1 } },
-        { id: "dream", label: "Dream", values: { hue: 280, saturate: 0.85, brightness: 1.08, contrast: 0.92, sepia: 0.1, grayscale: 0 } },
+        ...wheel.map(([label, hue]) => ({
+          id: label.toLowerCase(),
+          label,
+          values: { hue, saturate: 1, brightness: 1, contrast: 1, sepia: 0, grayscale: 0 },
+        })),
       ];
     },
 
-    // The manual sliders, in the order they render. One list rather than six
+    // What "New hue" below hands back — the built-ins plus whatever this
+    // browser has mixed and kept. Appended, not merged in by hue order: a
+    // hue someone made stays findable at the end rather than shuffling
+    // around as more get added next to it.
+    allHues() {
+      return [...this.pfpEffectPresets(), ...this.customHues];
+    },
+
+    customHuesKey: "tavern:customHues",
+
+    loadCustomHues() {
+      try {
+        const raw = localStorage.getItem(this.customHuesKey);
+        const parsed = raw ? JSON.parse(raw) : [];
+        this.customHues = Array.isArray(parsed) ? parsed : [];
+      } catch (_) {
+        this.customHues = [];
+      }
+    },
+
+    saveCustomHues() {
+      try {
+        localStorage.setItem(this.customHuesKey, JSON.stringify(this.customHues));
+      } catch (_) { /* private browsing, full storage — a lost custom hue isn't worth erroring over */ }
+    },
+
+    // The colour a swatch actually draws — the same filter the ring itself
+    // uses (§pfpEffectStyle), laid over the same base red .pfp-glow paints,
+    // so picking a hue here is picking the true colour, not an approximation
+    // of it. "None" has no filter to show, so it gets its own dashed, empty
+    // look instead of defaulting to a plain red circle no one chose.
+    hueSwatchStyle(values) {
+      if (!pfpEffectOn(values)) return "";
+      const filter = pfpEffectStyle(values);
+      return `background: hsl(0 90% 55%); ${filter}`;
+    },
+
+    // The six sliders that used to sit under the swatch grid for every
+    // character now only exist here, mixing a hue rather than tuning one
+    // character's ring — see openHueEditor. One list rather than six
     // near-identical num-field blocks in the template.
     pfpEffectFields() {
       return [
@@ -2100,27 +2158,8 @@ function tavern() {
       ];
     },
 
-    applyPfpPreset(preset) {
-      this.draftCharacter.pfp_effect = { preset: preset.id, ...preset.values };
-    },
-
-    // A slider moved by hand no longer matches whichever preset it started
-    // from — clearing `preset` is what makes the swatch row correctly show
-    // nothing picked once someone has gone off and tuned it themselves.
-    tunePfpEffect(key, value) {
-      this.draftCharacter.pfp_effect = {
-        ...(this.draftCharacter.pfp_effect || {}),
-        [key]: +value,
-        preset: "",
-      };
-    },
-
-    // toFixed rather than the raw bound value: a range input's own step math
-    // can hand back 1.1500000000000001 for a perfectly ordinary 0.05 step,
-    // same reasoning as m.talkativeness.toFixed(1) elsewhere in this file.
-    pfpFieldValue(field) {
-      const raw = (this.draftCharacter.pfp_effect || {})[field.key] ?? field.default;
-      return field.key === "hue" ? `${Math.round(raw)}°` : Number(raw).toFixed(2);
+    applyPfpPreset(hue) {
+      this.draftCharacter.pfp_effect = { preset: hue.id, ...hue.values };
     },
 
     pfpEffectActive() {
@@ -2136,12 +2175,89 @@ function tavern() {
     openPfpEffect() {
       this.pfpEffectGrown = false;
       this.pfpEffectOpen = true;
+      this.hueEditorOpen = false;
       this.$nextTick(() => requestAnimationFrame(() => { this.pfpEffectGrown = true; }));
     },
 
     closePfpEffect() {
       this.pfpEffectOpen = false;
       this.pfpEffectGrown = false;
+      this.hueEditorOpen = false;
+    },
+
+    // What the big preview at the top of the sheet actually shows — the
+    // character's chosen ring normally, or the hue being mixed while the
+    // editor below is open, so the same sliders that used to live right
+    // next to that preview still drive it live.
+    previewEffect() {
+      return this.hueEditorOpen ? this.draftHue : this.draftCharacter.pfp_effect;
+    },
+
+    previewEffectActive() {
+      return pfpEffectOn(this.previewEffect());
+    },
+
+    // The sliders' new home: starts from "no effect" every time rather than
+    // wherever the character's own ring happens to be, since the point is to
+    // mix a new hue, not nudge the current one — nudging it is what tapping
+    // a swatch and then None-ing back out is for.
+    openHueEditor() {
+      this.draftHue = { hue: 0, saturate: 1, brightness: 1, contrast: 1, sepia: 0, grayscale: 0 };
+      this.hueEditorOpen = true;
+    },
+
+    closeHueEditor() {
+      this.hueEditorOpen = false;
+    },
+
+    tuneDraftHue(key, value) {
+      this.draftHue = { ...this.draftHue, [key]: +value };
+    },
+
+    // toFixed rather than the raw bound value: a range input's own step math
+    // can hand back 1.1500000000000001 for a perfectly ordinary 0.05 step,
+    // same reasoning as m.talkativeness.toFixed(1) elsewhere in this file.
+    draftHueValue(field) {
+      const raw = this.draftHue[field.key] ?? field.default;
+      return field.key === "hue" ? `${Math.round(raw)}°` : Number(raw).toFixed(2);
+    },
+
+    // Saves the mix as a new swatch — appended to customHues, picked for
+    // this character immediately (mixing one is also choosing it), and
+    // written to localStorage so it's still there next time this browser
+    // opens any character's picture effect, not just this one's save.
+    addCustomHue() {
+      const hue = {
+        id: `custom-${Date.now()}`,
+        label: "Custom",
+        values: { ...this.draftHue },
+        custom: true,
+      };
+      this.customHues = [...this.customHues, hue];
+      this.saveCustomHues();
+      this.applyPfpPreset(hue);
+      this.hueEditorOpen = false;
+    },
+
+    // Same armed-then-confirm shape as every other delete in this app (§
+    // removeBlock, deletePersona, ...) — a second tap within CONFIRM_MS,
+    // rather than a bare click, on a grid where the first tap already means
+    // something (choosing the hue).
+    removeCustomHue(hue) {
+      if (this.armedHue !== hue.id) {
+        this.armedHue = hue.id;
+        clearTimeout(this.armedHueTimer);
+        this.armedHueTimer = setTimeout(() => { this.armedHue = ""; }, CONFIRM_MS);
+        return;
+      }
+      this.armedHue = "";
+      this.customHues = this.customHues.filter((h) => h.id !== hue.id);
+      this.saveCustomHues();
+      // The character had this exact hue picked — falls back to None rather
+      // than leaving `preset` pointing at a hue that no longer exists.
+      if ((this.draftCharacter.pfp_effect || {}).preset === hue.id) {
+        this.applyPfpPreset(this.pfpEffectPresets()[0]);
+      }
     },
 
     // ---- reactions (§models.CharacterReactions) ----
@@ -2959,6 +3075,7 @@ function tavern() {
         this.stopStrings = (this.draftCharacter.stop_strings || []).join("\n");
         this.pfpEffectOpen = false;
         this.pfpEffectGrown = false;
+        this.hueEditorOpen = false;
         this.advancedCharOpen = false;
         this.reactionsOpen = false;
         this.panel = "character";

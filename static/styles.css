@@ -887,11 +887,15 @@ body {
 .sheet-modal-to { opacity: 1; }
 .sheet-modal-from .sheet-modal-card { transform: translateY(14px) scale(.98); }
 .sheet-modal-to .sheet-modal-card { transform: none; }
+/* Header and action row stay put; only the middle scrolls (§ .sheet-modal-body
+   below) — a card with enough content in it (the hue grid, Reactions' three
+   textareas) used to scroll as a single column, which took its own Done
+   button with it off the bottom of the screen along with everything else. */
 .sheet-modal-card {
   width: 100%;
   max-width: 520px;
   max-height: 92vh;
-  overflow: auto;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -906,6 +910,14 @@ body {
   transition: transform var(--dur-base) var(--ease-in-out);
 }
 .sheet-modal-title { font-weight: 600; }
+.sheet-modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 
 /* The picture-effect preview grows into this size from the identity
    block's own small one the instant the modal is open (§ pfpEffectGrown in
@@ -914,6 +926,62 @@ body {
 .pfp-effect-preview { display: flex; justify-content: center; padding: 6px 0 2px; }
 .pfp-effect-preview-slot { --pfp-w: 72px; }
 .pfp-effect-preview-slot.grown { --pfp-w: 168px; }
+
+/* The hue grid (§ allHues in app.js) — each swatch is .preset/.preset-swatch
+   from the theme-colour picker above, reused rather than redrawn since a
+   round dot standing for the colour it picks is the exact same idea in both
+   places. .hue-tile wraps it only to give a custom hue somewhere for its
+   delete button to sit without being inside the tap target that selects it. */
+.hue-grid { position: relative; }
+.hue-tile { position: relative; flex: 1 1 70px; }
+.hue-tile .preset { width: 100%; }
+.hue-swatch {
+  /* Where hueSwatchStyle's `filter` actually lands — the swatch is the same
+     plain red the real .pfp-glow ring starts from, hue-rotated the same way. */
+  background: hsl(0 90% 55%);
+}
+.hue-swatch.none {
+  /* No filter to draw for "no effect", so it gets its own empty look rather
+     than defaulting to a plain red dot nobody chose. */
+  background: none;
+  border: 2px dashed var(--line);
+}
+.hue-del {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.hue-del .icon-sm { width: 12px; height: 12px; }
+.hue-del.armed { background: var(--error); border-color: var(--error); color: #fff; }
+.hue-del.armed .icon-sm { opacity: 1; }
+.hue-tile-add {
+  color: var(--muted);
+  border-style: dashed;
+}
+.add-swatch {
+  background: var(--panel-2);
+  border: 2px dashed var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+.add-swatch .icon-sm { width: 16px; height: 16px; }
+
+/* Where the six sliders moved to — mixing a hue from scratch instead of
+   tuning the one on screen, so it gets its own small intro line rather than
+   sitting under the grid as if it still customised whichever swatch is
+   picked (§ openHueEditor in app.js). */
+.hue-editor .note { margin-bottom: 2px; }
 
 .crop-stage {
   position: relative;
@@ -1160,7 +1228,7 @@ body {
 .pfp-large.pfp-blank svg { width: 40px; height: 40px; }
 .pfp-edit-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
 .pfp-edit-buttons { width: 100%; }
-.pfp-remove-link { margin: -4px 0 4px; }
+.pfp-remove-btn { width: 100%; }
 /* A file input is unstyleable, so the label is the button and the input hides
    behind it. */
 .file-link { cursor: pointer; }

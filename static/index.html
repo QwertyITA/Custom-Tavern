@@ -2500,12 +2500,12 @@
               <span class="pfp-glow" :style="pfpEffectStyle(draftCharacter.pfp_effect)" aria-hidden="true"></span>
             </template>
           </span>
-          <!-- Two real buttons — a file picker and a modal launch, styled
-               the same as every other primary action in this app — where
-               this used to be a pair of underlined words next to the
-               picture. "Shown beside every one of their messages" is true
-               of every portrait in the app; it earned a line here once,
-               not a permanent one. -->
+          <!-- Real buttons throughout — a file picker and two modal
+               launches, styled the same as every other primary action in
+               this app — where this used to be a pair of underlined words
+               next to the picture plus a third as plain link text. Remove
+               gets a row of its own rather than crowding a third-across
+               with the two used far more often. -->
           <div class="btn-row pfp-edit-buttons">
             <label class="wide file-btn">
               <input type="file" accept="image/*" @change="uploadCharacterPfp($event)" hidden>
@@ -2518,8 +2518,10 @@
               <span class="p-count" x-show="pfpEffectActive()">on</span>
             </button>
           </div>
-          <button class="link danger pfp-remove-link" x-show="draftPortrait()"
-                  @click="clearCharacterPfp()">Remove picture</button>
+          <button class="wide pfp-remove-btn" x-show="draftPortrait()" @click="clearCharacterPfp()">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-delete"/></svg>
+            <span>Remove picture</span>
+          </button>
         </div>
 
         <!-- A card's other emotion sprites (happy/sad/angry/…) — read, not
@@ -2688,45 +2690,87 @@
          x-transition:leave-end="sheet-modal-from">
       <div class="sheet-modal-card" @click.stop>
         <div class="crop-head">
-          <span class="sheet-modal-title">Picture effect</span>
+          <span class="sheet-modal-title" x-text="hueEditorOpen ? 'New hue' : 'Picture effect'"></span>
         </div>
-        <div class="pfp-effect-preview">
-          <span class="pfp-slot pfp-effect-preview-slot"
-                :class="'shape-' + (draftCharacter.pfp_shape || 'portrait') + (pfpEffectGrown ? ' grown' : '')">
-            <span class="pfp pfp-large pfp-blank" aria-hidden="true">
-              <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
+        <div class="sheet-modal-body">
+          <div class="pfp-effect-preview">
+            <span class="pfp-slot pfp-effect-preview-slot"
+                  :class="'shape-' + (draftCharacter.pfp_shape || 'portrait') + (pfpEffectGrown ? ' grown' : '')">
+              <span class="pfp pfp-large pfp-blank" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
+              </span>
+              <template x-if="draftPortrait()">
+                <img class="pfp pfp-large pfp-over" :src="draftPortrait()" alt="">
+              </template>
+              <template x-if="previewEffectActive()">
+                <span class="pfp-glow" :style="pfpEffectStyle(previewEffect())" aria-hidden="true"></span>
+              </template>
             </span>
-            <template x-if="draftPortrait()">
-              <img class="pfp pfp-large pfp-over" :src="draftPortrait()" alt="">
-            </template>
-            <template x-if="pfpEffectActive()">
-              <span class="pfp-glow" :style="pfpEffectStyle(draftCharacter.pfp_effect)" aria-hidden="true"></span>
-            </template>
-          </span>
-        </div>
-        <div class="preset-row">
-          <template x-for="p in pfpEffectPresets()" :key="p.id">
-            <button class="preset" :class="{ picked: (draftCharacter.pfp_effect || {}).preset === p.id }"
-                    @click="applyPfpPreset(p)" x-text="p.label"></button>
+          </div>
+
+          <!-- Many hues, nothing to tune — the six sliders that used to sit
+               right here now only appear when mixing a new one (§ New hue
+               tile below), which is what most of that customising was
+               actually being used for anyway. -->
+          <template x-if="!hueEditorOpen">
+            <div class="preset-row hue-grid">
+              <template x-for="h in allHues()" :key="h.id">
+                <div class="hue-tile">
+                  <button class="preset" :class="{ picked: (draftCharacter.pfp_effect || {}).preset === h.id }"
+                          @click="applyPfpPreset(h)" :aria-label="h.label">
+                    <span class="preset-swatch hue-swatch" :class="{ none: h.id === 'none' }"
+                          :style="hueSwatchStyle(h.values)"></span>
+                    <span x-text="h.label"></span>
+                  </button>
+                  <button class="hue-del" x-show="h.custom" :class="{ armed: armedHue === h.id }"
+                          @click.stop="removeCustomHue(h)" aria-label="Delete this hue">
+                    <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg>
+                  </button>
+                </div>
+              </template>
+              <button class="preset hue-tile-add" @click="openHueEditor()">
+                <span class="preset-swatch hue-swatch add-swatch" aria-hidden="true">
+                  <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plus"/></svg>
+                </span>
+                <span>New hue</span>
+              </button>
+            </div>
+          </template>
+
+          <!-- Where the sliders moved to: mixing a hue from scratch, not
+               tuning the one a character already has. Saving it (below)
+               adds it to the grid above and picks it for this character in
+               the same tap. -->
+          <template x-if="hueEditorOpen">
+            <div class="hue-editor">
+              <p class="note">Mix a colour, then save it as a hue you can pick again.</p>
+              <template x-for="f in pfpEffectFields()" :key="f.key">
+                <div class="num-field">
+                  <div class="num-head">
+                    <span class="num-label" x-text="f.label"></span>
+                    <span class="num-unit" x-text="draftHueValue(f)"></span>
+                  </div>
+                  <input class="num-slider" type="range" :min="f.min" :max="f.max" :step="f.step"
+                         :value="draftHue[f.key] ?? f.default"
+                         @input="tuneDraftHue(f.key, $event.target.value)"
+                         :aria-label="f.label">
+                </div>
+              </template>
+            </div>
           </template>
         </div>
-        <template x-for="f in pfpEffectFields()" :key="f.key">
-          <div class="num-field">
-            <div class="num-head">
-              <span class="num-label" x-text="f.label"></span>
-              <span class="num-unit" x-text="pfpFieldValue(f)"></span>
-            </div>
-            <input class="num-slider" type="range" :min="f.min" :max="f.max" :step="f.step"
-                   :value="(draftCharacter.pfp_effect || {})[f.key] ?? f.default"
-                   @input="tunePfpEffect(f.key, $event.target.value)"
-                   :aria-label="f.label">
+
+        <template x-if="!hueEditorOpen">
+          <div class="btn-row crop-actions">
+            <button class="wide primary" @click="closePfpEffect()">Done</button>
           </div>
         </template>
-        <button class="link" @click="applyPfpPreset(pfpEffectPresets()[0])"
-                x-show="pfpEffectActive()">Back to none</button>
-        <div class="btn-row crop-actions">
-          <button class="wide primary" @click="closePfpEffect()">Done</button>
-        </div>
+        <template x-if="hueEditorOpen">
+          <div class="btn-row crop-actions">
+            <button class="wide" @click="closeHueEditor()">Cancel</button>
+            <button class="wide primary" @click="addCustomHue()">Add hue</button>
+          </div>
+        </template>
       </div>
     </div>
 
@@ -2743,25 +2787,27 @@
         <div class="crop-head">
           <span class="sheet-modal-title">Reactions</span>
         </div>
-        <p class="note" x-show="draftCharacter.id && missingReactions().length">
-          Still filling in: <span x-text="missingReactions().join(', ')"></span> —
-          it finishes the first time this character is talked to.
-        </p>
-        <label class="col-field" x-show="draftCharacter.reactions">
-          <span class="row-label wide-label">Starred</span>
-          <textarea x-model="draftCharacter.reactions.starred" rows="2"
-                    placeholder="How they'd take being marked a favourite. 5–8 words."></textarea>
-        </label>
-        <label class="col-field" x-show="draftCharacter.reactions">
-          <span class="row-label wide-label">Unstarred</span>
-          <textarea x-model="draftCharacter.reactions.unstarred" rows="2"
-                    placeholder="How they'd take being un-favourited. 5–8 words."></textarea>
-        </label>
-        <label class="col-field" x-show="draftCharacter.reactions">
-          <span class="row-label wide-label">Killed</span>
-          <textarea x-model="draftCharacter.reactions.killed" rows="2"
-                    placeholder="Their very last line, if this character is ever deleted. 5–8 words."></textarea>
-        </label>
+        <div class="sheet-modal-body">
+          <p class="note" x-show="draftCharacter.id && missingReactions().length">
+            Still filling in: <span x-text="missingReactions().join(', ')"></span> —
+            it finishes the first time this character is talked to.
+          </p>
+          <label class="col-field" x-show="draftCharacter.reactions">
+            <span class="row-label wide-label">Starred</span>
+            <textarea x-model="draftCharacter.reactions.starred" rows="2"
+                      placeholder="How they'd take being marked a favourite. 5–8 words."></textarea>
+          </label>
+          <label class="col-field" x-show="draftCharacter.reactions">
+            <span class="row-label wide-label">Unstarred</span>
+            <textarea x-model="draftCharacter.reactions.unstarred" rows="2"
+                      placeholder="How they'd take being un-favourited. 5–8 words."></textarea>
+          </label>
+          <label class="col-field" x-show="draftCharacter.reactions">
+            <span class="row-label wide-label">Killed</span>
+            <textarea x-model="draftCharacter.reactions.killed" rows="2"
+                      placeholder="Their very last line, if this character is ever deleted. 5–8 words."></textarea>
+          </label>
+        </div>
         <div class="btn-row crop-actions">
           <button class="wide primary" @click="reactionsOpen = false">Done</button>
         </div>
@@ -2921,7 +2967,9 @@
     <div class="crop-head">
       <span class="sheet-modal-title">Discard changes?</span>
     </div>
-    <p class="note">What you've changed here hasn't been saved yet.</p>
+    <div class="sheet-modal-body">
+      <p class="note">What you've changed here hasn't been saved yet.</p>
+    </div>
     <div class="btn-row crop-actions">
       <button class="wide" @click="cancelDiscard()">Keep editing</button>
       <button class="wide primary danger" @click="discardAndProceed()">Discard</button>
