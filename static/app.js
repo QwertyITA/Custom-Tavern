@@ -2867,9 +2867,12 @@ function tavern() {
       }
     },
 
-    // Starred characters sort to the top. The row travels there rather than
-    // reappearing somewhere else in the list — a roster that rearranges itself
-    // in one frame is one you have to re-read.
+    // The star flips right where it is — the row does not jump to the top
+    // (or back down) mid-browse, which used to reorder the list out from
+    // under whatever else you were about to tap. Starred still sorts to the
+    // top, same as ever; it just takes effect the next time the roster is
+    // loaded (§ loadCharacters), the same way a rename or a new chat count
+    // does not resort the list you are currently looking at either.
     async toggleFavourite(character) {
       const wanted = !character.favourite;
       try {
@@ -2879,9 +2882,6 @@ function tavern() {
         return;
       }
       character.favourite = wanted;
-      this.flipCharacters(() => {
-        this.characters = [...this.characters].sort((a, b) => this.compareCharacters(a, b));
-      });
       // The character's own reaction where there is one; the plain toast
       // where there isn't yet (§ character_reactions.py — a card can still
       // be waiting on its first generation).

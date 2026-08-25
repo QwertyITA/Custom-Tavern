@@ -2357,7 +2357,7 @@
               <div class="char-head-tools">
                 <button class="glyph-btn star" :class="{ on: c.favourite }"
                         @click.stop="toggleFavourite(c)"
-                        :title="c.favourite ? 'Starred — sorts to the top' : 'Star this character'"
+                        :title="c.favourite ? 'Starred — moves to the top next time this list opens' : 'Star this character'"
                         :aria-pressed="c.favourite" aria-label="Star character">
                   <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-star"/></svg>
                 </button>
