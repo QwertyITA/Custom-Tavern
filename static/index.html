@@ -1055,18 +1055,27 @@
     <!-- ----------------------------------------------------------- brain -->
     <template x-if="panel === 'brain'">
       <div>
-        <!-- Five categories, chosen up top rather than scrolled past — the
+        <!-- Six categories, chosen up top rather than scrolled past — the
              ribbon-bar idea, at a scale that fits a phone: an icon and a
              one-word label each, the same shape the header's own menu row
              already uses so this reads as more of that, not a new pattern.
-             Each tab is single-purpose now: Backends only connects to a
-             model, Connect only turns on the two optional services, Passes
-             only decides what runs and when, Prompt only decides what
-             reaches the model, Advanced is everything correct at its
-             default. Story used to be the fifth of these; it left for its
-             own place in the header menu (§ menu-row above) since it is the
-             one tab here that changes with the story rather than the app. -->
+             Each tab is single-purpose now: Presets is the one-tap "start
+             here" that reaches into all the others at once, Backends only
+             connects to a model, Connect only turns on the two optional
+             services, Passes only decides what runs and when, Prompt only
+             decides what reaches the model, Advanced is everything correct
+             at its default. Story used to be the fifth of these; it left
+             for its own place in the header menu (§ menu-row above) since
+             it is the one tab here that changes with the story rather than
+             the app. -->
         <div class="brain-tabs" role="tablist" aria-label="Brain settings">
+          <button class="menu-btn brain-tab" :class="{ on: brainTab === 'presets' }"
+                  @click="brainTab = 'presets'" role="tab"
+                  :aria-selected="brainTab === 'presets'"
+                  aria-label="Presets" title="Presets">
+            <svg class="menu-glyph" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-gauge"/></svg>
+            <span class="menu-label">Presets</span>
+          </button>
           <button class="menu-btn brain-tab" :class="{ on: brainTab === 'backends' }"
                   @click="brainTab = 'backends'" role="tab"
                   :aria-selected="brainTab === 'backends'"
@@ -1105,30 +1114,29 @@
           </button>
         </div>
 
-      <template x-if="brainTab === 'backends'">
+      <!-- Reaches into Backends, Passes and Prompt all at once, which is
+           exactly why it gets a tab of its own rather than living inside
+           whichever of those three it happens to touch most (it used to
+           sit atop Backends — moved out once it was clear "why is a preset
+           picker living inside the connection list" was a fair question).
+           Applying one is a plain local settings edit (§ applyHordePreset,
+           app.js), same as any field on the other five tabs — it rides the
+           same pinned Save bar and nothing here is a persisted "mode" a
+           later hand-edit could leave stale. -->
+      <template x-if="brainTab === 'presets'">
         <div
            x-transition:enter="braintab-enter" x-transition:enter-start="braintab-from"
            x-transition:enter-end="braintab-to">
-        <p class="note">
-          Keys are stored in <code x-text="settings.path"></code> on this phone only.
-          That file is gitignored and written owner-readable. Saved keys are never sent
-          back to this page — a field showing <code>•••</code> already has one.
-        </p>
-
-        <!-- Three one-tap starting points rather than one more thing to
-             configure by hand: applying one is a plain local settings edit
-             (§ applyHordePreset, app.js), same as any field below — it rides
-             this same Save bar and nothing here is a persisted "mode" a
-             later hand-edit could leave stale. Stacked full-width cards
-             rather than the compact swatch row Theme's presets use (§
-             applyPreset): those need only a swatch and a name, these need
-             real description text to actually be understandable. -->
-        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-gauge"/></svg>Quick setup</h3>
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-gauge"/></svg>AI Horde quick setup</h3>
         <p class="note">
           Three ready-made starting points built around AI Horde — its free,
           queue-based community compute. Pick one, then change anything by
-          hand afterward; nothing here is locked in.
+          hand afterward on the other tabs; nothing here is locked in.
         </p>
+        <!-- Stacked full-width cards rather than the compact swatch row
+             Theme's own presets use (§ applyPreset): those need only a
+             swatch and a name, these need real description text to
+             actually be understandable. -->
         <template x-for="preset in hordePresets()" :key="preset.id">
           <div class="backend horde-preset">
             <p class="horde-preset-title" x-text="preset.label"></p>
@@ -1141,7 +1149,19 @@
         </template>
         <p class="kind-note">
           Uses the anonymous Horde key by default — free, but slow and lower
-          priority. Add your own key on the backend below once you have one.
+          priority. Add your own key on the Backends tab once you have one.
+        </p>
+      </div>
+      </template>
+
+      <template x-if="brainTab === 'backends'">
+        <div
+           x-transition:enter="braintab-enter" x-transition:enter-start="braintab-from"
+           x-transition:enter-end="braintab-to">
+        <p class="note">
+          Keys are stored in <code x-text="settings.path"></code> on this phone only.
+          That file is gitignored and written owner-readable. Saved keys are never sent
+          back to this page — a field showing <code>•••</code> already has one.
         </p>
 
         <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-backend"/></svg>Backends</h3>

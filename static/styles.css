@@ -356,6 +356,16 @@ body {
   transform: none;
 }
 .brain-tab.on { border-bottom-color: var(--accent); background: none; }
+/* Six of these now (Presets joined the original five), which at a phone's
+   width leaves each button too narrow for .menu-label's base 10px to read
+   as a whole word — overflow-wrap: anywhere (§ .menu-label above) then does
+   what it is there for and breaks "BACKENDS" onto two lines mid-word rather
+   than overflowing its share of the row. Trimmed rather than left to wrap:
+   a smaller glyph and a tighter label buy back enough width that six short
+   English words fit their row the same way five did. */
+.brain-tab { padding-left: 2px; padding-right: 2px; }
+.brain-tab .menu-glyph { width: 18px; height: 18px; }
+.brain-tab .menu-label { font-size: 9px; letter-spacing: .02em; }
 
 /* Switching tabs still counts as content appearing (§ motion rules) even
    though nothing is opening or closing — a small rise-and-fade says "new
