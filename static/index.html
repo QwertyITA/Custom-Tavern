@@ -339,7 +339,7 @@
   <div class="menu-wrap" :class="{ open: menu }" id="main-menu">
     <div class="menu-clip">
       <nav class="menu-row">
-        <!-- "Roster" rather than the panel's own full title ("Characters &
+        <!-- "Cards" rather than the panel's own full title ("Characters &
              chats") on the button itself, same shorthand relationship as
              "Model & engine" → "Brain" below — a fifth item in this row
              narrowed each button's share of it enough that "Characters"
@@ -347,7 +347,7 @@
         <button class="menu-btn" :class="{ on: panelOpen && panel === 'chats' }" @click="openPanel('chats')"
                 aria-label="Characters and chats" title="Characters and chats">
           <svg class="menu-glyph" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chats"/></svg>
-          <span class="menu-label">Roster</span>
+          <span class="menu-label">Cards</span>
         </button>
         <!-- Its own destination now rather than Brain's third tab (§ app.js
              _openPanelNow) — this is the one thing here that changes with
