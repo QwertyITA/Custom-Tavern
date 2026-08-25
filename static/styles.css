@@ -401,21 +401,43 @@ body {
    line here (§ .world-fields below) rather than needing to fit one. Only a
    name with no room left to give (§ pillFitsInline in app.js) sends the pill
    to float instead.
-   `flex-basis: 0` rather than `auto` matters once the fields can wrap: an
-   `auto` basis measures this against its own max-content width, and a
-   wrappable box's max-content width is only as wide as its longest
-   unbreakable piece — much narrower than the unwrapped line it used to be —
-   so the flex-shrink math started reading `.who` (the name) as the bigger
-   item and crushed *it* down first instead. Starting from 0 and taking all
-   the growth once the name has its own natural width keeps the name whole
-   and hands whatever is left to the fields to wrap into.
-   The 130px floor is what keeps that handoff honest: without it, "whatever
-   is left" can be a sliver too narrow for even one short field, and the
-   fields wrap and ellipsize down to nothing legible rather than reading as
-   two clean lines. `.bar-row`'s own wrap (above) is what a floor like this
-   needs to mean anything — below it the pill drops to a fresh line under
-   the name instead of being held to a width smaller than its floor. */
-.world-pill-inline { flex: 1 1 0; min-width: 130px; }
+   Sized to its own content, not grown to fill whatever the name doesn't
+   use — a `flex-grow: 1` here used to stretch even a bare, fields-less
+   refresh button out into a wide oval spanning most of the row, which is
+   the "pill is too big" bug this replaced. `width: fit-content` is doing
+   the real work, not `flex-basis`: an ordinary flex item's auto main size
+   fills whatever track space it isn't sharing with a growing sibling, so on
+   a line the pill has to itself (§ the 2-line-wrap case, and the wrapping
+   comment below) it would otherwise stretch to that whole line's width even
+   though 2 wrapped lines of short field text need far less — exactly the
+   same oversized look, just arrived at a different way. `fit-content`
+   swaps in the shrink-to-fit sizing floats and abspos boxes use instead:
+   the narrowest width that does not add another wrapped line, so a
+   fields-less button sizes to the button and two short wrapped lines size
+   to their own longest line, never to the row. Still allowed to shrink
+   under real pressure (`flex-shrink` stays on) floored by the 130px below
+   so a squeeze doesn't wrap the fields down to unreadable slivers;
+   `.bar-row`'s own wrap (above) is what that floor leans on — short of room
+   even at the floor, the pill drops to a fresh line under the name rather
+   than crushing either one.
+   Two different resting spots once it isn't stretching to fill the row:
+   nothing to show yet (§ .world-pill-inline.empty below) reads as a lone
+   toolbar action and tucks into the corner — `margin-left: auto` on a flex
+   item claims all the row's unused space on its own left side, which is
+   exactly flush-right when nothing after it is competing for the same
+   space. Something to show instead reads as its own piece of information
+   and sits centered in whatever room `.who` left it — `margin-right: auto`
+   alongside claims the row's unused space on both sides evenly, the
+   standard flexbox trick for centering one item within its own leftover
+   space rather than the whole row. */
+.world-pill-inline {
+  flex: 0 1 auto;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 130px;
+  margin-left: auto;
+}
+.world-pill-inline:not(.empty) { margin-right: auto; }
 .world-pill-inline .world-fields { min-width: 0; }
 /* The Dynamic Island: a floating capsule pinned just under the header, over
    the chat rather than in a row of its own — for whenever the pill and the
