@@ -455,7 +455,15 @@ body {
    meant to be read in full. `justify-content: center` centers each wrapped
    line on its own, which is what actually gives a 2-line pill its centered
    look — flex only centers a single line otherwise. Plain text, not a
-   control, so no cursor change on hover either. */
+   control, so no cursor change on hover either.
+   That 2-line wrap is an inline-pill-only allowance, though — it is the
+   whole reason pillFitsInline lets a pill stay inline instead of sending it
+   to float. Once the fields *have* escaped out to the float pill (§
+   .world-pill-float below), a second line would defeat the point of
+   floating: the Dynamic Island reads as one settled strip over the chat, not
+   a growing card, so it stays single-line no matter how long the content
+   is — .field-value's ellipsis (below) is what absorbs the overflow there
+   instead of a wrap. */
 .world-fields {
   display: flex;
   align-items: center;
@@ -466,6 +474,7 @@ body {
   min-height: 28px;
   font-size: 11.5px;
 }
+.world-pill-float .world-fields { flex-wrap: nowrap; }
 
 /* Each reading is its own icon-and-value pair. The icon says which reading it
    is, so the words "place", "weather" and "time" no longer have to fit on the
