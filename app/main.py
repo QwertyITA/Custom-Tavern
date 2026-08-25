@@ -387,6 +387,9 @@ async def update_character(character_id: str, payload: dict = Body(...)) -> dict
     character = repo.get_character(db, character_id)
     if character is None:
         raise HTTPException(404, "character not found")
+    # Read before pfp_set is possibly overwritten below — the only place
+    # left afterward to learn what a replaced slot used to point at.
+    previous_pfp_set = dict(character.pfp_set or {})
 
     editable = (
         "name", "persona", "first_mes", "example_dialogue", "scenario",
@@ -465,6 +468,8 @@ async def update_character(character_id: str, payload: dict = Body(...)) -> dict
         raise HTTPException(400, "a character needs a name")
 
     repo.save_character(db, character)
+    if "pfp_set" in payload:
+        _forget_replaced_avatars(db, previous_pfp_set, character.pfp_set)
     return json.loads(character.model_dump_json())
 
 
@@ -498,12 +503,40 @@ async def set_favourite(character_id: str, payload: dict = Body(...)) -> dict:
     return {"ok": True, "favourite": favourite}
 
 
+def _reject_oversized(request: Request, max_bytes: int, message: str) -> None:
+    """Bail on an oversized upload from its declared `Content-Length`, before
+    the body is ever read into memory — the whole point of checking at all.
+    Picking the wrong file (a video instead of a card, say) used to put the
+    whole thing in memory before any `len(payload)` check downstream got a
+    chance to reject it, and on the phone this is meant to run on, memory is
+    the scarcest resource in the room.
+
+    A request with no `Content-Length` (chunked transfer, which nothing this
+    app's own client sends) falls through unchecked here — the `len()` check
+    each caller already does after the read stays the backstop for that gap,
+    not the primary guard.
+    """
+    declared = request.headers.get("content-length")
+    if declared is None:
+        return
+    try:
+        length = int(declared)
+    except ValueError:
+        return
+    if length > max_bytes:
+        raise HTTPException(400, message)
+
+
 @app.post("/api/characters/import")
 async def import_character(request: Request, filename: str = Query("card.json")) -> dict:
     """Import a card. Body is the raw file (JSON or PNG) — no multipart needed."""
+    limit = config.MAX_CARD_IMPORT_BYTES // (1024 * 1024)
+    _reject_oversized(request, config.MAX_CARD_IMPORT_BYTES, f"card is larger than {limit} MB")
     payload = await request.body()
     if not payload:
         raise HTTPException(400, "empty upload")
+    if len(payload) > config.MAX_CARD_IMPORT_BYTES:
+        raise HTTPException(400, f"card is larger than {limit} MB")
     try:
         character = cards.from_bytes(payload, filename)
     except cards.CardError as exc:
@@ -585,33 +618,58 @@ async def delete_character(character_id: str) -> dict:
     return {"ok": True}
 
 
-def _forget_orphaned_avatars(db, character) -> None:
-    """Delete the portrait files a character owned, unless something else is
-    still using them.
+def _forget_avatar_value(db, value: str) -> None:
+    """Delete the file one `pfp_set` value points at, if it is one of this
+    app's own uploads and nothing else still wants it — the one check shared
+    by every caller below, so "own upload", "still wanted" and "actually
+    delete" are decided in exactly one place rather than three.
 
     A card's own bundled art — "mira/neutral.png", served from the tracked
     static tree — is never touched here; only entries this app itself wrote,
-    which always begin "/avatars/". Without this, every deleted character
-    left its cropped portrait behind forever: nothing else in the app ever
-    looks at data/avatars/ to see what is still wanted, so the directory only
-    ever grew.
+    which always begin "/avatars/".
+    """
+    if not value.startswith("/avatars/"):
+        return
+    name = value[len("/avatars/") :]
+    if repo.avatar_still_wanted(db, name):
+        return
+    path = config.avatar_path(name)
+    if path is not None:
+        path.unlink(missing_ok=True)
+
+
+def _forget_orphaned_avatars(db, character) -> None:
+    """Delete the portrait files a character owned, unless something else is
+    still using them. Without this, every deleted character left its
+    cropped portrait behind forever: nothing else in the app ever looks at
+    data/avatars/ to see what is still wanted, so the directory only ever
+    grew.
     """
     for value in (character.pfp_set or {}).values():
-        if not value.startswith("/avatars/"):
-            continue
-        name = value[len("/avatars/") :]
-        if repo.avatar_still_wanted(db, name):
-            continue
-        path = config.avatar_path(name)
-        if path is not None:
-            path.unlink(missing_ok=True)
+        _forget_avatar_value(db, value)
 
 
-def _forget_orphaned_avatar_idle(db, character) -> None:
-    """Delete a deleted character's idle loop, unless something else still
-    points at it — same reasoning as _forget_orphaned_avatars above, for the
-    talking-avatar's own asset directory."""
-    value = character.avatar_video.idle_video
+def _forget_replaced_avatars(db, old_set: dict, new_set: dict) -> None:
+    """Delete a portrait file a character's `pfp_set` used to point at, once
+    editing the character moved that slot on to something else. Same
+    "was this app's own upload, and does anything still want it" check as
+    _forget_orphaned_avatars, but triggered by a *replace* rather than a
+    delete, and scoped to only the values that actually changed rather than
+    the character's whole current set (§KNOWN-ISSUES.md, "Replacing or
+    removing a portrait leaves the old file behind").
+
+    Call after the new `pfp_set` has already been saved — `avatar_still_
+    wanted` reads the character's row back from the database, so it needs to
+    see the post-edit state, not the stale one still held in memory here.
+    """
+    for value in set(old_set.values()) - set(new_set.values()):
+        _forget_avatar_value(db, value)
+
+
+def _forget_avatar_idle_value(db, value: str) -> None:
+    """Delete the file an `idle_video` value points at, if it is one of this
+    app's own uploads and nothing else still wants it — same shape as
+    _forget_avatar_value, for the talking-avatar's own asset directory."""
     if not value.startswith("/avatar_idle/"):
         return
     name = value[len("/avatar_idle/") :]
@@ -620,6 +678,13 @@ def _forget_orphaned_avatar_idle(db, character) -> None:
     path = config.avatar_idle_path(name)
     if path is not None:
         path.unlink(missing_ok=True)
+
+
+def _forget_orphaned_avatar_idle(db, character) -> None:
+    """Delete a deleted character's idle loop, unless something else still
+    points at it — same reasoning as _forget_orphaned_avatars above, for the
+    talking-avatar's own asset directory."""
+    _forget_avatar_idle_value(db, character.avatar_video.idle_video)
 
 
 @app.get("/api/characters/{character_id}/memories")
@@ -685,9 +750,13 @@ async def search_chats(q: str = "", limit: int = 40) -> list[dict]:
 async def import_chat(request: Request, character_id: str = Query("")) -> dict:
     """Body is the raw exported JSON — same shape as the card import, and for
     the same reason: multipart would mean a form parser dependency."""
+    limit = config.MAX_CHAT_IMPORT_BYTES // (1024 * 1024)
+    _reject_oversized(request, config.MAX_CHAT_IMPORT_BYTES, f"export is larger than {limit} MB")
     raw = await request.body()
     if not raw:
         raise HTTPException(400, "empty upload")
+    if len(raw) > config.MAX_CHAT_IMPORT_BYTES:
+        raise HTTPException(400, f"export is larger than {limit} MB")
     try:
         payload = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -965,6 +1034,17 @@ async def upload_attachment(request: Request, filename: str = Query("file")) -> 
     """
     db = get_db()
     attachments.clear_stale_staged(db)
+    # Which cap applies is decided by the filename alone (§ kind_for) — no
+    # need to have read a byte of the body yet to know it.
+    try:
+        kind = attachments.kind_for(filename)
+    except attachments.AttachmentError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if kind == "text":
+        max_bytes, limit_text = attachments.MAX_TEXT_BYTES, f"{attachments.MAX_TEXT_BYTES // 1024}KB"
+    else:
+        max_bytes, limit_text = attachments.MAX_IMAGE_BYTES, f"{attachments.MAX_IMAGE_BYTES // (1024 * 1024)}MB"
+    _reject_oversized(request, max_bytes, f"that {kind} file is larger than the {limit_text} limit")
     data = await request.body()
     try:
         return attachments.store(db, None, data, filename)
@@ -1283,11 +1363,12 @@ async def upload_avatar(request: Request, filename: str = Query(...)) -> dict:
         allowed = ", ".join(config.BACKGROUND_SUFFIXES)
         raise HTTPException(400, f"unsupported image type {suffix or '(none)'} — use {allowed}")
 
+    limit = config.MAX_AVATAR_BYTES // (1024 * 1024)
+    _reject_oversized(request, config.MAX_AVATAR_BYTES, f"image is larger than {limit} MB")
     payload = await request.body()
     if not payload:
         raise HTTPException(400, "empty upload")
     if len(payload) > config.MAX_AVATAR_BYTES:
-        limit = config.MAX_AVATAR_BYTES // (1024 * 1024)
         raise HTTPException(400, f"image is larger than {limit} MB")
 
     url = _store_avatar(payload, filename)
@@ -1325,11 +1406,12 @@ async def upload_avatar_idle(
         allowed = ", ".join(config.AVATAR_IDLE_SUFFIXES)
         raise HTTPException(400, f"unsupported video type {suffix or '(none)'} — use {allowed}")
 
+    limit = config.MAX_AVATAR_IDLE_BYTES // (1024 * 1024)
+    _reject_oversized(request, config.MAX_AVATAR_IDLE_BYTES, f"video is larger than {limit} MB")
     payload = await request.body()
     if not payload:
         raise HTTPException(400, "empty upload")
     if len(payload) > config.MAX_AVATAR_IDLE_BYTES:
-        limit = config.MAX_AVATAR_IDLE_BYTES // (1024 * 1024)
         raise HTTPException(400, f"video is larger than {limit} MB")
 
     config.AVATAR_IDLE_DIR.mkdir(parents=True, exist_ok=True)
@@ -1338,6 +1420,11 @@ async def upload_avatar_idle(
         (config.AVATAR_IDLE_DIR / name).write_bytes(payload)
     except OSError as exc:
         raise HTTPException(500, f"could not save video: {exc}") from exc
+
+    # Read before it is overwritten below — the only place left afterward to
+    # learn what this character's idle loop used to point at, if replacing
+    # it is what just happened (§ _forget_avatar_idle_value below).
+    previous_idle_video = character.avatar_video.idle_video
 
     url = f"/avatar_idle/{name}"
     # "pending" only when prep is actually about to be attempted — nothing
@@ -1349,6 +1436,12 @@ async def upload_avatar_idle(
         update={"idle_video": url, "prep_status": "pending" if will_prepare else "none"}
     )
     repo.save_character(db, character)
+    # Same gap this closed for portraits, extended to a second asset type
+    # (§KNOWN-ISSUES.md, "Replacing or removing a portrait leaves the old
+    # file behind") — a second upload used to leave the first one on disk
+    # forever, nothing ever having deleted it.
+    if previous_idle_video and previous_idle_video != url:
+        _forget_avatar_idle_value(db, previous_idle_video)
 
     if will_prepare:
         # See Settings.avatar_self_url: the request's own base URL is a
@@ -1400,11 +1493,12 @@ async def upload_background(request: Request, filename: str = Query(...)) -> dic
         allowed = ", ".join(config.BACKGROUND_SUFFIXES)
         raise HTTPException(400, f"unsupported image type {suffix or '(none)'} — use {allowed}")
 
+    limit = config.MAX_BACKGROUND_BYTES // (1024 * 1024)
+    _reject_oversized(request, config.MAX_BACKGROUND_BYTES, f"image is larger than {limit} MB")
     payload = await request.body()
     if not payload:
         raise HTTPException(400, "empty upload")
     if len(payload) > config.MAX_BACKGROUND_BYTES:
-        limit = config.MAX_BACKGROUND_BYTES // (1024 * 1024)
         raise HTTPException(400, f"image is larger than {limit} MB")
 
     directory = config.USER_BACKGROUND_DIR

@@ -11,7 +11,7 @@ from app.passes import registry
 from app.passes.scheduler import PassScheduler, TurnContext
 from app.state import SLICE_VARS, read_slice, slice_for
 
-from .conftest import events_of, sync, turn
+from .conftest import drain, events_of, sync, turn
 
 
 def context(chat, character, *, turn_no=1, signals=None) -> TurnContext:
@@ -205,6 +205,91 @@ def test_a_failing_pass_does_not_break_the_turn(db, sched, chat, character):
 
 def test_await_pending_returns_promptly_when_nothing_is_running(sched, chat):
     assert sync(sched.await_pending(chat["id"])) == 0
+
+
+def test_track_drops_the_chat_entry_once_its_tasks_finish(sched, chat):
+    """§KNOWN-ISSUES.md, 'PassScheduler._pending never removes an emptied
+    chat entry' — a dict key with nothing in it, kept forever for every chat
+    that has ever run a background pass."""
+    async def scenario():
+        task = asyncio.ensure_future(asyncio.sleep(0))
+        sched._track(chat["id"], task)
+        assert chat["id"] in sched._pending
+        await task
+        # The done-callback runs on the loop's next pass, not synchronously
+        # the instant the task finishes — give it that pass before checking.
+        await asyncio.sleep(0)
+
+    sync(scenario())
+    assert chat["id"] not in sched._pending
+
+
+def test_background_passes_are_capped_per_chat(sched, chat, character, monkeypatch):
+    """§KNOWN-ISSUES.md, 'No cap on concurrent background passes per chat' —
+    more passes queued for one chat than the cap allows must still never
+    have more than the cap actually running (calling a backend) at once."""
+    from app.passes.scheduler import MAX_CONCURRENT_BACKGROUND_PASSES_PER_CHAT
+
+    concurrent = 0
+    peak = 0
+
+    async def fake_execute(ctx, definition, run_id):
+        nonlocal concurrent, peak
+        concurrent += 1
+        peak = max(peak, concurrent)
+        await asyncio.sleep(0.01)
+        concurrent -= 1
+
+    monkeypatch.setattr(sched, "_execute", fake_execute)
+    ctx = context(chat, character)
+    over_the_cap = MAX_CONCURRENT_BACKGROUND_PASSES_PER_CHAT + 5
+
+    async def scenario():
+        tasks = [
+            asyncio.create_task(sched._run_background(
+                ctx, PassDef(id=f"pass{i}"), [], asyncio.Event(), f"run{i}"
+            ))
+            for i in range(over_the_cap)
+        ]
+        await asyncio.gather(*tasks)
+
+    sync(scenario())
+    assert peak == MAX_CONCURRENT_BACKGROUND_PASSES_PER_CHAT
+
+
+def test_two_turns_in_one_chat_do_not_run_at_once(sched, chat, character, monkeypatch):
+    """§KNOWN-ISSUES.md, 'Two turns can run at once in one chat' — reproduced
+    the same way it was originally found: two run_turn calls against the same
+    chat via asyncio.gather, with the backend slowed enough that they
+    genuinely overlap rather than one finishing before the other starts."""
+    import app.providers.echo as echo_mod
+
+    original_generate = echo_mod.EchoProvider.generate
+
+    async def slow_generate(self, request):
+        await asyncio.sleep(0.05)
+        return await original_generate(self, request)
+
+    monkeypatch.setattr(echo_mod.EchoProvider, "generate", slow_generate)
+
+    async def scenario():
+        return await asyncio.gather(
+            drain(sched.run_turn(chat["id"], "first")),
+            drain(sched.run_turn(chat["id"], "second")),
+        )
+
+    first, second = sync(scenario())
+    ran = [events for events in (first, second) if events_of(events, "reply")]
+    turned_away = [events for events in (first, second) if not events_of(events, "reply")]
+    # Exactly one of the two actually generated a reply — the other was
+    # turned away outright rather than running its own reply concurrently,
+    # each oblivious to the other's prompt.
+    assert len(ran) == 1
+    assert turned_away == [[
+        {"type": "error", "error": "a reply is already being generated in this chat"}
+    ]]
+    # And the turned-away one left no trace: one user message stored, not two.
+    assert len(repo.list_messages(sched.db, chat["id"])) == 2
 
 
 # ----------------------------------------------------------------- swipes

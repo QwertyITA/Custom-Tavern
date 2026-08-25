@@ -190,3 +190,79 @@ def test_a_shared_avatar_survives_if_another_character_still_uses_it(
 def test_deleting_an_unknown_character_does_not_error(client, isolated_settings):
     response = client.delete("/api/characters/does-not-exist")
     assert response.status_code == 200
+
+
+def test_replacing_a_portrait_deletes_the_one_it_replaced(client, isolated_settings, isolated_avatars):
+    """§KNOWN-ISSUES.md, 'Replacing or removing a portrait leaves the old
+    file behind' — confirmCrop()/clearCharacterPfp() only ever overwrote
+    pfp_set client-side; the character-deletion cleanup only ever looked at
+    the *current* set, so a file a slot used to point at, before it was
+    edited to point somewhere else, was never anyone's job to clean up."""
+    created = client.post("/api/characters", json={"name": "Wren"}).json()
+    first_url, first_path = _upload(client, isolated_avatars, name=b"first")
+    client.put(
+        f"/api/characters/{created['id']}", json={"name": "Wren", "pfp_set": {"neutral": first_url}}
+    )
+    second_url, second_path = _upload(client, isolated_avatars, name=b"second")
+    response = client.put(
+        f"/api/characters/{created['id']}", json={"name": "Wren", "pfp_set": {"neutral": second_url}}
+    )
+    assert response.json()["pfp_set"]["neutral"] == second_url
+    assert not first_path.exists(), "the replaced file should be gone"
+    assert second_path.exists(), "the one now in use must survive"
+
+
+def test_clearing_a_portrait_deletes_it(client, isolated_settings, isolated_avatars):
+    created = client.post("/api/characters", json={"name": "Wren"}).json()
+    url, path = _upload(client, isolated_avatars)
+    client.put(f"/api/characters/{created['id']}", json={"name": "Wren", "pfp_set": {"neutral": url}})
+
+    client.put(f"/api/characters/{created['id']}", json={"name": "Wren", "pfp_set": {}})
+    assert not path.exists()
+
+
+def test_replacing_a_portrait_keeps_the_file_if_another_slot_still_uses_it(
+    client, isolated_settings, isolated_avatars
+):
+    """The same file, in a different slot on the same character, is still a
+    reason to keep it — the replace only orphans a value nothing points at
+    any more, not every value that happens to have changed."""
+    created = client.post("/api/characters", json={"name": "Wren"}).json()
+    url, path = _upload(client, isolated_avatars)
+    client.put(
+        f"/api/characters/{created['id']}",
+        json={"name": "Wren", "pfp_set": {"neutral": url, "happy": url}},
+    )
+
+    client.put(
+        f"/api/characters/{created['id']}",
+        json={"name": "Wren", "pfp_set": {"happy": url}},
+    )
+    assert path.exists()
+
+
+def test_replacing_an_idle_loop_deletes_the_one_it_replaced(
+    client, db, isolated_settings, isolated_avatar_idle
+):
+    """The talking-avatar idle loop shares the exact same gap portraits had,
+    for the exact same reason: the upload endpoint overwrote the field with
+    no delete of whatever it used to point at."""
+    from app import repo
+
+    created = client.post("/api/characters", json={"name": "Wren"}).json()
+    first = client.post(
+        f"/api/characters/{created['id']}/avatar-idle?filename=first.mp4", content=b"first clip"
+    ).json()
+    first_url = first["avatar_video"]["idle_video"]
+    first_path = isolated_avatar_idle / first_url.rsplit("/", 1)[-1]
+    assert first_path.is_file()
+
+    second = client.post(
+        f"/api/characters/{created['id']}/avatar-idle?filename=second.mp4", content=b"second clip"
+    ).json()
+    second_url = second["avatar_video"]["idle_video"]
+    second_path = isolated_avatar_idle / second_url.rsplit("/", 1)[-1]
+
+    assert not first_path.exists(), "the replaced clip should be gone"
+    assert second_path.exists()
+    assert repo.get_character(db, created["id"]).avatar_video.idle_video == second_url

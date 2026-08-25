@@ -3,8 +3,8 @@
 Everything here was found during two audit passes over the running app, not
 read off the source and guessed at. Where a number appears, it was measured;
 where a behaviour is claimed, it was reproduced against a live server — most
-recently on 2026-08-21, re-verified against the code as it stands after the
-character-roster and portrait-effects work, not against an earlier snapshot.
+recently on 2026-08-25, re-verified against the code as it stands after this
+session's bug-fixing pass, not against an earlier snapshot.
 
 This file exists so a real defect does not have to be rediscovered before it
 can be weighed against everything else waiting for attention, and so a
@@ -54,19 +54,45 @@ the same testing that reproduced it on `x-show`. §pinCurrentCharacter and
 the roster/header rework are new features from that session's own request
 list, not bugfixes, and are not recorded here.
 
+Fixed in the bug-sweep on 2026-08-25 — every open item below except "The
+craft library is mostly not being followed" (a prompt-tuning call, not a
+code defect, left for the person whose library it is) and "A reply can
+quote the user's own turn back" (the fix risks being worse than the
+problem): upload endpoints now reject an oversized `Content-Length` before
+reading the body at all, across all six routes that accept a raw upload
+(`_reject_oversized`, app/main.py); `newChat()` now sets `this.error` like
+every other network call in static/app.js; a per-chat `asyncio.Lock`
+(`PassScheduler._chat_locks`/`_run_locked`) now turns away a second
+run_turn/retry_turn/run_swipe/run_continue against a chat already
+generating, rather than letting two run to completion against two different
+prompts neither knew about the other; `_track()`'s done-callback now drops
+the `_pending` entry once its task set is empty instead of leaving a bare
+dict key behind forever; a per-chat `asyncio.Semaphore`
+(`MAX_CONCURRENT_BACKGROUND_PASSES_PER_CHAT`, 8) now bounds how many
+background passes can be calling a backend at once, gating only the actual
+call rather than the bookkeeping around it; the character editor can now
+crop-replace or remove any `pfp_set` entry, not only `neutral` — each other
+sprite is held to the shape `neutral` already settled on rather than free to
+introduce a mismatch of its own; replacing or clearing a portrait
+(`update_character`) or a talking-avatar idle loop (`upload_avatar_idle`)
+now deletes the file that slot used to point at, once nothing else still
+wants it; and `run.sh` now reads `host`/`port` out of `data/settings.json`,
+`TAVERN_HOST`/`TAVERN_PORT` still winning when actually set at the command
+line. The five server-side fixes (upload size, the turn lock, the `_pending`
+cleanup, the background-pass cap, the portrait/idle-loop cleanup) carry new
+pytest coverage (`tests/test_api.py`, `tests/test_cards.py`,
+`tests/test_chat_files.py`, `tests/test_portraits.py`,
+`tests/test_scheduler.py`); the three frontend/shell ones — `newChat()`, the
+emotion-sprite cropper, and `run.sh` — have none, this repo having neither a
+JS nor a shell test harness, and were each instead checked by hand:
+`newChat()` and the cropper in a browser (Alpine's own state read back after
+each step, and screenshots for the cropper's UI); `run.sh` at a shell,
+against all three host/port precedence cases (settings only, env override,
+neither).
+
 ---
 
 ## Medium
-
-### Upload endpoints read the whole body before checking its size
-
-`app/main.py`: card import, chat import, attachment upload, and both avatar
-upload routes all do `payload = await request.body()` and only compare
-`len(payload)` against the limit afterwards. Picking the wrong file — a video
-instead of a character card, say — puts the whole thing in memory before it is
-rejected. On the phone this is meant to run on, that is the resource that is
-scarcest. `Content-Length` could be checked before the body is read; five call
-sites would need it.
 
 ### The craft library is mostly not being followed
 
@@ -83,87 +109,6 @@ way it gets resolved.
 ---
 
 ## Low
-
-### `host` and `port` in settings do nothing
-
-`app/config.py` validates and stores both (`1 <= port <= 65535` is enforced
-on save) and `settings.example.json` documents them, but nothing binds to
-either — `run.sh` reads `TAVERN_HOST` / `TAVERN_PORT` from the environment
-instead, never from the saved settings file. Editing them in the settings UI
-changes a value that is validated, persisted, and then never read. Either
-`run.sh` should read them (it already shells out to inline Python once) or
-they should be removed; both are a product call, not a bug fix.
-
-### `newChat()` has no error handling
-
-Every other network call in `static/app.js` sets `this.error` on failure;
-this one is the sole exception (confirmed by re-grepping after the offline-
-handling fix landed — every other bare `await api.*`/`await fetch(...)` call
-this session was found to be wrapped except this one). A failed tap on "New
-chat" does nothing at all and says nothing about why. Self-recovering — a
-retry usually works — but silent.
-
-### Two turns can run at once in one chat
-
-Tested directly: `asyncio.gather` on two `run_turn` calls against the same
-chat, including with an artificially slow backend so the runs actually
-overlap. No corruption resulted — `next_turn()`'s `MAX(turn)+1` happened to
-land on distinct numbers in every run tried, and each turn's messages stayed
-attached to the right turn. What you get from two tabs or two devices open on
-the same chat is two independent replies to two different prompts that never
-saw each other, which is confusing, not corrupting. No lock exists to stop it
-either way.
-
-### `PassScheduler._pending` never removes an emptied chat entry
-
-`_track()` does `self._pending.setdefault(chat_id, set())`; the per-task
-done-callback only discards the finished task from that set, never removes
-the set itself once it is empty. One dict entry, holding an empty set,
-persists forever for every chat a background pass has ever run in. Bytes-
-scale and never grows within a single chat — confirmed by reading the
-callback, not sized in a running process.
-
-### No cap on concurrent background passes per chat
-
-`_launch_background` starts every eligible pass as its own task with nothing
-bounding how many chats or how many passes-in-flight exist at once. A slow
-background backend plus fast typing can pile up tasks and HTTP connections;
-bounded in practice only by how fast someone types and by
-`blocking_await_ms`, not by an explicit limit.
-
-### Emotion sprites don't go through the cropper
-
-The cropper introduced this session only writes `pfp_set.neutral`; a card
-whose `happy`/`sad`/`angry`/… entries are square sprites gets each of them
-framed by plain `object-fit` under a portrait (2:3) shape choice, or vice
-versa. Cosmetic, and only visible on a card that ships more than one emotion
-sprite and a shape mismatch between them.
-
-### Replacing or removing a portrait leaves the old file behind
-
-New this session, found by testing the deletion fix's actual boundary rather
-than assuming it covered the whole feature. `confirmCrop()` and
-`clearCharacterPfp()` both overwrite or clear `pfp_set.neutral` client-side
-with no corresponding delete of whatever file it used to point at — and
-because the character-deletion cleanup (`_forget_orphaned_avatars`) only ever
-reads the character's *current* `pfp_set`, it has no way to know a *previous*
-file existed once it has been overwritten. Confirmed live: upload, assign,
-replace with a second upload, and the first file is still served with a 200
-— deleting the character afterwards cleans up only the second file, the one
-still referenced at the moment of deletion. Same class of issue as the
-deletion gap this session actually fixed (disk-only, `data/avatars/` only
-ever grows), but a different trigger, and the cropper likely makes
-"replace the picture" a more common action than the old single-shot upload
-ever was.
-
-The talking-avatar idle loop (`avatar_video.idle_video`, `data/avatar_idle/`)
-shares the exact same gap for the exact same reason: `upload_avatar_idle`
-overwrites the field with no delete of whatever it used to point at, and
-`_forget_orphaned_avatar_idle` only runs on character deletion, only ever
-reading the *current* value. Replacing a character's idle loop twice leaves
-the first upload on disk forever. Not a new bug so much as this one
-extending itself to a second asset type that didn't exist yet when it was
-found — worth fixing both together rather than separately.
 
 ### A reply can quote the user's own turn back
 

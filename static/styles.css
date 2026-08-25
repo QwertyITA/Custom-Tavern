@@ -1111,6 +1111,21 @@ body {
    behind it. */
 .file-link { cursor: pointer; }
 
+/* A card's other emotion sprites, each with its own crop (§KNOWN-ISSUES.md,
+   "Emotion sprites don't go through the cropper"). Same shape and thumbnail
+   language as .pfp-edit above, just smaller and one row per sprite instead
+   of one large picture. */
+.pfp-slot-mini { --pfp-w: 40px; }
+.pfp-emotion-list { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 12px; }
+.pfp-emotion-row { display: flex; align-items: center; gap: 10px; }
+.pfp-emotion-name {
+  flex: 1;
+  color: var(--muted);
+  font-size: 13px;
+  /* Arrives as an identifier — "happy", "surprised" — read as a word. */
+  text-transform: capitalize;
+}
+
 /* An assistant reply gets more of the row than a user line does: the
    portrait beside it already carries the "who said this" cue a right-aligned
    user bubble gets from its own edge, so pinning it to the same 86% just

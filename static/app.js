@@ -644,8 +644,15 @@ function tavern() {
     // in the image's own pixels, not the screen's: the stage resizes with the
     // sheet and with rotation, and a box stored in display pixels would move
     // every time it did.
+    //
+    // `slot` is which `pfp_set` entry this crop writes to on confirm —
+    // "neutral" by default, or one of the character's other emotion sprites
+    // (§ emotionPfpEntries, KNOWN-ISSUES.md "Emotion sprites don't go
+    // through the cropper"). The shape toggle only applies to "neutral":
+    // every other sprite is cropped to whatever shape neutral already
+    // settled on, not free to disagree with it (§ cropShapeLocked).
     crop: {
-      open: false, src: "", file: null, shape: "portrait", busy: false,
+      open: false, src: "", file: null, shape: "portrait", slot: "neutral", busy: false,
       nat: { w: 0, h: 0 },
       box: { x: 0, y: 0, w: 0, h: 0 },
       drag: null,
@@ -978,10 +985,15 @@ function tavern() {
 
     async newChat(characterId) {
       const id = characterId || this.characterId;
-      const chat = await api.post("/api/chats", { character_id: id });
-      this.chats = await api.get("/api/chats");
-      await this.openChat(chat.id);
-      this.closePanel();
+      this.error = "";
+      try {
+        const chat = await api.post("/api/chats", { character_id: id });
+        this.chats = await api.get("/api/chats");
+        await this.openChat(chat.id);
+        this.closePanel();
+      } catch (e) {
+        this.error = errorText(e);
+      }
     },
 
     // Tapping a character row opens the conversation it was last in — the
@@ -1715,7 +1727,15 @@ function tavern() {
     // The file is not uploaded here any more: it opens the cropper, and what
     // gets uploaded is the frame chosen there. A whole card squeezed into a
     // 34px box by object-fit is a picture of somebody's midriff.
-    uploadCharacterPfp(event) {
+    //
+    // `slot` is which `pfp_set` entry this replaces — "neutral" from the
+    // main picture control, or one of the emotion sprites listed below it
+    // (§ emotionPfpEntries). Either way the shape is fixed to whatever neutral
+    // already uses (§ crop.slot, above) rather than read back out of
+    // whatever this one image happens to be shaped like: a card's `happy`
+    // sprite arriving square while `neutral` is a portrait is exactly the
+    // mismatch this exists to fix, not a second shape to introduce.
+    uploadCharacterPfp(event, slot = "neutral") {
       const file = (event.target.files || [])[0];
       event.target.value = "";
       if (!file) return;
@@ -1726,6 +1746,7 @@ function tavern() {
         open: true,
         busy: false,
         file,
+        slot,
         src: URL.createObjectURL(file),
         shape: this.draftCharacter.pfp_shape || "portrait",
         nat: { w: 0, h: 0 },
@@ -1873,9 +1894,12 @@ function tavern() {
         if (!response.ok) throw await apiError(response);
         const saved = await response.json();
         this.draftCharacter.pfp_set = {
-          ...(this.draftCharacter.pfp_set || {}), neutral: saved.url,
+          ...(this.draftCharacter.pfp_set || {}), [this.crop.slot]: saved.url,
         };
-        this.draftCharacter.pfp_shape = this.crop.shape;
+        // Only neutral's own crop sets the character's shape — every other
+        // slot was cropped *to* that shape (§ cropShapeLocked), not free to
+        // set a different one now that it has its own picture again.
+        if (this.crop.slot === "neutral") this.draftCharacter.pfp_shape = this.crop.shape;
         this.cancelCrop();
       } catch (e) {
         this.charError = errorText(e);
@@ -1885,15 +1909,37 @@ function tavern() {
       }
     },
 
-    clearCharacterPfp() {
+    // True once the cropper is open for anything but the main picture — the
+    // shape toggle is hidden then (§ index.html), so this is also what locks
+    // the crop box to neutral's own ratio rather than reading `crop.shape`
+    // back out of whatever the image being replaced happened to be.
+    cropShapeLocked() {
+      return this.crop.slot !== "neutral";
+    },
+
+    clearCharacterPfp(slot = "neutral") {
       const set = { ...(this.draftCharacter.pfp_set || {}) };
-      delete set.neutral;
+      delete set[slot];
       this.draftCharacter.pfp_set = set;
     },
 
     draftPortrait() {
       const set = this.draftCharacter.pfp_set || {};
       return pfpUrl(set.neutral || Object.values(set)[0] || "");
+    },
+
+    // Every sprite besides neutral — a card's happy/sad/angry/… entries,
+    // listed so each can be individually replaced or removed through the
+    // same cropper neutral already goes through (§KNOWN-ISSUES.md, "Emotion
+    // sprites don't go through the cropper"). Sorted for a stable order:
+    // object key order follows insertion, which for an imported card is
+    // whatever order its JSON happened to list them in.
+    emotionPfpEntries() {
+      const set = this.draftCharacter.pfp_set || {};
+      return Object.keys(set)
+        .filter((key) => key !== "neutral")
+        .sort()
+        .map((key) => ({ key, url: pfpUrl(set[key]) }));
     },
 
     // ---- picture effect (§models.PfpEffect) ----

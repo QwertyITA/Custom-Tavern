@@ -63,6 +63,19 @@ from .contract import (
     split_state_suffix,
 )
 
+# Bounds how many background passes for one chat can actually be doing work
+# (calling a backend) at the same time — the task itself is still created and
+# tracked the instant a turn launches it, so `depends_on` ordering is
+# unaffected; this only gates the part of it that consumes a connection (§
+# PassScheduler._run_background). Sized to comfortably fit one turn's whole
+# canonical set (scene, expression, background_swap, random_event, summary,
+# memory, state_auditor — seven, most turns launch fewer) running together
+# unthrottled, while still bounding what several turns sent faster than a
+# slow background backend can keep up with would otherwise pile onto one
+# chat at once (§KNOWN-ISSUES.md, "No cap on concurrent background passes
+# per chat").
+MAX_CONCURRENT_BACKGROUND_PASSES_PER_CHAT = 8
+
 
 class ReasoningWatch:
     """Reasoning as it arrives, in both shapes a backend can send it (§5.6).
@@ -155,6 +168,20 @@ class PassScheduler:
         self.settings = settings
         # Background tasks per chat, so the next turn can wait briefly on them.
         self._pending: dict[str, set[asyncio.Task]] = {}
+        # One turn-producing operation at a time per chat (§ _run_locked) —
+        # two tabs or two devices sending into the same chat used to run two
+        # independent replies to two different prompts, neither aware the
+        # other had happened (§KNOWN-ISSUES.md, "Two turns can run at once in
+        # one chat"). Never pruned: a chat that has ever generated keeps a
+        # single Lock object here forever, which costs bytes, not the
+        # unbounded-growth shape of the `_pending` issue right below this —
+        # there is exactly one per chat that has ever run a turn, never one
+        # per turn.
+        self._chat_locks: dict[str, asyncio.Lock] = {}
+        # How many of a chat's background passes may be doing work at once
+        # (§ MAX_CONCURRENT_BACKGROUND_PASSES_PER_CHAT). Same "never pruned,
+        # bytes-scale" reasoning as `_chat_locks` just above.
+        self._background_slots: dict[str, asyncio.Semaphore] = {}
 
     # ------------------------------------------------------------- plumbing
 
@@ -164,7 +191,55 @@ class PassScheduler:
     def _track(self, chat_id: str, task: asyncio.Task) -> None:
         tasks = self._pending.setdefault(chat_id, set())
         tasks.add(task)
-        task.add_done_callback(lambda t: tasks.discard(t))
+
+        def _done(t: asyncio.Task) -> None:
+            tasks.discard(t)
+            # Drop the entry once it is empty, rather than leaving a dict key
+            # with nothing in it for every chat that has ever run a
+            # background pass (§KNOWN-ISSUES.md, "PassScheduler._pending
+            # never removes an emptied chat entry"). The identity check
+            # guards against a rare reordering: `_track` racing back in for
+            # this chat between the last task finishing and this callback
+            # running would already have replaced `self._pending[chat_id]`
+            # with a fresh set, which this must leave alone rather than
+            # delete out from under the new tasks it holds.
+            if not tasks and self._pending.get(chat_id) is tasks:
+                del self._pending[chat_id]
+
+        task.add_done_callback(_done)
+
+    async def _run_locked(
+        self, chat_id: str | None, inner: AsyncIterator[dict]
+    ) -> AsyncIterator[dict]:
+        """Runs `inner` — an already-created turn generator, not yet iterated
+        — while holding `chat_id`'s lock, or immediately yields a clear error
+        instead if another one already holds it (§ _chat_locks). Never blocks
+        waiting for the lock: a second request landing mid-turn is turned
+        away outright, not queued to run once the first finishes, since by
+        the time it would run the chat has moved on and it would be
+        generating against a prompt that is no longer the latest thing said.
+
+        `chat_id` is `None` when a caller could not resolve one (a swipe or
+        continue on a message that turns out not to exist) — `inner` still
+        runs, unlocked, to produce whatever ordinary "not found" error it
+        already would have.
+        """
+        if chat_id is None:
+            async for event in inner:
+                yield event
+            return
+        lock = self._chat_locks.setdefault(chat_id, asyncio.Lock())
+        if lock.locked():
+            yield {"type": "error", "error": "a reply is already being generated in this chat"}
+            return
+        async with lock:
+            async for event in inner:
+                yield event
+
+    def _background_slot(self, chat_id: str) -> asyncio.Semaphore:
+        return self._background_slots.setdefault(
+            chat_id, asyncio.Semaphore(MAX_CONCURRENT_BACKGROUND_PASSES_PER_CHAT)
+        )
 
     async def await_pending(self, chat_id: str, timeout: float | None = None) -> int:
         """Wait briefly for in-flight passes before starting the next turn (§4.6).
@@ -359,6 +434,23 @@ class PassScheduler:
         attachment_ids: list[str] | None = None,
         speaker_id: str = "",
     ) -> AsyncIterator[dict]:
+        """Serialized per chat (§ _run_locked) — a second request against the
+        same chat while one is already generating gets turned away with a
+        clear error instead of running its own reply concurrently, neither
+        turn aware the other ever happened (§KNOWN-ISSUES.md, 'Two turns can
+        run at once in one chat')."""
+        async for event in self._run_locked(chat_id, self._run_turn(
+            chat_id, user_text, attachment_ids, speaker_id
+        )):
+            yield event
+
+    async def _run_turn(
+        self,
+        chat_id: str,
+        user_text: str,
+        attachment_ids: list[str] | None = None,
+        speaker_id: str = "",
+    ) -> AsyncIterator[dict]:
         """Run one full turn, yielding events as they happen."""
         # Any pass still in flight from the previous turn gets a short grace
         # period; we then proceed on provisional state regardless (§4.6).
@@ -432,6 +524,11 @@ class PassScheduler:
             yield event
 
     async def retry_turn(self, chat_id: str) -> AsyncIterator[dict]:
+        """Serialized per chat, same as run_turn (§ _run_locked)."""
+        async for event in self._run_locked(chat_id, self._retry_turn(chat_id)):
+            yield event
+
+    async def _retry_turn(self, chat_id: str) -> AsyncIterator[dict]:
         """Answer a user message that never got a reply.
 
         A turn whose reply failed — the backend was down, the phone lost the
@@ -933,7 +1030,16 @@ class PassScheduler:
                     [asyncio.create_task(event.wait()) for event in waits],
                     timeout=self.settings.pass_timeout,
                 )
-            await self._execute(ctx, definition, run_id)
+            # Waiting on a dependency above costs nothing; only the actual
+            # call to a backend does, so only that part waits on a slot (§
+            # MAX_CONCURRENT_BACKGROUND_PASSES_PER_CHAT). A pass that is
+            # merely queued behind a slot still shows as "running" on the
+            # HUD rather than a fourth status meaning "waiting to run" —
+            # accurate enough: it has started, in the sense that matters to
+            # someone watching, and the wait itself is normally instant at
+            # this chat's actual pass volume.
+            async with self._background_slot(ctx.chat_id):
+                await self._execute(ctx, definition, run_id)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # a broken pass must not take the turn with it
@@ -1212,6 +1318,14 @@ class PassScheduler:
     # -------------------------------------------------------------- swipes
 
     async def run_continue(self, message_id: str) -> AsyncIterator[dict]:
+        """Serialized per chat, same as run_turn (§ _run_locked) — resolved
+        from the message being continued, since the caller only has that."""
+        message = repo.get_message(self.db, message_id)
+        chat_id = message["chat_id"] if message and message["role"] == "assistant" else None
+        async for event in self._run_locked(chat_id, self._run_continue(message_id)):
+            yield event
+
+    async def _run_continue(self, message_id: str) -> AsyncIterator[dict]:
         """Extend a reply that stopped early, in place.
 
         Not a swipe: a swipe asks for a different reply and branches, while
@@ -1351,6 +1465,14 @@ class PassScheduler:
         return full
 
     async def run_swipe(self, message_id: str) -> AsyncIterator[dict]:
+        """Serialized per chat, same as run_turn (§ _run_locked) — resolved
+        from the message being regenerated, since the caller only has that."""
+        message = repo.get_message(self.db, message_id)
+        chat_id = message["chat_id"] if message and message["role"] == "assistant" else None
+        async for event in self._run_locked(chat_id, self._run_swipe(message_id)):
+            yield event
+
+    async def _run_swipe(self, message_id: str) -> AsyncIterator[dict]:
         """Generate an alternative reply as a branch (§9).
 
         The current variant's state writes are rolled back before generating,

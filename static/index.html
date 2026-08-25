@@ -682,8 +682,12 @@
        x-transition:leave-end="crop-from">
     <div class="crop-sheet" @click.stop>
       <div class="crop-head">
-        <span class="crop-title">Choose the picture</span>
-        <div class="seg" role="group" aria-label="Portrait shape">
+        <span class="crop-title"
+              x-text="crop.slot === 'neutral' ? 'Choose the picture' : `Choose the “${crop.slot}” picture`"></span>
+        <!-- Neutral decides the shape every other sprite is held to (§
+             cropShapeLocked) — so the toggle that decides it only shows up
+             on neutral's own crop. -->
+        <div class="seg" role="group" aria-label="Portrait shape" x-show="!cropShapeLocked()">
           <button class="seg-btn" :class="{ on: crop.shape === 'portrait' }"
                   @click="setCropShape('portrait')"
                   :aria-pressed="crop.shape === 'portrait'">Rectangle</button>
@@ -705,9 +709,13 @@
         </div>
       </div>
 
-      <p class="kind-note crop-note">
+      <p class="kind-note crop-note" x-show="!cropShapeLocked()">
         Drag the frame to move it, the corner to resize. The shape is
         remembered for this character.
+      </p>
+      <p class="kind-note crop-note" x-show="cropShapeLocked()">
+        Drag the frame to move it, the corner to resize. Held to the same
+        shape as the main picture, so this one matches it too.
       </p>
 
       <div class="btn-row crop-actions">
@@ -2417,6 +2425,41 @@
             <span class="kind-note">Shown beside every one of their messages.</span>
           </div>
         </div>
+
+        <!-- A card's other emotion sprites (happy/sad/angry/…) — read, not
+             written, by anything today (roadmap 35-37 is the toggle that
+             will actually choose between them), but shown by the header and
+             every message already the moment the tracked expression names
+             one. Each gets its own crop, same as neutral above and locked to
+             its shape, because a square `happy` sprite framed by plain
+             object-fit under a portrait `neutral` is a picture of the wrong
+             third of somebody's face (§KNOWN-ISSUES.md, "Emotion sprites
+             don't go through the cropper"). Only shown once there is at
+             least one — nothing here invents new slots, only fixes the
+             framing on the ones a card already brought. -->
+        <template x-if="emotionPfpEntries().length">
+          <div class="pfp-emotion-list">
+            <span class="row-label wide-label">Other expressions</span>
+            <template x-for="e in emotionPfpEntries()" :key="e.key">
+              <div class="pfp-emotion-row">
+                <span class="pfp-slot pfp-slot-mini"
+                      :class="'shape-' + (draftCharacter.pfp_shape || 'portrait')">
+                  <span class="pfp pfp-blank" aria-hidden="true">
+                    <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
+                  </span>
+                  <img class="pfp pfp-over" :src="e.url" alt="" @error="$el.remove()">
+                </span>
+                <span class="pfp-emotion-name" x-text="e.key"></span>
+                <label class="link file-link">
+                  <span>Replace</span>
+                  <input type="file" accept="image/*"
+                         @change="uploadCharacterPfp($event, e.key)" hidden>
+                </label>
+                <button class="link danger" @click="clearCharacterPfp(e.key)">Remove</button>
+              </div>
+            </template>
+          </div>
+        </template>
 
         <!-- A colour treatment over the picture, same "belongs to the
              character" reasoning as the shape above (§models.PfpEffect) —

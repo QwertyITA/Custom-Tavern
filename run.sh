@@ -22,12 +22,38 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SESSION="tavern"
-PORT="${TAVERN_PORT:-8787}"
-HOST="${TAVERN_HOST:-127.0.0.1}"
-LOG="$HERE/data/tavern.log"
+DATA_DIR="${TAVERN_DATA_DIR:-$HERE/data}"
+LOG="$DATA_DIR/tavern.log"
 PYTHON="${PYTHON:-python3}"
 
 have() { command -v "$1" >/dev/null 2>&1; }
+
+# host/port from data/settings.json (§KNOWN-ISSUES.md, "host and port in
+# settings do nothing" — validated and saved there, but nothing ever bound
+# to either). Prints nothing on a missing file, a missing field, or an
+# unreadable one, so the bash fallback chain below behaves exactly as it did
+# before this file existed. TAVERN_HOST/TAVERN_PORT still win when actually
+# set: an explicit override at the moment you start the server should not be
+# silently beaten by a preference saved in the GUI on some earlier day.
+settings_field() {
+  "$PYTHON" - "$DATA_DIR/settings.json" "$1" <<'PY' 2>/dev/null
+import json, sys
+path, key = sys.argv[1], sys.argv[2]
+try:
+    with open(path) as f:
+        data = json.load(f)
+except (OSError, ValueError):
+    sys.exit(0)
+value = data.get(key)
+if value not in (None, ""):
+    print(value)
+PY
+}
+
+PORT="${TAVERN_PORT:-$(settings_field port)}"
+PORT="${PORT:-8787}"
+HOST="${TAVERN_HOST:-$(settings_field host)}"
+HOST="${HOST:-127.0.0.1}"
 
 STARTUP_TIMEOUT="${TAVERN_STARTUP_TIMEOUT:-25}"
 
@@ -76,7 +102,7 @@ termux_try() {
 }
 
 start_server() {
-  mkdir -p "$HERE/data"
+  mkdir -p "$DATA_DIR"
   # Write to the log before anything that could block, so a hang is diagnosable
   # rather than showing up as a missing file.
   echo "=== $(date '+%Y-%m-%d %H:%M:%S') starting on $HOST:$PORT ===" >> "$LOG"

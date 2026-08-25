@@ -204,6 +204,16 @@ AVATAR_IDLE_DIR = DATA_DIR / "avatar_idle"
 AVATAR_IDLE_SUFFIXES = (".mp4", ".webm", ".mov")
 MAX_AVATAR_IDLE_BYTES = 40 * 1024 * 1024
 
+# A card is a PNG (its own portrait, plus a lorebook and reactions in a text
+# chunk) or plain JSON — generous next to a portrait alone because the
+# picture inside one already counts toward this, not on top of it.
+MAX_CARD_IMPORT_BYTES = 16 * 1024 * 1024
+
+# A chat export is text — even a very long one stays well under this. Bounded
+# all the same: it is still a file from outside the app, read whole before
+# anything in it is trusted.
+MAX_CHAT_IMPORT_BYTES = 16 * 1024 * 1024
+
 
 def _listing(directory: Path) -> list[str]:
     if not directory.is_dir():

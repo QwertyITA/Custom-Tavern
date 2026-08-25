@@ -272,6 +272,17 @@ def test_a_json_card_imports_without_a_picture(client, isolated_settings):
     assert character.pfp_set == {}
 
 
+def test_an_oversized_card_is_refused_with_the_limit(client, isolated_settings):
+    """Picking the wrong file — a video instead of a card — should not have to
+    land in memory before it is rejected (§KNOWN-ISSUES.md)."""
+    from app import config
+
+    huge = b"\x00" * (config.MAX_CARD_IMPORT_BYTES + 1)
+    response = client.post("/api/characters/import?filename=huge.png", content=huge)
+    assert response.status_code == 400
+    assert "MB" in response.json()["detail"]
+
+
 def test_the_portrait_shape_round_trips_through_a_card():
     from app.cards import from_card_json, to_card_json
     from app.models import Character

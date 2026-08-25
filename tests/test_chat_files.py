@@ -312,6 +312,17 @@ def test_an_empty_upload_is_refused(client):
     assert client.post("/api/chats/import", content=b"").status_code == 400
 
 
+def test_an_oversized_export_is_refused_with_the_limit(client):
+    """Should not have to land the whole file in memory before it is
+    rejected (§KNOWN-ISSUES.md)."""
+    from app import config
+
+    huge = b"x" * (config.MAX_CHAT_IMPORT_BYTES + 1)
+    response = client.post("/api/chats/import", content=huge)
+    assert response.status_code == 400
+    assert "MB" in response.json()["detail"]
+
+
 def test_unreadable_json_is_refused_with_a_reason(client):
     response = client.post("/api/chats/import", content=b"{not json")
     assert response.status_code == 400

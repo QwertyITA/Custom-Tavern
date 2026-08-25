@@ -1530,3 +1530,42 @@ def test_a_reply_really_goes_out_through_the_custom_template(client, isolated_se
     # blank means "no marker", not "drop the text".
     assert prompt == "S<<YOU>>hello<</YOU>><<THEM>>", prompt
     assert "<<YOU>>" in provider.stop_strings(Sampling())
+
+
+# ---------------------------------------------------------- upload size cap
+
+def test_reject_oversized_trips_on_declared_length_alone():
+    """The point of the check (§KNOWN-ISSUES.md, 'upload endpoints read the
+    whole body before checking its size'): it has to fire off the declared
+    `Content-Length` header, before a single byte of the body is read — not
+    just after the fact, which every route already did before this existed."""
+    from fastapi import HTTPException
+    from starlette.requests import Request
+
+    from app.main import _reject_oversized
+
+    request = Request({"type": "http", "headers": [(b"content-length", b"99999999")]})
+    with pytest.raises(HTTPException) as exc:
+        _reject_oversized(request, max_bytes=1000, message="too big")
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "too big"
+
+
+def test_reject_oversized_lets_a_small_declared_length_through():
+    from starlette.requests import Request
+
+    from app.main import _reject_oversized
+
+    request = Request({"type": "http", "headers": [(b"content-length", b"10")]})
+    _reject_oversized(request, max_bytes=1000, message="too big")  # does not raise
+
+
+def test_reject_oversized_is_a_no_op_with_no_declared_length():
+    """Chunked transfer, which nothing this app's own client sends — falls
+    through to the `len()` check each caller already does after the read."""
+    from starlette.requests import Request
+
+    from app.main import _reject_oversized
+
+    request = Request({"type": "http", "headers": []})
+    _reject_oversized(request, max_bytes=1000, message="too big")  # does not raise
