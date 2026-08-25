@@ -44,11 +44,14 @@ def test_the_writing_blocks_carry_their_own_text():
     for section in prompt_layout.WRITING:
         assert section["text"].strip(), section["id"]
         assert section["note"].strip(), section["id"]
-        # Static text belongs in the cached band — with one deliberate
-        # exception. The house style is the rule the *renderer* depends on, and
-        # a small model follows the instruction it read last, so it is worth
-        # the handful of tokens it costs to recompute every turn.
-        expected = "volatile" if section["id"] == "craft:format" else "prefix"
+        # Static text belongs in the cached band — with two deliberate
+        # exceptions, both leaning on the same fact: a small model follows an
+        # instruction it read last far more reliably than one buried earlier,
+        # so it is worth the handful of tokens it costs to recompute every
+        # turn. The house style is the rule the *renderer* depends on; the
+        # length target is the constraint smaller models miss most often.
+        exceptions = {"craft:format", "craft:length"}
+        expected = "volatile" if section["id"] in exceptions else "prefix"
         assert section["band"] == expected, section["id"]
 
 
@@ -73,10 +76,11 @@ def test_the_shipped_prompt_stays_affordable():
 
 
 def test_the_reply_budget_holds_what_the_length_block_asks_for():
-    """The two are coupled and used not to be: the block asks for up to six
-    hundred words, which is around eight hundred tokens, and the state suffix
-    goes after them. Under that the reply is cut mid-sentence and the suffix
-    never arrives, which looks like the state engine having quietly died."""
+    """The two are coupled and used not to be: the block asks for up to seven
+    hundred words by default (more, with the paragraph range turned up), which
+    is around a thousand tokens, and the state suffix goes after them. Under
+    that the reply is cut mid-sentence and the suffix never arrives, which
+    looks like the state engine having quietly died."""
     from app.passes.registry import CANONICAL_PASSES
 
     reply = next(p for p in CANONICAL_PASSES if p.id == "basic")
@@ -90,6 +94,45 @@ def test_an_edited_block_is_kept_and_a_cleared_one_falls_back():
 
     cleared = prompt_layout.normalise([{"id": "craft:length", "enabled": True, "text": ""}])
     assert {s["id"]: s for s in cleared}["craft:length"]["text"] == shipped
+
+
+def test_a_relocated_id_lands_at_the_end_of_its_new_band_not_its_old_position():
+    """craft:length moved prefix -> volatile. A settings file saved before
+    that move has it stored early — among the other prefix craft:* blocks —
+    and normalise() has no record of which band it used to carry, so without
+    the migration it would inherit that early position and sort to the
+    *front* of volatile instead of next to craft:format where it belongs."""
+    stale = [
+        {"id": "craft:sim", "enabled": True},
+        {"id": "craft:length", "enabled": True},
+        {"id": "craft:banned", "enabled": True},
+        {"id": "state", "enabled": True},
+        {"id": "setting", "enabled": True},
+        {"id": "event", "enabled": True},
+        {"id": "search", "enabled": True},
+        {"id": "toggles", "enabled": True},
+        {"id": "craft:format", "enabled": True},
+        {"id": "final", "enabled": True},
+    ]
+    volatile_ids = ids(prompt_layout.normalise(stale), "volatile")
+    assert volatile_ids.index("craft:length") == volatile_ids.index("craft:format") - 1
+    assert volatile_ids[-1] == "final"
+
+    # And it stays put on a second pass — the migration only fires on a
+    # stored position that still looks like the old, pre-move one; a file
+    # that already has craft:length in its new spot (including one where a
+    # person has since dragged it somewhere else on purpose) is trusted as-is.
+    again = prompt_layout.to_storage(prompt_layout.normalise(stale))
+    assert ids(prompt_layout.normalise(again), "volatile") == volatile_ids
+
+
+def test_a_relocated_id_still_keeps_its_saved_overrides():
+    """The migration only sets the stale *position* aside — an off switch or
+    a hand-edited line saved before the move is not something to lose."""
+    stale = [{"id": "craft:length", "enabled": False, "text": "Two lines, always."}]
+    by_id = {s["id"]: s for s in prompt_layout.normalise(stale)}
+    assert by_id["craft:length"]["enabled"] is False
+    assert by_id["craft:length"]["text"] == "Two lines, always."
 
 
 def test_only_the_edit_is_stored():

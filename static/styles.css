@@ -2464,6 +2464,12 @@ body {
 .num-field .kind-note { margin: 3px 0 0; }
 .num-field .kind-note:empty { display: none; }
 
+/* Two .num-box inputs and the word between them — the craft:length block's
+   paragraph-range editor (§ index.html), which needed a pair rather than the
+   single label+box+unit row .num-head is shaped for. */
+.len-range { display: flex; align-items: center; gap: 8px; }
+.len-to { font-size: 12px; color: var(--muted); }
+
 /* ------------------------------------------------------------ disclosure */
 
 .disclose {

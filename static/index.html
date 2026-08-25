@@ -1680,6 +1680,33 @@
                         <span class="row-label wide-label">Title</span>
                         <input x-model="s.label" spellcheck="false" placeholder="What this block is">
                       </label>
+                      <!-- The one block whose whole job is a number: two
+                           boxes instead of asking anyone to keep "paragraphs"
+                           and "words" consistent by hand while editing prose.
+                           Touching either rewrites the Text box below in
+                           place — reordered above it so the number you came
+                           to change is the first thing here, not the last. -->
+                      <div class="col-field tight" x-show="s.id === 'craft:length'">
+                        <span class="row-label wide-label">Paragraphs</span>
+                        <div class="len-range">
+                          <input class="num-box" type="number" min="1" max="60"
+                                 :value="lengthRange(s)?.min ?? 4"
+                                 @change="setLengthRange(s, $event.target.value, lengthRange(s)?.max ?? 8)"
+                                 aria-label="Fewest paragraphs">
+                          <span class="len-to">to</span>
+                          <input class="num-box" type="number" min="1" max="60"
+                                 :value="lengthRange(s)?.max ?? 8"
+                                 @change="setLengthRange(s, lengthRange(s)?.min ?? 4, $event.target.value)"
+                                 aria-label="Most paragraphs">
+                        </div>
+                        <p class="kind-note">
+                          Rewrites the text below with a matching word-count
+                          range. Set the Reply pass's Max tokens (Brain →
+                          Passes) generously above what this needs, or a long
+                          reply gets cut off mid-sentence regardless of what
+                          the prompt asks for.
+                        </p>
+                      </div>
                       <label class="col-field tight">
                         <span class="row-label wide-label">Text</span>
                         <textarea rows="4" x-model="s.text"

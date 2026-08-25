@@ -122,6 +122,13 @@ const WORLDBAR_NAME_BUDGET = 24;
 const WORLDBAR_FIELDS_BUDGET = 64;
 // How long a prompt section takes to slide past its neighbour when reordered.
 const SECTION_MOVE_MS = 260;
+// A rough average prose paragraph, for turning a paragraph count into the
+// word-count range the craft:length block's text quotes alongside it — see
+// setLengthRange. Rounded to the nearest 50 words so the number reads like
+// someone chose it, not like a formula did. Kept in sync by hand with the
+// shipped default in app/prompt_layout.py, which is this formula's output at
+// 4-8 paragraphs.
+const WORDS_PER_PARAGRAPH = 90;
 // The four samplers every pass ships with a tuned value for. "Turn the extras
 // off" leaves these alone: a pass's own temperature is a decision, not leftover
 // tinkering, and resetting it would be a trap under that label.
@@ -1715,6 +1722,38 @@ function tavern() {
       const rows = this.sectionsIn(band);
       const on = rows.filter((s) => s.enabled).length;
       return on === rows.length ? `All ${rows.length}` : `${on} of ${rows.length}`;
+    },
+
+    // The craft:length block's number-box editor (§ index.html): a friendlier
+    // way to write its text than typing prose, for the one block whose whole
+    // job is a number. The range lives in the text itself rather than a
+    // separate setting — reading it back out with the same shape
+    // setLengthRange writes keeps the boxes in step with whatever is actually
+    // there, including a shipped default nobody has touched yet. Returns null
+    // for wording that doesn't start that way (hand-edited past recognition),
+    // and the boxes fall back to the shipped 4-8 for display until touched.
+    lengthRange(section) {
+      const m = /^(\d+)(?:\s*to\s*(\d+))?\s*paragraphs?\b/i.exec((section.text || "").trim());
+      if (!m) return null;
+      const min = parseInt(m[1], 10);
+      return { min, max: m[2] ? parseInt(m[2], 10) : min };
+    },
+
+    // Regenerates the block's whole text from a paragraph range — touching
+    // either box always produces boxes-driven text, even over hand-written
+    // wording, rather than leaving an ambiguous "which one wins" state.
+    // Word counts are derived, not typed: nobody can keep "6 to 10 paragraphs,
+    // roughly 400 to 600 words" internally consistent by hand as the
+    // paragraph count changes, so the words follow the paragraphs instead.
+    setLengthRange(section, minRaw, maxRaw) {
+      const min = Math.max(1, Math.min(60, parseInt(minRaw, 10) || 1));
+      const max = Math.max(min, Math.min(60, parseInt(maxRaw, 10) || min));
+      const words = (p) => Math.round((p * WORDS_PER_PARAGRAPH) / 50) * 50;
+      const span = min === max ? `${min} paragraph${min === 1 ? "" : "s"}` : `${min} to ${max} paragraphs`;
+      const wordsMin = words(min), wordsMax = words(max);
+      const wordSpan = wordsMin === wordsMax ? `roughly ${wordsMin} words` : `roughly ${wordsMin} to ${wordsMax} words`;
+      section.text = `${span}, ${wordSpan}. Close enough is close enough.\n\n`
+        + "Do not take the length of earlier messages in the conversation as the target.\n";
     },
 
     // ---- author's note ----

@@ -284,16 +284,6 @@ already in.
 """,
     },
     {
-        "id": "craft:length", "band": "prefix", "label": "How long a reply runs",
-        "note": "Four to eight paragraphs. Keep it under the Reply pass's Max tokens.",
-        "text": """\
-Four to eight paragraphs, roughly four hundred to six hundred words. Close
-enough is close enough.
-
-Do not take the length of earlier messages in the conversation as the target.
-""",
-    },
-    {
         "id": "craft:banned", "band": "prefix", "label": "Words to avoid",
         "note": "The tics that give a model away. Edit the list to taste.",
         "text": """\
@@ -332,6 +322,34 @@ moment — blades locked, eyes locked — before it breaks open again.
 Damage is physical and specific: torn skin, blood, bone going. No clinical
 words for it, and no abstractions ("tension coiled") where a real object would
 do.
+""",
+    },
+    {
+        # Moved here from the prefix band — was buried among a dozen other
+        # craft:* rules near the top of the prompt, which a smaller local
+        # model (roughly 8B-30B) tends to weight far less reliably than
+        # something read right before it starts writing. `craft:format`
+        # (below) already leans on that same recency effect for its own,
+        # more load-bearing reason; putting length right before it costs the
+        # cache nothing extra, since the whole volatile band is rebuilt every
+        # turn regardless of what lives in it (§ this module's docstring).
+        # The paragraph range is generated text, not hand phrasing: the
+        # editor in static/index.html reads it back out of `s.text` with a
+        # `paragraphs?` regex and rewrites it from two number boxes, so this
+        # shipped default has to stay in the exact "N to M paragraphs,
+        # roughly A to B words." shape static/app.js's setLengthRange()
+        # produces — words = round(paragraphs * 90 / 50) * 50 there, which is
+        # where 350 and 700 below come from.
+        "id": "craft:length", "band": "volatile", "label": "How long a reply runs",
+        "note": "4 to 8 paragraphs by default — set with the stepper in the "
+                "editor below rather than typing prose. Kept in the volatile "
+                "band, right before House style, so it's one of the last "
+                "things the model reads: a length target buried early in a "
+                "long system prompt is exactly what a smaller model forgets.",
+        "text": """\
+4 to 8 paragraphs, roughly 350 to 700 words. Close enough is close enough.
+
+Do not take the length of earlier messages in the conversation as the target.
 """,
     },
     {
@@ -431,6 +449,36 @@ def _shipped(base: dict[str, Any]) -> dict[str, Any]:
     return section
 
 
+# One-time migration: craft:length moved from the prefix band to volatile in
+# this release (§ recency placement — see its own comment in WRITING), and
+# belongs right next to the block it maps to here. `to_storage` never
+# persists a band, only order/enabled/text, so a settings file saved before
+# the move has no record of which band this id used to sit in — normalise()
+# cannot tell "stale position from before a band change" from "the user put
+# it here on purpose" just by looking at one stored entry. What it *can* look
+# at is where that entry falls relative to the rest of the stored order: a
+# settings file from before the move stored craft:length among the other
+# prefix craft:* blocks, i.e. before every genuinely-volatile id in the file;
+# one saved since the move — including one a person has since dragged
+# somewhere else on purpose — has it after at least one of them. Safe to
+# delete, along with `_stale_relocation`, once installs from before the move
+# are no longer in the wild.
+RELOCATION_ANCHORS: dict[str, str] = {"craft:length": "craft:format"}
+
+
+def _stale_relocation(stored: list[dict], section_id: str) -> bool:
+    length_idx: int | None = None
+    for i, entry in enumerate(stored):
+        if not isinstance(entry, dict):
+            continue
+        sid = str(entry.get("id") or "")
+        if sid == section_id:
+            length_idx = i
+        elif sid in BUILTIN_BY_ID and BUILTIN_BY_ID[sid]["band"] == "volatile":
+            return length_idx is None or length_idx < i
+    return False
+
+
 def normalise(raw: Any) -> list[dict[str, Any]]:
     """A complete, ordered layout from whatever was stored.
 
@@ -444,10 +492,18 @@ def normalise(raw: Any) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
 
+    relocated: dict[str, dict] = {}
+    to_relocate = {
+        sid for sid in RELOCATION_ANCHORS if _stale_relocation(stored, sid)
+    }
+
     for entry in stored:
         if not isinstance(entry, dict):
             continue
         section_id = str(entry.get("id") or "")
+        if section_id in to_relocate and section_id not in relocated:
+            relocated[section_id] = entry
+            continue
         if section_id in seen:
             continue
         if is_custom(section_id):
@@ -468,6 +524,27 @@ def normalise(raw: Any) -> list[dict[str, Any]]:
                 "custom": False,
             })
             seen.add(section_id)
+
+    # Slotted in beside its anchor rather than left to the generic "missing"
+    # pass below: that pass only runs after every stored-and-seen id has
+    # already been appended, so anything landing there always sorts after
+    # them regardless of where BUILTIN would otherwise put it — which is
+    # exactly wrong for a relocated id whose whole point is sitting right
+    # before a *specific*, already-stored neighbour.
+    for section_id, entry in relocated.items():
+        base = BUILTIN_BY_ID[section_id]
+        built = {
+            **_shipped(base),
+            "enabled": True if section_id in FIXED_IDS
+            else bool(entry.get("enabled", base.get("default_enabled", True))),
+            **({"text": str(entry["text"])} if base.get("text") and entry.get("text") else {}),
+            "custom": False,
+        }
+        anchor_at = next(
+            (i for i, s in enumerate(out) if s["id"] == RELOCATION_ANCHORS[section_id]), None
+        )
+        out.insert(anchor_at, built) if anchor_at is not None else out.append(built)
+        seen.add(section_id)
 
     for base in BUILTIN:
         if base["id"] not in seen:
