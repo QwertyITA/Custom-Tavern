@@ -1173,6 +1173,13 @@ class PassScheduler:
             ]
             return task, messages, self._handler_summary(ctx, covered)
         elif definition.id == "memory":
+            if not character.memory_enabled:
+                # Off means off — no extraction — but coverage still has to
+                # advance, or eviction (§assembly.apply_eviction) waits
+                # forever on a memory pass that will never run again for
+                # this character, and old messages stop dropping at all.
+                assembly.set_memory_covered_turn(self.db, ctx.chat_id, ctx.turn)
+                return "", [], None
             history = repo.list_messages(self.db, ctx.chat_id, include_dropped=False)
             covered = assembly.memory_covered_turn(self.db, ctx.chat_id)
             fresh = [m for m in history if m["turn"] > covered]

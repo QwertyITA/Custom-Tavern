@@ -645,6 +645,17 @@ function tavern() {
     // the editor by default, which showed them to anyone who so much as
     // opened the character to change its name.
     reactionsOpen: false,
+    // What this character's memory pass has extracted so far — loaded
+    // alongside the rest of the draft (§ editCharacter) so the "Edit
+    // memories" button can show a live count without a second trip once the
+    // modal actually opens.
+    memoriesOpen: false,
+    characterMemories: [],
+    loadingMemories: false,
+    memoryError: "",
+    newMemoryText: "",
+    armedMemory: "",
+    armedMemoryTimer: 0,
     confirmPersona: "",
     savingCharacter: false,
     charMsg: "",
@@ -2275,6 +2286,88 @@ function tavern() {
       return ["starred", "unstarred", "killed"].filter((k) => !(r[k] || "").trim());
     },
 
+    // ---- memories (§ app/memory.py) ----
+    //
+    // The extraction pass, the dedupe, and the keyword retrieval all live
+    // server-side and stay untouched by this — this is only the one place a
+    // person can see what got remembered, fix a wrong one, add a fact by
+    // hand, or turn the whole thing off for this character. `keys` (what
+    // retrieval actually matches on) is never shown or edited here: a memory
+    // is a sentence to a person, and re-deriving the keys from whatever text
+    // ends up saved is simpler and less to get wrong than asking anyone to
+    // maintain a parallel list of keywords by hand.
+
+    async loadCharacterMemories() {
+      if (!this.draftCharacter.id) { this.characterMemories = []; return; }
+      this.loadingMemories = true;
+      try {
+        this.characterMemories = await api.get(`/api/characters/${this.draftCharacter.id}/memories`);
+      } catch (e) {
+        this.memoryError = errorText(e);
+      } finally {
+        this.loadingMemories = false;
+      }
+    },
+
+    openMemories() {
+      this.memoryError = "";
+      this.newMemoryText = "";
+      this.memoriesOpen = true;
+      // The list loaded on editCharacter() may be stale by the time this is
+      // actually opened — cheap enough to just ask again.
+      this.loadCharacterMemories();
+    },
+
+    closeMemories() {
+      this.memoriesOpen = false;
+    },
+
+    async addMemory() {
+      const text = this.newMemoryText.trim();
+      if (!text) return;
+      this.memoryError = "";
+      try {
+        this.characterMemories = await api.post(
+          `/api/characters/${this.draftCharacter.id}/memories`, { text },
+        );
+        this.newMemoryText = "";
+      } catch (e) {
+        this.memoryError = errorText(e);
+      }
+    },
+
+    // Saves on blur/change rather than behind a per-row button — the same
+    // "edit in place, no separate save step" idiom as Story's author's note
+    // and every colour field in Theme.
+    async saveMemoryEdit(memory, rawText) {
+      const text = rawText.trim();
+      if (!text || text === memory.text) return;
+      this.memoryError = "";
+      try {
+        const updated = await api.put(`/api/memories/${memory.id}`, { text });
+        memory.text = updated.text;
+      } catch (e) {
+        this.memoryError = errorText(e);
+      }
+    },
+
+    // Same armed-then-confirm shape as every other delete in this app.
+    async removeMemory(memory) {
+      if (this.armedMemory !== memory.id) {
+        this.armedMemory = memory.id;
+        clearTimeout(this.armedMemoryTimer);
+        this.armedMemoryTimer = setTimeout(() => { this.armedMemory = ""; }, CONFIRM_MS);
+        return;
+      }
+      this.armedMemory = "";
+      try {
+        await api.del(`/api/memories/${memory.id}`);
+        this.characterMemories = this.characterMemories.filter((m) => m.id !== memory.id);
+      } catch (e) {
+        this.memoryError = errorText(e);
+      }
+    },
+
     // ---- talking avatar (AVATAR-VIDEO-CONTRACT.md) ----
 
     async uploadAvatarIdle(event) {
@@ -3086,6 +3179,9 @@ function tavern() {
         this.hueEditorOpen = false;
         this.advancedCharOpen = false;
         this.reactionsOpen = false;
+        this.memoriesOpen = false;
+        this.newMemoryText = "";
+        this.memoryError = "";
         this.panel = "character";
         // Usually reached from the chats panel, where the sheet is already up
         // — but not from the first-run empty state, which is on the chat screen
@@ -3093,6 +3189,11 @@ function tavern() {
         // path creating a character and then appearing to do nothing.
         this.panelOpen = true;
         this.snapshotCharacter();
+        // Not awaited: the editor should paint immediately, and a moment's
+        // delay on the "Edit memories" button's own count is a fair trade
+        // for that — same reasoning as the samplers/passes fetches Brain
+        // kicks off without blocking its own open.
+        this.loadCharacterMemories();
       } catch (e) {
         this.error = errorText(e);
       }
@@ -3118,6 +3219,7 @@ function tavern() {
           pfp_shape: draft.pfp_shape || "portrait",
           pfp_effect: draft.pfp_effect || {},
           reactions: draft.reactions || {},
+          memory_enabled: draft.memory_enabled !== false,
           avatar_video: {
             enabled: !!(draft.avatar_video || {}).enabled,
             voice: (draft.avatar_video || {}).voice || "",

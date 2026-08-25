@@ -111,6 +111,41 @@ def test_empty_items_are_ignored(db, character):
     assert memory_store.store(db, character.id, [{"text": "  "}, {}]) == []
 
 
+def test_editing_a_memory_re_derives_its_keys(db, character):
+    [memory_id] = memory_store.store(
+        db, character.id, [{"text": "Mira promised to return the knife.", "keys": ["knife"]}]
+    )
+    memory_store.update(db, memory_id, "Mira already returned the lantern.")
+    saved = memory_store.get(db, memory_id)
+    assert saved["text"] == "Mira already returned the lantern."
+    assert "lantern" in saved["keys"] and "knife" not in saved["keys"]
+
+
+def test_a_memory_typed_by_hand_dedupes_against_the_pass_the_same_way(db, character):
+    memory_store.store(db, character.id, [{"text": "The user's sister is Anna."}], source="memory_pass")
+    inserted = memory_store.store(db, character.id, [{"text": "the user's sister is anna"}], source="manual")
+    assert inserted == []
+    assert len(memory_store.list_all(db, character.id)) == 1
+
+
+def test_a_memory_added_by_hand_sorts_as_the_newest(db, character):
+    """No chat turn of its own to stamp it with (§ POST .../memories) — it
+    has to be given one that sorts it as the newest fact, or it defaults to
+    turn 0 and reads as the oldest thing remembered instead."""
+    memory_store.store(db, character.id, [{"text": "An older fact."}], turn=5)
+    turn = memory_store.latest_turn(db, character.id)
+    memory_store.store(db, character.id, [{"text": "A fact typed by hand."}], turn=turn, source="manual")
+    newest = memory_store.list_all(db, character.id)[0]
+    assert newest["text"] == "A fact typed by hand."
+
+
+def test_forgetting_a_memory_removes_it(db, character):
+    [memory_id] = memory_store.store(db, character.id, [{"text": "A fact worth forgetting."}])
+    memory_store.forget(db, memory_id)
+    assert memory_store.get(db, memory_id) is None
+    assert memory_store.list_all(db, character.id) == []
+
+
 # --------------------------------------------------------------- assembly
 
 
@@ -142,6 +177,25 @@ def test_triggered_lore_lands_in_the_dynamic_middle(db, chat, character):
     middle = assembled.messages[0]["content"]
     assert "Harrow is the harbourmaster." in middle
     assert assembled.lore_hits == ["Harrow"]
+
+
+def test_memories_are_injected_when_enabled_for_the_character(db, chat, character):
+    memory_store.store(db, character.id, [{"text": "Mira promised to return the knife.",
+                                           "keys": ["knife"]}])
+    repo.add_message(db, chat["id"], "user", "what about that knife?")
+    assembled = build(db, chat, character)
+    assert assembled.memories
+
+
+def test_memories_are_withheld_when_disabled_for_the_character(db, chat, character):
+    """Off means off for retrieval too, not just extraction — nothing already
+    stored should keep surfacing once a person has turned this off."""
+    memory_store.store(db, character.id, [{"text": "Mira promised to return the knife.",
+                                           "keys": ["knife"]}])
+    repo.add_message(db, chat["id"], "user", "what about that knife?")
+    disabled = character.model_copy(update={"memory_enabled": False})
+    assembled = build(db, chat, disabled)
+    assert assembled.memories == []
 
 
 def test_toggle_injections_ride_in_the_volatile_suffix(db, chat, character):

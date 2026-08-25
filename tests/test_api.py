@@ -453,6 +453,58 @@ def test_a_character_cannot_be_left_nameless(client):
     assert client.put(f"/api/characters/{character_id}", json={"name": "   "}).status_code == 400
 
 
+def test_memory_enabled_can_be_turned_off_per_character(client):
+    character_id = client.get("/api/characters").json()[0]["id"]
+    assert client.get(f"/api/characters/{character_id}").json()["memory_enabled"] is True
+    client.put(f"/api/characters/{character_id}", json={"memory_enabled": False})
+    assert client.get(f"/api/characters/{character_id}").json()["memory_enabled"] is False
+
+
+def test_a_memory_can_be_added_edited_and_removed_by_hand(client):
+    character_id = client.get("/api/characters").json()[0]["id"]
+    added = client.post(
+        f"/api/characters/{character_id}/memories", json={"text": "The user's sister is Anna."}
+    )
+    assert added.status_code == 200
+    memories = added.json()
+    memory_id = next(m["id"] for m in memories if m["text"] == "The user's sister is Anna.")
+
+    updated = client.put(f"/api/memories/{memory_id}", json={"text": "The user's brother is Anders."})
+    assert updated.status_code == 200
+    assert updated.json()["text"] == "The user's brother is Anders."
+    assert any(
+        m["id"] == memory_id
+        for m in client.get(f"/api/characters/{character_id}/memories").json()
+    )
+
+    assert client.delete(f"/api/memories/{memory_id}").status_code == 200
+    assert not any(
+        m["id"] == memory_id
+        for m in client.get(f"/api/characters/{character_id}/memories").json()
+    )
+
+
+def test_adding_a_memory_needs_text(client):
+    character_id = client.get("/api/characters").json()[0]["id"]
+    response = client.post(f"/api/characters/{character_id}/memories", json={"text": "   "})
+    assert response.status_code == 400
+
+
+def test_adding_a_duplicate_memory_by_hand_is_refused(client):
+    """The same dedupe a background extraction would hit — a fact typed here
+    and one the pass would have written anyway must not end up as two rows."""
+    character_id = client.get("/api/characters").json()[0]["id"]
+    client.post(f"/api/characters/{character_id}/memories", json={"text": "The user's sister is Anna."})
+    dup = client.post(
+        f"/api/characters/{character_id}/memories", json={"text": "the user's sister is anna"}
+    )
+    assert dup.status_code == 409
+
+
+def test_editing_a_missing_memory_404s(client):
+    assert client.put("/api/memories/does-not-exist", json={"text": "x"}).status_code == 404
+
+
 def test_the_character_list_carries_a_portrait_and_chat_count(client):
     character_id = client.get("/api/characters").json()[0]["id"]
     before = next(c for c in client.get("/api/characters").json() if c["id"] == character_id)

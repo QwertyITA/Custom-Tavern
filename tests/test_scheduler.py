@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from app import repo, state as state_mod
+from app import assembly, repo, state as state_mod
 from app.config import SETTINGS
 from app.models import PassDef, Trigger
 from app.passes import registry
@@ -352,3 +352,31 @@ def test_swipe_on_a_user_message_is_refused(sched, chat, character):
 
     events = sync(scenario())
     assert events_of(events, "error")
+
+
+# ------------------------------------------------------------------ memory
+
+
+def test_memory_pass_builds_input_when_enabled(sched, chat, character):
+    repo.add_message(sched.db, chat["id"], "user", "a secret")
+    definition = next(d for d in registry.all_passes(sched.db) if d.id == "memory")
+    _prompt, messages, handler = sched._build_pass_input(
+        context(chat, character, turn_no=1), definition
+    )
+    assert messages and handler is not None
+
+
+def test_memory_pass_skips_extraction_when_disabled_for_the_character(sched, chat, character):
+    """Off means off — no call to a backend at all — but coverage still has
+    to move, or eviction waits forever on a memory pass that will never run
+    again for this character (§app/assembly.py apply_eviction)."""
+    disabled = character.model_copy(update={"memory_enabled": False})
+    repo.add_message(sched.db, chat["id"], "user", "a secret")
+    definition = next(d for d in registry.all_passes(sched.db) if d.id == "memory")
+
+    assert assembly.memory_covered_turn(sched.db, chat["id"]) == assembly.MEMORY_NEVER
+    _prompt, messages, handler = sched._build_pass_input(
+        context(chat, disabled, turn_no=5), definition
+    )
+    assert messages == [] and handler is None
+    assert assembly.memory_covered_turn(sched.db, chat["id"]) == 5

@@ -338,7 +338,11 @@ def build_reply_context(
             assembled.lore_hits = [e.keys[0] if e.keys else "" for e in triggered]
             _section(assembled, "lorebook", text)
 
-    if "memories" in wanted:
+    # Off for this character (§Character.memory_enabled) means nothing
+    # stored ever comes back either, not just that nothing new is being
+    # extracted — a person who turned this off wants a character with no
+    # memory, not one still quietly recalling what it learned before.
+    if "memories" in wanted and character.memory_enabled:
         memories = memory_store.retrieve(
             db, character.id, latest_user or "\n".join(recent_texts[-2:]),
             limit=settings.memory_max_injected,

@@ -2630,6 +2630,27 @@
                 x-text="missingReactions().length + ' pending'"></span>
         </button>
 
+        <!-- Durable facts the memory pass pulls out of the conversation
+             (§ app/memory.py) — full-screen the same way Reactions is,
+             since a list that can grow long belongs behind an explicit
+             open, not sitting in the editor by default. The switch turns
+             off both halves for this character: nothing new gets extracted,
+             and nothing already stored gets pulled into a reply — everyone
+             else this character talks to just gets a character with no
+             memory, rather than one still quietly running in the
+             background with no way to see it. -->
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-brain"/></svg>Memories</h3>
+        <label class="toggle" x-show="draftCharacter.id">
+          <input type="checkbox" x-model="draftCharacter.memory_enabled">
+          <span>Remember things about this character</span>
+        </label>
+        <button class="wide" @click="openMemories()">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-brain"/></svg>
+          <span>Edit memories</span>
+          <span class="p-count" x-show="characterMemories.length"
+                x-text="characterMemories.length"></span>
+        </button>
+
         <!-- A lip-synced clip over the portrait after each reply, from a
              service run outside this app (AVATAR-VIDEO-CONTRACT.md) — off
              until both that service is pointed at in Brain → Connect and this
@@ -2837,6 +2858,56 @@
         </div>
         <div class="btn-row crop-actions">
           <button class="wide primary" @click="reactionsOpen = false">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Memories, the same shape as Reactions above. Each row edits in
+         place — a textarea that saves on blur, no per-row Save button —
+         same idiom as an author's note or a theme colour: there is nothing
+         here that needs an explicit commit separate from just changing it. -->
+    <div class="sheet-modal" x-show="memoriesOpen" x-cloak
+         @keydown.escape.window="closeMemories()"
+         x-transition:enter="sheet-modal-enter" x-transition:enter-start="sheet-modal-from"
+         x-transition:enter-end="sheet-modal-to"
+         x-transition:leave="sheet-modal-leave" x-transition:leave-start="sheet-modal-to"
+         x-transition:leave-end="sheet-modal-from">
+      <div class="sheet-modal-card" @click.stop>
+        <div class="crop-head">
+          <span class="sheet-modal-title">Memories</span>
+        </div>
+        <div class="sheet-modal-body">
+          <p class="note">
+            Facts the memory pass pulled from this character's conversations,
+            kept around after the messages that mentioned them are gone.
+            Fix one that got it wrong, or add one yourself.
+          </p>
+          <p class="kind-note" x-show="loadingMemories">Loading…</p>
+          <p class="kind-note" x-show="!loadingMemories && !characterMemories.length">
+            Nothing remembered yet.
+          </p>
+          <template x-for="m in characterMemories" :key="m.id">
+            <label class="col-field tight">
+              <textarea rows="2" :value="m.text"
+                        @change="saveMemoryEdit(m, $event.target.value)"></textarea>
+              <button class="link danger" @click="removeMemory(m)"
+                      x-text="armedMemory === m.id ? 'Tap again to delete' : 'Delete'"></button>
+            </label>
+          </template>
+
+          <label class="col-field tight">
+            <span class="row-label wide-label">Add a memory</span>
+            <textarea rows="2" x-model="newMemoryText"
+                      placeholder="A fact to remember, in one sentence."></textarea>
+          </label>
+          <button class="wide" @click="addMemory()" :disabled="!newMemoryText.trim()">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plus"/></svg>
+            <span>Add memory</span>
+          </button>
+          <span class="save-msg bad" x-show="memoryError" x-text="memoryError"></span>
+        </div>
+        <div class="btn-row crop-actions">
+          <button class="wide primary" @click="closeMemories()">Done</button>
         </div>
       </div>
     </div>

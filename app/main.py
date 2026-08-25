@@ -418,6 +418,8 @@ async def update_character(character_id: str, payload: dict = Body(...)) -> dict
             if key in raw:
                 current[key] = str(raw[key] or "").strip()
         character.reactions = CharacterReactions.model_validate(current)
+    if "memory_enabled" in payload:
+        character.memory_enabled = bool(payload["memory_enabled"])
     if "avatar_video" in payload:
         # Only the two knobs a person actually edits here. `idle_video` and
         # `prep_status` are written exclusively by the upload endpoint and
@@ -690,6 +692,38 @@ def _forget_orphaned_avatar_idle(db, character) -> None:
 @app.get("/api/characters/{character_id}/memories")
 async def list_memories(character_id: str) -> list[dict]:
     return memory_store.list_all(get_db(), character_id)
+
+
+@app.post("/api/characters/{character_id}/memories")
+async def create_memory(character_id: str, payload: dict = Body(...)) -> list[dict]:
+    """A person adding a fact by hand, same store()/dedupe path the pass
+    itself writes through — so a memory typed here and one the pass would
+    have extracted anyway do not end up as two rows saying the same thing."""
+    db = get_db()
+    if repo.get_character(db, character_id) is None:
+        raise HTTPException(404, "character not found")
+    text = str(payload.get("text") or "").strip()
+    if not text:
+        raise HTTPException(400, "a memory needs some text")
+    inserted = memory_store.store(
+        db, character_id, [{"text": text}],
+        turn=memory_store.latest_turn(db, character_id), source="manual",
+    )
+    if not inserted:
+        raise HTTPException(409, "too close to a memory already stored")
+    return memory_store.list_all(db, character_id)
+
+
+@app.put("/api/memories/{memory_id}")
+async def update_memory(memory_id: str, payload: dict = Body(...)) -> dict:
+    db = get_db()
+    if memory_store.get(db, memory_id) is None:
+        raise HTTPException(404, "memory not found")
+    text = str(payload.get("text") or "").strip()
+    if not text:
+        raise HTTPException(400, "a memory needs some text")
+    memory_store.update(db, memory_id, text)
+    return memory_store.get(db, memory_id)
 
 
 @app.delete("/api/memories/{memory_id}")

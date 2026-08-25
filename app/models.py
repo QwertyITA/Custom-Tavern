@@ -273,6 +273,15 @@ class Character(BaseModel):
     reactions: CharacterReactions = Field(default_factory=CharacterReactions)
     # Talking-video avatar, off by default (§ AvatarVideo above).
     avatar_video: AvatarVideo = Field(default_factory=AvatarVideo)
+    # On by default, unlike avatar_video/the feature toggles above: extraction
+    # needs no outside service, just whatever backend already runs the
+    # background tier, so there is nothing unconfigured to hide behind. Off
+    # stops the memory pass from extracting anything new about this
+    # character *and* stops retrieval from pulling in what is already
+    # stored (§app/memory.py, app/passes/scheduler.py) — a person turning
+    # this off wants a character with no memory, not one still quietly
+    # collecting it in the background with no way to see it.
+    memory_enabled: bool = True
     backgrounds: list[dict[str, Any]] = Field(default_factory=list)  # {img, metadata}
     state_schema: dict[str, VariableSchema] = Field(default_factory=dict)
     # Rule-based keyword/regex nudges, applied before any model pass (§6).

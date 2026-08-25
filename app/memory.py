@@ -148,6 +148,18 @@ def retrieve(db: Database, character_id: str, query_text: str, limit: int = 6) -
     ]
 
 
+def latest_turn(db: Database, character_id: str) -> int:
+    """One past whatever this character's newest memory is currently at —
+    what a memory added by hand (§ POST .../memories, no chat turn of its
+    own to stamp) should be given so it sorts as the newest fact rather than
+    defaulting to turn 0 and reading as the oldest one there is."""
+    row = db.query_one(
+        "SELECT MAX(created_turn) AS latest FROM memories WHERE character_id=?", (character_id,)
+    )
+    latest = row["latest"] if row else None
+    return (latest or 0) + 1
+
+
 def list_all(db: Database, character_id: str) -> list[dict]:
     return [
         {
@@ -163,6 +175,32 @@ def list_all(db: Database, character_id: str) -> list[dict]:
             (character_id,),
         )
     ]
+
+
+def get(db: Database, memory_id: str) -> dict | None:
+    row = db.query_one(
+        "SELECT id, text, keys, created_turn, source FROM memories WHERE id=?", (memory_id,)
+    )
+    if row is None:
+        return None
+    return {
+        "id": row["id"], "text": row["text"], "keys": json.loads(row["keys"]),
+        "created_turn": row["created_turn"], "source": row["source"],
+    }
+
+
+def update(db: Database, memory_id: str, text: str) -> None:
+    """A person overriding what the pass wrote, or fixing their own earlier
+    entry — re-derives the lookup keys from the new text rather than keeping
+    the old ones, since there is nothing left of the old wording to keep a
+    stale key attached to."""
+    text = text.strip()
+    keys = derive_keys(text)
+    db.write_sync(
+        lambda conn: conn.execute(
+            "UPDATE memories SET text=?, keys=? WHERE id=?", (text, json.dumps(keys), memory_id)
+        )
+    )
 
 
 def forget(db: Database, memory_id: str) -> None:
