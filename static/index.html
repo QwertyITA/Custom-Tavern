@@ -182,6 +182,90 @@
       <circle cx="12" cy="9" r="3.6"/>
       <path d="M4.8 20.4a7.4 7.4 0 0 1 14.4 0"/>
     </g>
+
+    <!-- The set below are section-header glyphs only (§.sheet-body h3) — one
+         per §h3 title across Brain/Theme/Characters, never used as a tab or
+         action icon, so each stays purely representational rather than
+         needing to read at a glance the way a tappable icon does. -->
+    <g id="i-search">
+      <circle cx="10.4" cy="10.4" r="6.4"/>
+      <path d="M15.4 15.4 20 20"/>
+    </g>
+    <g id="i-avatar-video">
+      <rect x="3.5" y="5" width="17" height="14" rx="2.4"/>
+      <path d="M10.2 9.2v5.6l5-2.8z" fill="currentColor" stroke="none"/>
+    </g>
+    <g id="i-layers">
+      <path d="M12 4 20 8l-8 4-8-4z"/>
+      <path d="M4 12l8 4 8-4"/>
+      <path d="M4 16l8 4 8-4"/>
+    </g>
+    <g id="i-note">
+      <path d="M6 4h9.6L18 6.4V20H6z"/>
+      <path d="M15.6 4v2.4H18"/>
+      <path d="M9 10.4h6M9 14h6"/>
+    </g>
+    <g id="i-gauge">
+      <path d="M4.5 15.5a7.5 7.5 0 0 1 15 0"/>
+      <path d="M12 15.5 16 10"/>
+      <circle cx="12" cy="15.5" r="1.2" fill="currentColor" stroke="none"/>
+    </g>
+    <g id="i-switch">
+      <rect x="3.5" y="8" width="17" height="8" rx="4"/>
+      <circle cx="15" cy="12" r="3" fill="currentColor" stroke="none"/>
+    </g>
+    <g id="i-people">
+      <circle cx="8.5" cy="9" r="3"/>
+      <circle cx="16.4" cy="10.2" r="2.4"/>
+      <path d="M3.4 19c.5-3.3 2.5-5.1 5.1-5.1s4.4 1.6 5 4.4"/>
+      <path d="M14.8 14c1.9.3 3.2 1.7 3.6 3.5"/>
+    </g>
+    <g id="i-cycle">
+      <path d="M4 12a8 8 0 0 1 13.6-5.7"/>
+      <path d="M20 12a8 8 0 0 1-13.6 5.7"/>
+      <path d="M17.6 4.4v3.5h-3.5"/>
+      <path d="M6.4 19.6v-3.5h3.5"/>
+    </g>
+    <g id="i-dice">
+      <rect x="4.5" y="4.5" width="15" height="15" rx="3"/>
+      <circle cx="9" cy="9" r="1" fill="currentColor" stroke="none"/>
+      <circle cx="15" cy="9" r="1" fill="currentColor" stroke="none"/>
+      <circle cx="9" cy="15" r="1" fill="currentColor" stroke="none"/>
+      <circle cx="15" cy="15" r="1" fill="currentColor" stroke="none"/>
+      <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/>
+    </g>
+    <g id="i-bug">
+      <circle cx="12" cy="13.2" r="5"/>
+      <path d="M12 8.2V6M9 9.6 7 7.6M15 9.6l2-2M7 13.2H4M20 13.2h-3M8.2 17.2l-2 2M15.8 17.2l2 2"/>
+    </g>
+    <g id="i-globe">
+      <circle cx="12" cy="12" r="8.4"/>
+      <path d="M3.6 12h16.8"/>
+      <path d="M12 3.6a13 13 0 0 1 0 16.8 13 13 0 0 1 0-16.8z"/>
+    </g>
+    <g id="i-image">
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2"/>
+      <circle cx="8.4" cy="9.4" r="1.6"/>
+      <path d="M4 17l5.5-5.5 3 3 3.5-3.5 4.5 4.5"/>
+    </g>
+    <g id="i-glass">
+      <rect x="5" y="5" width="10" height="10" rx="2"/>
+      <rect x="9" y="9" width="10" height="10" rx="2"/>
+    </g>
+    <g id="i-motion">
+      <path d="M3.5 9c4-3 8-3 12 0"/>
+      <path d="M3.5 13.5c5.5-4 11-4 16.5 0"/>
+      <path d="M3.5 18c3-2 6-2 9 0"/>
+    </g>
+    <g id="i-palette">
+      <path d="M12 4.6a7.6 7.6 0 1 0 0 15.2c1 0 1.6-.5 1.6-1.3 0-.4-.2-.7-.4-1-.2-.3-.4-.6-.4-1 0-.7.6-1.3 1.3-1.3H16a4.2 4.2 0 0 0 4.2-4.2c0-3.5-3.7-6.4-8.2-6.4z"/>
+      <circle cx="8" cy="10.6" r=".9" fill="currentColor" stroke="none"/>
+      <circle cx="12" cy="8.6" r=".9" fill="currentColor" stroke="none"/>
+      <circle cx="16" cy="10.6" r=".9" fill="currentColor" stroke="none"/>
+    </g>
+    <g id="i-heart">
+      <path d="M12 20s-7.5-4.6-9.6-9A5 5 0 0 1 12 6.5 5 5 0 0 1 21.6 11c-2.1 4.4-9.6 9-9.6 9z"/>
+    </g>
   </defs>
 </svg>
 
@@ -958,7 +1042,7 @@
          x-transition:leave-end="sheet-from">
   <header class="sheet-head">
     <button class="icon-btn" x-show="panel === 'character' || panel === 'persona'"
-            @click="panel = 'chats'" aria-label="Back">
+            @click="backToRoster()" aria-label="Back">
       <svg class="icon" viewBox="0 0 24 24"><use href="#i-back"/></svg>
     </button>
     <h2 x-text="panelTitle()"></h2>
@@ -1016,7 +1100,7 @@
           back to this page — a field showing <code>•••</code> already has one.
         </p>
 
-        <h3>Backends</h3>
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-backend"/></svg>Backends</h3>
         <p class="note">
           Where the work is sent. Tap one to open it — a backend that is set up
           is a backend nobody needs to look at.
@@ -1191,7 +1275,7 @@
 
         <button class="wide" @click="addBackend()">Add backend</button>
 
-        <h3>Pass assignment</h3>
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-ticket"/></svg>Pass assignment</h3>
         <p class="note">Which backend does each group's work.</p>
         <template x-for="g in settings.tier_groups || []" :key="`assign-${g.tier}`">
           <label class="row"><span class="row-label" x-text="g.label"></span>
@@ -1207,7 +1291,13 @@
           have to survive the screen going off.
         </p>
 
-        <h3>Web search</h3>
+        <!-- Off in Brain → Settings ("Features") hides this section
+             entirely — nothing here is any use to an install that never
+             turned the feature on, and a URL/key box for a service nobody
+             configured is exactly the clutter that toggle exists to hide. -->
+        <template x-if="settings.feature_web_search">
+        <div>
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-search"/></svg>Web search</h3>
         <p class="note">
           Nothing ships with a search engine, so point this at one you trust —
           your own SearXNG, or an API you have a key for. Put
@@ -1239,8 +1329,12 @@
           extra model call — but it does happen before the reply starts, so a
           slow engine is a slow turn.
         </p>
+        </div>
+        </template>
 
-        <h3>Talking avatar</h3>
+        <template x-if="settings.feature_talking_avatar">
+        <div>
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-avatar-video"/></svg>Talking avatar</h3>
         <p class="note">
           Nothing ships with a lip-sync renderer either — point this at a
           service you run yourself and see AVATAR-VIDEO-CONTRACT.md for what
@@ -1267,6 +1361,8 @@
           browser used to reach this app is tried, which rarely works
           once this app and the avatar service are on different machines.
         </p>
+        </div>
+        </template>
       </div>
       </template>
 
@@ -1274,7 +1370,7 @@
         <div
            x-transition:enter="braintab-enter" x-transition:enter-start="braintab-from"
            x-transition:enter-end="braintab-to">
-        <h3>Passes</h3>
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-ticket"/></svg>Passes</h3>
         <p class="note">
           Three groups of work, each with its own backend. Only the first is
           compulsory — the other two make the story keep track of itself, and
@@ -1479,7 +1575,7 @@
           <span>Add a pass</span>
         </button>
 
-        <h3>What goes into the prompt</h3>
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-layers"/></svg>What goes into the prompt</h3>
         <!-- Sitting here because it edits what a pass sends, not because its
              own design is settled — it isn't. The layout below (three fixed
              groups, sections reorderable only within one) is the part that
@@ -1592,7 +1688,7 @@
         <div
            x-transition:enter="braintab-enter" x-transition:enter-start="braintab-from"
            x-transition:enter-end="braintab-to">
-        <h3>Author's note</h3>
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-note"/></svg>Author's note</h3>
         <p class="note">
           A standing instruction, slipped into the conversation near the end so
           it stays in view. Use it to steer — <em>keep the pace slow</em>,
@@ -1633,7 +1729,7 @@
           chat's own.
         </p>
 
-        <h3>State</h3>
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-gauge"/></svg>State</h3>
         <div class="bands">
           <template x-for="b in bands" :key="b.variable">
             <div class="band" :class="{ moved: bandsMoved.includes(b.variable) }">
@@ -1645,8 +1741,8 @@
           <div class="provisional" x-show="stateProvisional">Provisional — auditor pending</div>
         </div>
 
-        <h3>Toggles</h3>
-        <template x-for="t in toggles" :key="t.id">
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-switch"/></svg>Toggles</h3>
+        <template x-for="t in visibleToggles()" :key="t.id">
           <div>
             <label class="toggle">
               <input type="checkbox" :checked="toggleStates[t.id]" @change="setToggle(t.id, $event.target.checked)">
@@ -1666,7 +1762,7 @@
           </div>
         </template>
 
-        <h3>Who is here</h3>
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-people"/></svg>Who is here</h3>
         <p class="note">
           Several characters can share one conversation. Muting keeps someone
           in the scene but silent — the others still know they are standing
@@ -1718,7 +1814,7 @@
           </select>
         </label>
 
-        <h3>Whose turn it is</h3>
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-cycle"/></svg>Whose turn it is</h3>
         <div class="preset-row">
           <template x-for="p in policies" :key="p.id">
             <button class="preset" :class="{ picked: policy === p.id }"
@@ -1727,7 +1823,7 @@
         </div>
         <p class="kind-note" x-text="policyNote()"></p>
 
-        <h3>Unplanned things</h3>
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-dice"/></svg>Unplanned things</h3>
         <p class="note">
           Occasionally the world does something on its own — a knock at the
           door, the rain starting, a stranger sitting down. It is invented in
@@ -1744,10 +1840,10 @@
                  aria-label="Chance of something happening each turn">
         </div>
 
-        <h3>Summary</h3>
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-list"/></svg>Summary</h3>
         <p class="summary" x-text="summary.text || 'Nothing summarised yet'"></p>
 
-        <h3>Debug</h3>
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-bug"/></svg>Debug</h3>
         <label class="toggle">
           <input type="checkbox" x-model="hud">
           <span>Pass HUD and cost</span>
@@ -1759,7 +1855,7 @@
         <div
            x-transition:enter="braintab-enter" x-transition:enter-start="braintab-from"
            x-transition:enter-end="braintab-to">
-        <h3>Languages</h3>
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-globe"/></svg>Languages</h3>
         <p class="note">
           Leave both blank unless you want translation. When they differ, every
           turn crosses twice: your message into theirs before the model sees
@@ -1780,7 +1876,7 @@
           costs more. A translation that fails leaves the original readable.
         </p>
 
-        <h3>Find and replace</h3>
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-search"/></svg>Find and replace</h3>
         <p class="note">
           Rules run in order, on every message. Scope decides what they touch —
           and only one of the three can be undone.
@@ -1906,17 +2002,6 @@
         </div>
       </div>
       </template>
-
-      <!-- Story options saves each field as it changes (saveNote(),
-           setToggle(), ...), the same as it did as its own panel — nothing
-           there belongs to `settings`, so this bar would ride along doing
-           nothing on that tab and offering a "Save" that saves nothing. -->
-      <div class="sheet-actions" x-show="brainTab !== 'story'">
-          <button class="wide primary" @click="saveSettings()" :disabled="saving">
-            <span x-text="saving ? 'Saving…' : 'Save'"></span>
-          </button>
-          <span class="save-msg" :class="{ bad: saveError }" x-text="saveError || saveMsg"></span>
-        </div>
       </div>
     </template>
 
@@ -1929,7 +2014,7 @@
          like everything else here. -->
     <template x-if="panel === 'settings'">
       <div>
-        <h3>Chat pacing</h3>
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-time"/></svg>Chat pacing</h3>
         <label class="toggle">
           <input type="checkbox" x-model="settings.realistic_chat_speed">
           <span>Realistic chat speed</span>
@@ -1946,12 +2031,29 @@
           already on screen, both of which stay instant.
         </p>
 
-        <div class="sheet-actions">
-          <button class="wide primary" @click="saveSettings()" :disabled="saving">
-            <span x-text="saving ? 'Saving…' : 'Save'"></span>
-          </button>
-          <span class="save-msg" :class="{ bad: saveError }" x-text="saveError || saveMsg"></span>
-        </div>
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-switch"/></svg>Features</h3>
+        <!-- Off by default because both need a service this app does not
+             ship (a search engine, a lip-sync renderer) — most installs will
+             never touch either. Off hides every scrap of UI for the
+             feature, not just what it does, so a panel does not carry
+             config sections for something nobody has set up. -->
+        <label class="toggle">
+          <input type="checkbox" x-model="settings.feature_web_search">
+          <span>Web search</span>
+        </label>
+        <p class="kind-note">
+          A backend the reply can ask before answering. Off hides its config
+          in Backends and its switch in Story options.
+        </p>
+        <label class="toggle">
+          <input type="checkbox" x-model="settings.feature_talking_avatar">
+          <span>Talking avatar</span>
+        </label>
+        <p class="kind-note">
+          A lip-synced clip over a character's portrait, from a service you
+          run yourself. Off hides its config in Backends and the switch for
+          it in every character's own editor.
+        </p>
       </div>
     </template>
 
@@ -1960,7 +2062,7 @@
       <div>
         <p class="note">Everything here previews live. Save keeps it.</p>
 
-        <h3>Backdrop</h3>
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-image"/></svg>Backdrop</h3>
         <!-- Pictures, not a dropdown of filenames: the thing being chosen is
              an image, and a name in a list says nothing about how it looks
              behind text. -->
@@ -1999,7 +2101,7 @@
           <p class="kind-note">Higher washes the image out further behind the text.</p>
         </div>
 
-        <h3>Glass</h3>
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-glass"/></svg>Glass</h3>
         <p class="note">
           Frosts every surface so the room stays visible through the interface.
           It layers over whichever palette you are using — it only changes how
@@ -2032,7 +2134,7 @@
           </div>
         </div>
 
-        <h3>Motion</h3>
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-motion"/></svg>Motion</h3>
         <div class="num-field">
           <div class="num-head">
             <span class="num-label">How much things move</span>
@@ -2050,7 +2152,7 @@
           </p>
         </div>
 
-        <h3>Colour</h3>
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-palette"/></svg>Colour</h3>
         <div class="preset-row">
           <template x-for="preset in themePresets()" :key="preset.id">
             <button class="preset" @click="applyPreset(preset)" :aria-label="preset.label">
@@ -2122,13 +2224,6 @@
         </div>
 
         <button class="wide" @click="resetTheme()">Reset appearance to defaults</button>
-
-        <div class="sheet-actions">
-          <button class="wide primary" @click="saveSettings()" :disabled="saving">
-            <span x-text="saving ? 'Saving…' : 'Save'"></span>
-          </button>
-          <span class="save-msg" :class="{ bad: saveError }" x-text="saveError || saveMsg"></span>
-        </div>
       </div>
     </template>
 
@@ -2139,6 +2234,7 @@
              panel with something in mind is almost always "which chat was
              that in". It searches what was said, not just the titles. -->
         <label class="col-field tight search-field">
+          <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-search"/></svg>
           <input type="search" x-model="chatQuery" @input="queueChatSearch()"
                  placeholder="Search chats and messages" aria-label="Search chats"
                  spellcheck="false">
@@ -2165,11 +2261,7 @@
           </div>
         </div>
 
-        <h3>Characters</h3>
-        <p class="note">
-          One row per character. Deleting a character deletes its chats with it —
-          that is why it asks twice.
-        </p>
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chats"/></svg>Characters</h3>
 
         <template x-for="c in characters" :key="c.id">
           <div class="char" :data-cid="c.id"
@@ -2331,16 +2423,11 @@
           </label>
         </div>
         <p class="kind-note" :class="{ bad: importError }" x-text="importError || importMsg"></p>
-        <p class="note">
-          Cards are the SillyTavern format — a <code>.json</code> or a
-          <code>.png</code> with the character inside it. Export writes one back
-          out that SillyTavern and the rest will read.
-        </p>
 
         <!-- Who you are, below the characters now rather than above them —
              the roster is what this panel is for; who is doing the talking is
              the shorter, less-often-changed list underneath it. -->
-        <h3>You</h3>
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-person"/></svg>You</h3>
         <p class="note" x-show="!personas.length">
           Nobody set up yet, so the character calls you "You". Add a persona and
           <code>{{user}}</code> becomes your name.
@@ -2393,16 +2480,14 @@
     <!-- ------------------------------------------------------- character -->
     <template x-if="panel === 'character'">
       <div>
-        <p class="note" x-show="draftCharacter.id">
-          Backgrounds, lorebook and state schema come from the card and are kept
-          as they are — editing here rewrites the picture and the text below.
-        </p>
-
-        <!-- The picture. A card that arrived with one keeps it until this
-             replaces it; a character written here had no way to have one at
-             all before, which made every conversation with one a column of
-             blank squares. -->
-        <div class="pfp-edit">
+        <!-- Identity first: the picture and the name are what make this a
+             specific someone rather than a blank card, so they lead rather
+             than sharing a row with a caption about where the rest of the
+             fields came from. A card that arrived with a picture keeps it
+             until this replaces it; a character written here had no way to
+             have one at all before, which made every conversation with one
+             a column of blank squares. -->
+        <div class="pfp-edit pfp-edit-hero">
           <span class="pfp-slot pfp-slot-large"
                 :class="'shape-' + (draftCharacter.pfp_shape || 'portrait')">
             <span class="pfp pfp-large pfp-blank" aria-hidden="true">
@@ -2415,15 +2500,26 @@
               <span class="pfp-glow" :style="pfpEffectStyle(draftCharacter.pfp_effect)" aria-hidden="true"></span>
             </template>
           </span>
-          <div class="pfp-edit-actions">
-            <label class="link file-link">
-              <span x-text="uploadingPfp ? 'Uploading…' : (draftPortrait() ? 'Replace picture' : 'Add a picture')"></span>
+          <!-- Two real buttons — a file picker and a modal launch, styled
+               the same as every other primary action in this app — where
+               this used to be a pair of underlined words next to the
+               picture. "Shown beside every one of their messages" is true
+               of every portrait in the app; it earned a line here once,
+               not a permanent one. -->
+          <div class="btn-row pfp-edit-buttons">
+            <label class="wide file-btn">
               <input type="file" accept="image/*" @change="uploadCharacterPfp($event)" hidden>
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-image"/></svg>
+              <span x-text="uploadingPfp ? 'Uploading…' : (draftPortrait() ? 'Replace picture' : 'Add a picture')"></span>
             </label>
-            <button class="link danger" x-show="draftPortrait()"
-                    @click="clearCharacterPfp()">Remove</button>
-            <span class="kind-note">Shown beside every one of their messages.</span>
+            <button class="wide" x-show="draftPortrait()" @click="openPfpEffect()">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-theme"/></svg>
+              <span>Picture effect</span>
+              <span class="p-count" x-show="pfpEffectActive()">on</span>
+            </button>
           </div>
+          <button class="link danger pfp-remove-link" x-show="draftPortrait()"
+                  @click="clearCharacterPfp()">Remove picture</button>
         </div>
 
         <!-- A card's other emotion sprites (happy/sad/angry/…) — read, not
@@ -2461,43 +2557,14 @@
           </div>
         </template>
 
-        <!-- A colour treatment over the picture, same "belongs to the
-             character" reasoning as the shape above (§models.PfpEffect) —
-             drawn on the preview here and everywhere else the picture is. -->
-        <button class="disclose" :class="{ open: pfpEffectOpen }"
-                x-show="draftPortrait()"
-                @click="pfpEffectOpen = !pfpEffectOpen" :aria-expanded="pfpEffectOpen">
-          <svg class="disclose-arrow" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-back"/></svg>
-          <span>Picture effect</span>
-          <span class="p-count" x-show="pfpEffectActive()">on</span>
-        </button>
-        <div class="fold" :class="{ open: pfpEffectOpen }">
-          <div class="fold-clip">
-            <div class="preset-row">
-              <template x-for="p in pfpEffectPresets()" :key="p.id">
-                <button class="preset" :class="{ picked: (draftCharacter.pfp_effect || {}).preset === p.id }"
-                        @click="applyPfpPreset(p)" x-text="p.label"></button>
-              </template>
-            </div>
-            <template x-for="f in pfpEffectFields()" :key="f.key">
-              <div class="num-field">
-                <div class="num-head">
-                  <span class="num-label" x-text="f.label"></span>
-                  <span class="num-unit" x-text="pfpFieldValue(f)"></span>
-                </div>
-                <input class="num-slider" type="range" :min="f.min" :max="f.max" :step="f.step"
-                       :value="(draftCharacter.pfp_effect || {})[f.key] ?? f.default"
-                       @input="tunePfpEffect(f.key, $event.target.value)"
-                       :aria-label="f.label">
-              </div>
-            </template>
-            <button class="link" @click="applyPfpPreset(pfpEffectPresets()[0])"
-                    x-show="pfpEffectActive()">Back to none</button>
-          </div>
-        </div>
-
         <label class="row col-row"><span class="row-label wide-label">Name</span>
           <input x-model="draftCharacter.name" placeholder="Name"></label>
+
+        <!-- The story itself, grouped as one section — everything here is
+             what someone opens this editor to actually write, read in the
+             order a person reads a character sheet: who they are, how a
+             chat with them starts, the scene, how they talk. -->
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-edit"/></svg>Writing</h3>
         <label class="col-field"><span class="row-label wide-label">Persona</span>
           <textarea x-model="draftCharacter.persona" rows="6"
                     placeholder="Who they are, how they speak, what they want."></textarea></label>
@@ -2517,52 +2584,35 @@
         <label class="col-field"><span class="row-label wide-label">Example dialogue</span>
           <textarea x-model="draftCharacter.example_dialogue" rows="4"
                     placeholder="A short exchange showing their voice."></textarea></label>
-        <label class="col-field"><span class="row-label wide-label">System prompt</span>
-          <textarea x-model="draftCharacter.system_prompt" rows="3"
-                    placeholder="Extra instructions, prepended to every reply pass."></textarea></label>
-        <label class="col-field">
-          <span class="row-label wide-label">Stop at</span>
-          <textarea x-model="stopStrings" rows="2"
-                    placeholder="One per line. Sequences that end this character's replies."></textarea>
-        </label>
-        <label class="col-field">
-          <span class="row-label wide-label">Final instruction</span>
-          <textarea x-model="draftCharacter.post_history_instructions" rows="3"
-                    placeholder="Read after the conversation, so it wins over anything the scene has drifted into."></textarea>
-        </label>
 
         <!-- Three lines the story never asks for but the app needs — written
              once by whichever backend runs Messages (§ character_reactions.py)
              the first time this card is imported or talked to, and left alone
-             from then on. Editable here like everything else; an edit counts
-             as "already has one" the same as a generated line does. -->
-        <h3>Reactions</h3>
-        <p class="note" x-show="draftCharacter.id && missingReactions().length">
-          Still filling in: <span x-text="missingReactions().join(', ')"></span> —
-          it finishes the first time this character is talked to.
-        </p>
-        <label class="col-field" x-show="draftCharacter.reactions">
-          <span class="row-label wide-label">Starred</span>
-          <textarea x-model="draftCharacter.reactions.starred" rows="2"
-                    placeholder="How they'd take being marked a favourite. 5–8 words."></textarea>
-        </label>
-        <label class="col-field" x-show="draftCharacter.reactions">
-          <span class="row-label wide-label">Unstarred</span>
-          <textarea x-model="draftCharacter.reactions.unstarred" rows="2"
-                    placeholder="How they'd take being un-favourited. 5–8 words."></textarea>
-        </label>
-        <label class="col-field" x-show="draftCharacter.reactions">
-          <span class="row-label wide-label">Killed</span>
-          <textarea x-model="draftCharacter.reactions.killed" rows="2"
-                    placeholder="Their very last line, if this character is ever deleted. 5–8 words."></textarea>
-        </label>
+             from then on. Editable like everything else, but behind an
+             explicit open rather than sitting in the editor by default:
+             generated text nobody asked to read yet is a spoiler the moment
+             it is on screen, and opening this editor just to rename someone
+             used to hand you all three unasked. -->
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-heart"/></svg>Reactions</h3>
+        <button class="wide" @click="reactionsOpen = true">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-heart"/></svg>
+          <span>Edit reactions</span>
+          <span class="p-count" x-show="draftCharacter.id && missingReactions().length"
+                x-text="missingReactions().length + ' pending'"></span>
+        </button>
 
         <!-- A lip-synced clip over the portrait after each reply, from a
              service run outside this app (AVATAR-VIDEO-CONTRACT.md) — off
              until both that service is pointed at in Settings and this
              switch is on; either missing falls back to the ordinary
-             portrait with nothing shown here or in the chat. -->
-        <h3>Talking avatar</h3>
+             portrait with nothing shown here or in the chat. The whole
+             section is hidden below the feature's own master switch in
+             Brain → Settings — a per-character control for a service
+             nobody turned on is not a decision this editor should be
+             offering. -->
+        <template x-if="settings.feature_talking_avatar">
+        <div>
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-avatar-video"/></svg>Talking avatar</h3>
         <p class="note">
           A short clip plays over the portrait after each of this
           character's replies, rendered by a service you run yourself.
@@ -2593,13 +2643,130 @@
             </label>
           </div>
         </div>
-
-        <div class="sheet-actions">
-          <button class="wide primary" @click="saveCharacter()" :disabled="savingCharacter">
-            <span x-text="savingCharacter ? 'Saving…' : 'Save character'"></span>
-          </button>
-          <span class="save-msg" :class="{ bad: charError }" x-text="charError || charMsg"></span>
         </div>
+        </template>
+
+        <!-- The fields an edit almost never touches — read once, prepended
+             or appended verbatim to every reply pass, and mostly left blank.
+             Folded away by default rather than sitting between "Example
+             dialogue" and the Save button, where three technical boxes read
+             as more of the editor than they actually are for most cards. -->
+        <button class="disclose" :class="{ open: advancedCharOpen }"
+                @click="advancedCharOpen = !advancedCharOpen" :aria-expanded="advancedCharOpen">
+          <svg class="disclose-arrow" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-back"/></svg>
+          <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-advanced"/></svg>
+          <span>Advanced</span>
+        </button>
+        <div class="fold" :class="{ open: advancedCharOpen }">
+          <div class="fold-clip">
+            <label class="col-field"><span class="row-label wide-label">System prompt</span>
+              <textarea x-model="draftCharacter.system_prompt" rows="3"
+                        placeholder="Extra instructions, prepended to every reply pass."></textarea></label>
+            <label class="col-field">
+              <span class="row-label wide-label">Stop at</span>
+              <textarea x-model="stopStrings" rows="2"
+                        placeholder="One per line. Sequences that end this character's replies."></textarea>
+            </label>
+            <label class="col-field">
+              <span class="row-label wide-label">Final instruction</span>
+              <textarea x-model="draftCharacter.post_history_instructions" rows="3"
+                        placeholder="Read after the conversation, so it wins over anything the scene has drifted into."></textarea>
+            </label>
+          </div>
+        </div>
+
+    <!-- Picture effect, chosen full-screen rather than in a fold — a ring a
+         few pixels wide has to be judged at the size it is actually seen at,
+         not 72px in an editor. Grows out of the identity block's own small
+         preview on open (§ pfpEffectGrown in app.js) so it reads as the
+         same picture, not a second one appearing from nowhere. -->
+    <div class="sheet-modal" x-show="pfpEffectOpen" x-cloak
+         @keydown.escape.window="closePfpEffect()"
+         x-transition:enter="sheet-modal-enter" x-transition:enter-start="sheet-modal-from"
+         x-transition:enter-end="sheet-modal-to"
+         x-transition:leave="sheet-modal-leave" x-transition:leave-start="sheet-modal-to"
+         x-transition:leave-end="sheet-modal-from">
+      <div class="sheet-modal-card" @click.stop>
+        <div class="crop-head">
+          <span class="sheet-modal-title">Picture effect</span>
+        </div>
+        <div class="pfp-effect-preview">
+          <span class="pfp-slot pfp-effect-preview-slot"
+                :class="'shape-' + (draftCharacter.pfp_shape || 'portrait') + (pfpEffectGrown ? ' grown' : '')">
+            <span class="pfp pfp-large pfp-blank" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
+            </span>
+            <template x-if="draftPortrait()">
+              <img class="pfp pfp-large pfp-over" :src="draftPortrait()" alt="">
+            </template>
+            <template x-if="pfpEffectActive()">
+              <span class="pfp-glow" :style="pfpEffectStyle(draftCharacter.pfp_effect)" aria-hidden="true"></span>
+            </template>
+          </span>
+        </div>
+        <div class="preset-row">
+          <template x-for="p in pfpEffectPresets()" :key="p.id">
+            <button class="preset" :class="{ picked: (draftCharacter.pfp_effect || {}).preset === p.id }"
+                    @click="applyPfpPreset(p)" x-text="p.label"></button>
+          </template>
+        </div>
+        <template x-for="f in pfpEffectFields()" :key="f.key">
+          <div class="num-field">
+            <div class="num-head">
+              <span class="num-label" x-text="f.label"></span>
+              <span class="num-unit" x-text="pfpFieldValue(f)"></span>
+            </div>
+            <input class="num-slider" type="range" :min="f.min" :max="f.max" :step="f.step"
+                   :value="(draftCharacter.pfp_effect || {})[f.key] ?? f.default"
+                   @input="tunePfpEffect(f.key, $event.target.value)"
+                   :aria-label="f.label">
+          </div>
+        </template>
+        <button class="link" @click="applyPfpPreset(pfpEffectPresets()[0])"
+                x-show="pfpEffectActive()">Back to none</button>
+        <div class="btn-row crop-actions">
+          <button class="wide primary" @click="closePfpEffect()">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Reactions, the same way — full-screen and behind an explicit open,
+         so opening the character editor for any other reason never shows
+         generated text meant to surprise the player later. -->
+    <div class="sheet-modal" x-show="reactionsOpen" x-cloak
+         @keydown.escape.window="reactionsOpen = false"
+         x-transition:enter="sheet-modal-enter" x-transition:enter-start="sheet-modal-from"
+         x-transition:enter-end="sheet-modal-to"
+         x-transition:leave="sheet-modal-leave" x-transition:leave-start="sheet-modal-to"
+         x-transition:leave-end="sheet-modal-from">
+      <div class="sheet-modal-card" @click.stop>
+        <div class="crop-head">
+          <span class="sheet-modal-title">Reactions</span>
+        </div>
+        <p class="note" x-show="draftCharacter.id && missingReactions().length">
+          Still filling in: <span x-text="missingReactions().join(', ')"></span> —
+          it finishes the first time this character is talked to.
+        </p>
+        <label class="col-field" x-show="draftCharacter.reactions">
+          <span class="row-label wide-label">Starred</span>
+          <textarea x-model="draftCharacter.reactions.starred" rows="2"
+                    placeholder="How they'd take being marked a favourite. 5–8 words."></textarea>
+        </label>
+        <label class="col-field" x-show="draftCharacter.reactions">
+          <span class="row-label wide-label">Unstarred</span>
+          <textarea x-model="draftCharacter.reactions.unstarred" rows="2"
+                    placeholder="How they'd take being un-favourited. 5–8 words."></textarea>
+        </label>
+        <label class="col-field" x-show="draftCharacter.reactions">
+          <span class="row-label wide-label">Killed</span>
+          <textarea x-model="draftCharacter.reactions.killed" rows="2"
+                    placeholder="Their very last line, if this character is ever deleted. 5–8 words."></textarea>
+        </label>
+        <div class="btn-row crop-actions">
+          <button class="wide primary" @click="reactionsOpen = false">Done</button>
+        </div>
+      </div>
+    </div>
       </div>
     </template>
 
@@ -2638,13 +2805,6 @@
           <input type="checkbox" x-model="draftPersona.is_default">
           <span>Use this persona for new chats</span>
         </label>
-
-        <div class="sheet-actions">
-          <button class="wide primary" @click="savePersona()" :disabled="savingPersona">
-            <span x-text="savingPersona ? 'Saving…' : 'Save persona'"></span>
-          </button>
-          <span class="save-msg" :class="{ bad: personaError }" x-text="personaError || personaMsg"></span>
-        </div>
       </div>
     </template>
 
@@ -2726,7 +2886,48 @@
     </template>
 
   </div>
+
+  <!-- One Save bar, pinned under the scrolling body rather than riding along
+       inside it, so it never has to be found by scrolling and every panel
+       that can go dirty (§ panelDirty) gets it without five copies of the
+       same three lines. Null on panels with nothing to save this way — Story
+       options saves per field as you type, and browsing panels have no
+       draft at all. -->
+  <template x-if="activeSaveAction()">
+    <div class="sheet-actions">
+      <button class="wide primary" @click="activeSaveAction().save()" :disabled="activeSaveAction().saving">
+        <span x-text="activeSaveAction().saving ? 'Saving…' : 'Save'"></span>
+      </button>
+      <span class="save-msg" :class="{ bad: activeSaveAction().error }"
+            x-text="activeSaveAction().error || activeSaveAction().msg"></span>
+    </div>
+  </template>
 </section>
+
+<!-- Asked once, wherever closing/switching/going back would drop an edit
+     (§ runOrGuard in app.js) — Brain, Theme, Settings share this because
+     they share the object being edited, and the character and persona
+     editors both go through the same back arrow this also covers. No
+     native confirm(): nothing else in this app ever hands the browser a
+     dialog to draw, and a system alert here would be the one moment the
+     whole thing stopped looking like itself. -->
+<div class="sheet-modal" x-show="confirmDiscardOpen" x-cloak
+     @keydown.escape.window="cancelDiscard()"
+     x-transition:enter="sheet-modal-enter" x-transition:enter-start="sheet-modal-from"
+     x-transition:enter-end="sheet-modal-to"
+     x-transition:leave="sheet-modal-leave" x-transition:leave-start="sheet-modal-to"
+     x-transition:leave-end="sheet-modal-from">
+  <div class="sheet-modal-card" @click.stop>
+    <div class="crop-head">
+      <span class="sheet-modal-title">Discard changes?</span>
+    </div>
+    <p class="note">What you've changed here hasn't been saved yet.</p>
+    <div class="btn-row crop-actions">
+      <button class="wide" @click="cancelDiscard()">Keep editing</button>
+      <button class="wide primary danger" @click="discardAndProceed()">Discard</button>
+    </div>
+  </div>
+</div>
 
 <script src="/static/markup.js"></script>
 <script src="/static/app.js"></script>

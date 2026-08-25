@@ -389,6 +389,18 @@ class Settings:
     # where per-device state would make sense.
     realistic_chat_speed: bool = True
 
+    # Whole-feature switches (Brain → Settings), off by default — both need a
+    # service the app itself does not ship (a search engine, a lip-sync
+    # renderer), so most installs will never touch either. Off hides every
+    # bit of UI for the feature, not just what it does: the Backends-tab
+    # config section, the character-editor toggle for a talking avatar, the
+    # Story-options fold for web search — all of it, rather than leaving a
+    # feature nobody configured cluttering panels for people who never asked
+    # for it. Turning one back on does not clear whatever was already
+    # configured underneath it; only what is shown changes.
+    feature_web_search: bool = False
+    feature_talking_avatar: bool = False
+
     # Which prompt sections are built and in what order inside each band (§14).
     # Empty means "the defaults", so a settings file written before this existed
     # keeps working and every section arrives switched on.
@@ -699,6 +711,12 @@ def build_settings(payload: dict[str, Any], current: Settings) -> Settings:
     )
     settings.realistic_chat_speed = bool(
         payload.get("realistic_chat_speed", current.realistic_chat_speed)
+    )
+    settings.feature_web_search = bool(
+        payload.get("feature_web_search", current.feature_web_search)
+    )
+    settings.feature_talking_avatar = bool(
+        payload.get("feature_talking_avatar", current.feature_talking_avatar)
     )
     settings.theme = (
         validate_theme(payload["theme"]) if "theme" in payload else dict(current.theme)

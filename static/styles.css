@@ -869,6 +869,52 @@ body {
 .crop-note { margin: 0; }
 .crop-actions { margin-top: 2px; }
 
+/* The same bottom-sheet shape as .crop-layer and .pfp-full-layer above, each
+   of which grew its own copy before there was a third and fourth use
+   (picture effect, reactions) to justify pulling it out into one. */
+.sheet-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: color-mix(in srgb, #000 62%, transparent);
+}
+.sheet-modal-enter { transition: opacity var(--dur-base) var(--ease-in-out); }
+.sheet-modal-leave { transition: opacity var(--dur-panel-leave) var(--ease-in-out); }
+.sheet-modal-from { opacity: 0; }
+.sheet-modal-to { opacity: 1; }
+.sheet-modal-from .sheet-modal-card { transform: translateY(14px) scale(.98); }
+.sheet-modal-to .sheet-modal-card { transform: none; }
+.sheet-modal-card {
+  width: 100%;
+  max-width: 520px;
+  max-height: 92vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
+  /* --panel, not --surface, same reasoning as .crop-sheet above: this is
+     precise or private work, and the editor showing through behind it
+     lands on top of the thing being looked at. */
+  background: var(--panel);
+  border-top-left-radius: 18px;
+  border-top-right-radius: 18px;
+  border-top: 1px solid var(--line);
+  transition: transform var(--dur-base) var(--ease-in-out);
+}
+.sheet-modal-title { font-weight: 600; }
+
+/* The picture-effect preview grows into this size from the identity
+   block's own small one the instant the modal is open (§ pfpEffectGrown in
+   app.js) — inherits .pfp-slot's own width/height transition, so setting
+   --pfp-w here is what animates it rather than a second transition rule. */
+.pfp-effect-preview { display: flex; justify-content: center; padding: 6px 0 2px; }
+.pfp-effect-preview-slot { --pfp-w: 72px; }
+.pfp-effect-preview-slot.grown { --pfp-w: 168px; }
+
 .crop-stage {
   position: relative;
   display: flex;
@@ -1102,11 +1148,19 @@ body {
   background: var(--error);
 }
 
-/* The editor's copy, big enough to see what you chose. */
+/* The editor's copy, big enough to see what you chose. Centred in its own
+   column now rather than sat beside a stack of text links (§ pfp-edit-hero
+   below) — the picture and the name are what makes this a specific someone
+   rather than a blank card, so they lead the whole editor rather than
+   sharing a row with "Shown beside every one of their messages". */
 .pfp-edit { display: flex; gap: 12px; align-items: center; margin: 4px 0 12px; }
+.pfp-edit-hero { flex-direction: column; align-items: center; text-align: center; gap: 10px; }
+.pfp-slot-large { --pfp-w: 100px; }
 .pfp-large { border-radius: 12px; }
-.pfp-large.pfp-blank svg { width: 34px; height: 34px; }
+.pfp-large.pfp-blank svg { width: 40px; height: 40px; }
 .pfp-edit-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.pfp-edit-buttons { width: 100%; }
+.pfp-remove-link { margin: -4px 0 4px; }
 /* A file input is unstyleable, so the label is the button and the input hides
    behind it. */
 .file-link { cursor: pointer; }
@@ -1726,9 +1780,12 @@ body {
   padding: 12px 12px calc(20px + var(--safe-bottom));
 }
 .sheet-body h3 {
-  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
   text-transform: uppercase;
-  letter-spacing: .08em;
+  letter-spacing: .07em;
   color: var(--muted);
   margin: 18px 0 8px;
 }
@@ -1838,14 +1895,26 @@ body {
 .test-result.bad { color: var(--error); }
 .link.danger { color: var(--error); }
 
+/* Sits below .sheet-body as its sibling in the same flex column, so it pins
+   itself to the bottom edge of the sheet for free — .sheet-body already
+   takes all the leftover space (flex: 1) and scrolls internally, leaving
+   this row exactly as tall as its content and never pushed off-screen. */
 .sheet-actions {
-  margin-top: 16px;
+  flex: none;
   display: flex;
   flex-direction: column;
   gap: 8px;
   align-items: center;
+  padding: 10px 12px calc(10px + var(--safe-bottom));
+  border-top: 1px solid var(--line);
+  background: var(--surface);
 }
 .wide.primary { background: var(--accent); color: var(--on-accent); border-color: transparent; font-weight: 600; }
+/* The one real button in the app whose main action is destructive rather
+   than a confirmation of one already armed by a hold (§ every delete
+   elsewhere) — "Discard" on the unsaved-changes sheet needs to read as the
+   dangerous option the instant it appears, not after a second tap. */
+.wide.primary.danger { background: var(--error); }
 .wide {
   width: 100%;
   background: var(--panel-2);
@@ -3014,15 +3083,28 @@ input.mono {
 .body.lensed { border-left: 2px solid var(--line); padding-left: 8px; }
 
 /* ---- chat management (§10) ---------------------------------------------- */
-.search-field { margin-bottom: 10px; }
+/* Same box every other field in this app draws — panel-2 fill, 8px corners,
+   the line/accent border pair — rather than the plain-web full-pill search
+   box it used to borrow, which was the one input in the app not drawn from
+   this set. The glass icon sits inside the field itself, left of the text,
+   the position a search box's own icon has had since long before this app
+   existed. */
+.search-field { position: relative; margin-bottom: 10px; }
+.search-field .icon-sm {
+  position: absolute;
+  left: 13px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
 .search-field input {
   width: 100%;
-  padding: 11px 14px;
+  padding: 11px 14px 11px 36px;
   min-height: 44px;
   background: var(--panel-2);
   color: var(--text);
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 8px;
   transition: border-color 200ms var(--ease-out);
 }
 .search-field input:focus { border-color: var(--accent); outline: none; }

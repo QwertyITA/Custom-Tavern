@@ -508,6 +508,19 @@ function tavern() {
     // the sheet would slide away empty.
     panel: "",
     panelOpen: false,
+    // The confirm sheet for leaving a dirty panel (§ runOrGuard), and the
+    // navigation it is holding open pending an answer. The three snapshots
+    // below start at "" rather than matching whatever loads first by
+    // accident: a real settings/character/persona object JSON.stringifies to
+    // something that can never equal "", so panelDirty() reads as dirty
+    // until the panel that owns each one has actually loaded once and taken
+    // its own snapshot — never the wrong way around, where a coincidental
+    // match waves through a real unsaved edit.
+    confirmDiscardOpen: false,
+    _pendingPanelAction: null,
+    _settingsSnapshot: "",
+    _characterSnapshot: "",
+    _personaSnapshot: "",
     // Which of Brain's four categories is showing. Persists across closing
     // and reopening the panel — the same way openBackend/openTier already do
     // for what is folded open within one — rather than resetting to the
@@ -609,6 +622,18 @@ function tavern() {
     uploadingAvatarIdle: false,
     // Right at its default until it is not, same as the Advanced fold below.
     pfpEffectOpen: false,
+    // Starts false on every open, flips true one frame later so the preview
+    // has a "from" size already painted to grow out of — see openPfpEffect.
+    pfpEffectGrown: false,
+    // The system prompt / stop strings / final instruction — technical
+    // fields most edits never touch, folded away by default same as
+    // showAdvancedBrain below.
+    advancedCharOpen: false,
+    // Reactions are generated text a player is not meant to read ahead of
+    // triggering them — folded behind an explicit open instead of sitting in
+    // the editor by default, which showed them to anyone who so much as
+    // opened the character to change its name.
+    reactionsOpen: false,
     confirmPersona: "",
     savingCharacter: false,
     charMsg: "",
@@ -1079,6 +1104,10 @@ function tavern() {
     // the icon row has done its job and the world line can come back up.
     async openPanel(name) {
       if (this.panelOpen && this.panel === name) return this.closePanel();
+      await this.runOrGuard(() => this._openPanelNow(name));
+    },
+
+    async _openPanelNow(name) {
       this.panel = name;
       this.panelOpen = true;
       this.saveMsg = "";
@@ -1134,12 +1163,105 @@ function tavern() {
     },
 
     closePanel() {
+      this.runOrGuard(() => this._closePanelNow());
+    },
+
+    _closePanelNow() {
       this.panelOpen = false;
       this.confirmChar = "";
       this.confirmChat = "";
       // Drop the body only once the sheet has finished leaving, and only if
       // nothing has been opened in the meantime.
       setTimeout(() => { if (!this.panelOpen) this.panel = ""; }, PANEL_LEAVE_MS());
+    },
+
+    // Character and persona editors have their own back arrow straight to
+    // the roster, separate from the sheet's own ✕ — same guard either way,
+    // since both leave whichever editor is open.
+    backToRoster() {
+      this.runOrGuard(() => { this.panel = "chats"; });
+    },
+
+    // ---- unsaved-changes guard (§ "ask if someone exits without saving") --
+    //
+    // One deep-equality snapshot per editable destination, taken the moment
+    // its data is freshly loaded or created and refreshed the moment it
+    // actually saves (§ snapshotSettings, snapshotCharacter, snapshotPersona
+    // and their call sites). Simpler than threading a dirty flag through
+    // every field across three different editors, and exact: JSON.stringify
+    // has nothing to get wrong on plain data with no functions or Dates in
+    // it, which is all any of these three ever hold.
+    panelDirty() {
+      if (this.panel === "brain" || this.panel === "theme" || this.panel === "settings") {
+        return JSON.stringify(this.settings) !== this._settingsSnapshot;
+      }
+      if (this.panel === "character") {
+        return JSON.stringify([this.draftCharacter, this.altGreetings, this.stopStrings])
+          !== this._characterSnapshot;
+      }
+      if (this.panel === "persona") {
+        return JSON.stringify(this.draftPersona) !== this._personaSnapshot;
+      }
+      return false;
+    },
+
+    snapshotSettings() {
+      this._settingsSnapshot = JSON.stringify(this.settings);
+    },
+
+    snapshotCharacter() {
+      this._characterSnapshot = JSON.stringify([this.draftCharacter, this.altGreetings, this.stopStrings]);
+    },
+
+    snapshotPersona() {
+      this._personaSnapshot = JSON.stringify(this.draftPersona);
+    },
+
+    // The one place all three things that try to move away from a dirty
+    // panel actually go through — closing it (closePanel), switching to a
+    // sibling settings tab that would otherwise silently re-fetch out from
+    // under an unsaved edit (openPanel), and the character/persona editor's
+    // own back arrow (backToRoster). Runs `action` outright when there is
+    // nothing to lose; otherwise holds it until the confirm sheet answers.
+    async runOrGuard(action) {
+      if (this.panelOpen && this.panelDirty()) {
+        this._pendingPanelAction = action;
+        this.confirmDiscardOpen = true;
+        return;
+      }
+      await action();
+    },
+
+    async discardAndProceed() {
+      this.confirmDiscardOpen = false;
+      const action = this._pendingPanelAction;
+      this._pendingPanelAction = null;
+      if (action) await action();
+    },
+
+    cancelDiscard() {
+      this.confirmDiscardOpen = false;
+      this._pendingPanelAction = null;
+    },
+
+    // Drives the one Save bar pinned to the bottom of the sheet (§ index.html,
+    // ".sheet-actions-pinned"), so every panel that can be dirty gets an
+    // always-visible Save without five copies of the same markup. Null means
+    // "no bar here" — either nothing in this panel is saved this way (Story
+    // options save per field as you type) or the panel itself has nothing to
+    // save (browsing chats, "What was sent", ...).
+    activeSaveAction() {
+      if (this.panel === "brain" && this.brainTab === "story") return null;
+      if (this.panel === "brain" || this.panel === "theme" || this.panel === "settings") {
+        return { save: () => this.saveSettings(), saving: this.saving, msg: this.saveMsg, error: this.saveError };
+      }
+      if (this.panel === "character") {
+        return { save: () => this.saveCharacter(), saving: this.savingCharacter, msg: this.charMsg, error: this.charError };
+      }
+      if (this.panel === "persona") {
+        return { save: () => this.savePersona(), saving: this.savingPersona, msg: this.personaMsg, error: this.personaError };
+      }
+      return null;
     },
 
     panelTitle() {
@@ -1638,6 +1760,7 @@ function tavern() {
       this.personaMsg = "";
       this.personaError = "";
       this.panel = "persona";
+      this.snapshotPersona();
     },
 
     editPersona(persona) {
@@ -1645,6 +1768,7 @@ function tavern() {
       this.personaMsg = "";
       this.personaError = "";
       this.panel = "persona";
+      this.snapshotPersona();
     },
 
     async savePersona() {
@@ -1663,6 +1787,7 @@ function tavern() {
           ? await api.put(`/api/personas/${draft.id}`, body)
           : await api.post("/api/personas", body);
         this.draftPersona = { ...saved, is_default: !!saved.is_default };
+        this.snapshotPersona();
         await this.loadPersonas();
         // The one in use may be the one just renamed.
         if (this.chatId) await this.refreshPersona();
@@ -2000,6 +2125,23 @@ function tavern() {
 
     pfpEffectActive() {
       return pfpEffectOn(this.draftCharacter.pfp_effect);
+    },
+
+    // A full-screen preview to choose a ring colour at, rather than the fold
+    // it used to be — a treatment that shows as a few pixels around a 34px
+    // face has to be judged bigger than that to be judged at all. Opens
+    // small and grows into place (§ pfpEffectGrown, .pfp-effect-preview-slot
+    // in the stylesheet) so the picture reads as the same one from the
+    // identity block above, not a second one appearing from nowhere.
+    openPfpEffect() {
+      this.pfpEffectGrown = false;
+      this.pfpEffectOpen = true;
+      this.$nextTick(() => requestAnimationFrame(() => { this.pfpEffectGrown = true; }));
+    },
+
+    closePfpEffect() {
+      this.pfpEffectOpen = false;
+      this.pfpEffectGrown = false;
     },
 
     // ---- reactions (§models.CharacterReactions) ----
@@ -2816,12 +2958,16 @@ function tavern() {
         this.altGreetings = (this.draftCharacter.alternate_greetings || []).join("\n\n");
         this.stopStrings = (this.draftCharacter.stop_strings || []).join("\n");
         this.pfpEffectOpen = false;
+        this.pfpEffectGrown = false;
+        this.advancedCharOpen = false;
+        this.reactionsOpen = false;
         this.panel = "character";
         // Usually reached from the chats panel, where the sheet is already up
         // — but not from the first-run empty state, which is on the chat screen
         // with nothing open. Setting the panel without opening it left that
         // path creating a character and then appearing to do nothing.
         this.panelOpen = true;
+        this.snapshotCharacter();
       } catch (e) {
         this.error = errorText(e);
       }
@@ -2857,6 +3003,7 @@ function tavern() {
         // the name off that — without this the title keeps the old name until
         // the chat is reopened.
         if (this.character && this.character.id === saved.id) this.character = saved;
+        this.snapshotCharacter();
         this.charMsg = "saved";
       } catch (e) {
         this.charError = errorText(e);
@@ -4657,6 +4804,17 @@ function tavern() {
       await api.post(`/api/toggles/${id}`, { enabled, scope: "per_chat", scope_id: this.chatId });
     },
 
+    // The built-in `web_search` toggle, hidden along with everything else
+    // Web search owns (§ Brain → Settings, "Features") when the feature
+    // itself is off — a switch for a service nobody configured, sitting
+    // beside toggles that actually do something, is exactly the clutter
+    // that master switch exists to hide. A custom toggle a person made
+    // themselves is never filtered here, whatever it happens to be called.
+    visibleToggles() {
+      if (this.settings.feature_web_search) return this.toggles;
+      return this.toggles.filter((t) => t.id !== "web_search");
+    },
+
     // ---- settings (§13) ----
     //
     // The server sends "***" for any key it holds and never the real value.
@@ -4688,6 +4846,7 @@ function tavern() {
       this.modelErrors = {};
       this.settings = softenMasks(await api.get("/api/settings"));
       this.applyTheme();
+      this.snapshotSettings();
     },
 
     // The numbers behind the reply. Two groups on purpose: `basic` is what
@@ -5036,6 +5195,7 @@ function tavern() {
         result.settings.backends.forEach((b) => { if (b.api_key === "***") b.api_key = MASK_DISPLAY; });
         this.settings = { ...this.settings, ...result.settings };
         this.applyTheme();
+        this.snapshotSettings();
         this.saveMsg = "saved";
       } catch (e) {
         this.saveError = errorText(e);
