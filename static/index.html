@@ -339,6 +339,25 @@
   <div class="menu-wrap" :class="{ open: menu }" id="main-menu">
     <div class="menu-clip">
       <nav class="menu-row">
+        <!-- "Roster" rather than the panel's own full title ("Characters &
+             chats") on the button itself, same shorthand relationship as
+             "Model & engine" → "Brain" below — a fifth item in this row
+             narrowed each button's share of it enough that "Characters"
+             (no natural break point) wrapped mid-word instead of fitting. -->
+        <button class="menu-btn" :class="{ on: panelOpen && panel === 'chats' }" @click="openPanel('chats')"
+                aria-label="Characters and chats" title="Characters and chats">
+          <svg class="menu-glyph" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chats"/></svg>
+          <span class="menu-label">Roster</span>
+        </button>
+        <!-- Its own destination now rather than Brain's third tab (§ app.js
+             _openPanelNow) — this is the one thing here that changes with
+             the story instead of the app, so it earns a place next to
+             Characters rather than living inside the config panels. -->
+        <button class="menu-btn" :class="{ on: panelOpen && panel === 'story' }" @click="openPanel('story')"
+                aria-label="Story state" title="Story state">
+          <svg class="menu-glyph" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-story"/></svg>
+          <span class="menu-label">Story</span>
+        </button>
         <button class="menu-btn" :class="{ on: panelOpen && panel === 'brain' }" @click="openPanel('brain')"
                 aria-label="Model and engine" title="Model and engine">
           <svg class="menu-glyph" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-brain"/></svg>
@@ -348,11 +367,6 @@
                 aria-label="Appearance" title="Appearance">
           <svg class="menu-glyph" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-theme"/></svg>
           <span class="menu-label">Theme</span>
-        </button>
-        <button class="menu-btn" :class="{ on: panelOpen && panel === 'chats' }" @click="openPanel('chats')"
-                aria-label="Characters and chats" title="Characters and chats">
-          <svg class="menu-glyph" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chats"/></svg>
-          <span class="menu-label">Characters</span>
         </button>
         <button class="menu-btn" :class="{ on: panelOpen && panel === 'settings' }" @click="openPanel('settings')"
                 aria-label="Settings" title="Settings">
@@ -1054,10 +1068,17 @@
     <!-- ----------------------------------------------------------- brain -->
     <template x-if="panel === 'brain'">
       <div>
-        <!-- Four categories, chosen up top rather than scrolled past — the
+        <!-- Five categories, chosen up top rather than scrolled past — the
              ribbon-bar idea, at a scale that fits a phone: an icon and a
              one-word label each, the same shape the header's own menu row
-             already uses so this reads as more of that, not a new pattern. -->
+             already uses so this reads as more of that, not a new pattern.
+             Each tab is single-purpose now: Backends only connects to a
+             model, Connect only turns on the two optional services, Passes
+             only decides what runs and when, Prompt only decides what
+             reaches the model, Advanced is everything correct at its
+             default. Story used to be the fifth of these; it left for its
+             own place in the header menu (§ menu-row above) since it is the
+             one tab here that changes with the story rather than the app. -->
         <div class="brain-tabs" role="tablist" aria-label="Brain settings">
           <button class="menu-btn brain-tab" :class="{ on: brainTab === 'backends' }"
                   @click="brainTab = 'backends'" role="tab"
@@ -1065,6 +1086,13 @@
                   aria-label="Backends" title="Backends">
             <svg class="menu-glyph" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-backend"/></svg>
             <span class="menu-label">Backends</span>
+          </button>
+          <button class="menu-btn brain-tab" :class="{ on: brainTab === 'integrations' }"
+                  @click="brainTab = 'integrations'" role="tab"
+                  :aria-selected="brainTab === 'integrations'"
+                  aria-label="Connect" title="Connect">
+            <svg class="menu-glyph" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-switch"/></svg>
+            <span class="menu-label">Connect</span>
           </button>
           <!-- Battle-pass joke, drawn as an actual ticket. -->
           <button class="menu-btn brain-tab" :class="{ on: brainTab === 'passes' }"
@@ -1074,12 +1102,12 @@
             <svg class="menu-glyph" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-ticket"/></svg>
             <span class="menu-label">Passes</span>
           </button>
-          <button class="menu-btn brain-tab" :class="{ on: brainTab === 'story' }"
-                  @click="brainTab = 'story'" role="tab"
-                  :aria-selected="brainTab === 'story'"
-                  aria-label="Story options" title="Story options">
-            <svg class="menu-glyph" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-story"/></svg>
-            <span class="menu-label">Story options</span>
+          <button class="menu-btn brain-tab" :class="{ on: brainTab === 'prompt' }"
+                  @click="brainTab = 'prompt'" role="tab"
+                  :aria-selected="brainTab === 'prompt'"
+                  aria-label="Prompt" title="Prompt">
+            <svg class="menu-glyph" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-layers"/></svg>
+            <span class="menu-label">Prompt</span>
           </button>
           <button class="menu-btn brain-tab" :class="{ on: brainTab === 'advanced' }"
                   @click="brainTab = 'advanced'" role="tab"
@@ -1274,7 +1302,103 @@
         </template>
 
         <button class="wide" @click="addBackend()">Add backend</button>
+      </div>
+      </template>
 
+      <!-- Both services always show their own switch (never in Settings, a
+           different panel from the fields it gates) and their fields fold
+           shut the instant the switch is off, so turning either on or off is
+           the whole story of where its configuration lives. -->
+      <template x-if="brainTab === 'integrations'">
+        <div
+           x-transition:enter="braintab-enter" x-transition:enter-start="braintab-from"
+           x-transition:enter-end="braintab-to">
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-search"/></svg>Web search</h3>
+        <label class="toggle">
+          <input type="checkbox" x-model="settings.feature_web_search">
+          <span>Enable web search</span>
+        </label>
+        <div class="fold" :class="{ open: settings.feature_web_search }">
+          <div class="fold-clip">
+            <p class="note">
+              Nothing ships with a search engine, so point this at one you trust —
+              your own SearXNG, or an API you have a key for. Put
+              <code>{q}</code> where the query goes. Then switch
+              <strong>Web search</strong> on per chat in Story: it stays off
+              until both are done.
+            </p>
+            <label class="row"><span class="row-label">Search URL</span>
+              <input x-model="settings.search_url" spellcheck="false" inputmode="url"
+                     placeholder="http://192.168.1.5:8888/search?q={q}&format=json">
+            </label>
+            <label class="row"><span class="row-label">Key</span>
+              <input type="password" x-model="settings.search_key" autocomplete="off"
+                     spellcheck="false" placeholder="Only if yours needs one">
+            </label>
+            <div class="num-field">
+              <div class="num-head">
+                <span class="num-label">Results kept</span>
+                <span class="num-unit" x-text="`${settings.search_results} result${settings.search_results === 1 ? '' : 's'}`"></span>
+              </div>
+              <input class="num-slider" type="range" min="1" max="8"
+                     :value="settings.search_results"
+                     @input="settings.search_results = +$event.target.value"
+                     aria-label="How many results to keep">
+            </div>
+            <p class="kind-note">
+              The snippets go in as they came, with their addresses, so the reply
+              can say where something came from. One request per message and no
+              extra model call — but it does happen before the reply starts, so a
+              slow engine is a slow turn.
+            </p>
+          </div>
+        </div>
+
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-avatar-video"/></svg>Talking avatar</h3>
+        <label class="toggle">
+          <input type="checkbox" x-model="settings.feature_talking_avatar">
+          <span>Enable talking avatar</span>
+        </label>
+        <div class="fold" :class="{ open: settings.feature_talking_avatar }">
+          <div class="fold-clip">
+            <p class="note">
+              Nothing ships with a lip-sync renderer either — point this at a
+              service you run yourself and see AVATAR-VIDEO-CONTRACT.md for what
+              it needs to answer. Then switch a character's own
+              <strong>Talking avatar</strong> on in its editor: it stays off
+              until both are done, same as search above.
+            </p>
+            <label class="row"><span class="row-label">Avatar URL</span>
+              <input x-model="settings.avatar_url" spellcheck="false" inputmode="url"
+                     placeholder="http://100.1.2.3:8000">
+            </label>
+            <label class="row"><span class="row-label">Key</span>
+              <input type="password" x-model="settings.avatar_key" autocomplete="off"
+                     spellcheck="false" placeholder="Only if yours needs one">
+            </label>
+            <label class="row"><span class="row-label">Reachable at</span>
+              <input x-model="settings.avatar_self_url" spellcheck="false" inputmode="url"
+                     placeholder="http://100.4.5.6:8787 — leave blank to guess">
+            </label>
+            <p class="kind-note">
+              Where your avatar service should fetch an idle loop back from —
+              this app's own address is not knowable from inside it, so this has
+              to be told rather than detected. Left blank, whatever address the
+              browser used to reach this app is tried, which rarely works
+              once this app and the avatar service are on different machines.
+            </p>
+          </div>
+        </div>
+      </div>
+      </template>
+
+      <!-- Where each group's work goes now leads Passes instead of trailing
+           Backends — it's a routing decision about passes, not part of
+           defining a backend. -->
+      <template x-if="brainTab === 'passes'">
+        <div
+           x-transition:enter="braintab-enter" x-transition:enter-start="braintab-from"
+           x-transition:enter-end="braintab-to">
         <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-ticket"/></svg>Pass assignment</h3>
         <p class="note">Which backend does each group's work.</p>
         <template x-for="g in settings.tier_groups || []" :key="`assign-${g.tier}`">
@@ -1291,85 +1415,6 @@
           have to survive the screen going off.
         </p>
 
-        <!-- Off in Brain → Settings ("Features") hides this section
-             entirely — nothing here is any use to an install that never
-             turned the feature on, and a URL/key box for a service nobody
-             configured is exactly the clutter that toggle exists to hide. -->
-        <template x-if="settings.feature_web_search">
-        <div>
-        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-search"/></svg>Web search</h3>
-        <p class="note">
-          Nothing ships with a search engine, so point this at one you trust —
-          your own SearXNG, or an API you have a key for. Put
-          <code>{q}</code> where the query goes. Then switch
-          <strong>Web search</strong> on in Story options, per chat if you
-          like: it stays off until both are done.
-        </p>
-        <label class="row"><span class="row-label">Search URL</span>
-          <input x-model="settings.search_url" spellcheck="false" inputmode="url"
-                 placeholder="http://192.168.1.5:8888/search?q={q}&format=json">
-        </label>
-        <label class="row"><span class="row-label">Key</span>
-          <input type="password" x-model="settings.search_key" autocomplete="off"
-                 spellcheck="false" placeholder="Only if yours needs one">
-        </label>
-        <div class="num-field">
-          <div class="num-head">
-            <span class="num-label">Results kept</span>
-            <span class="num-unit" x-text="`${settings.search_results} result${settings.search_results === 1 ? '' : 's'}`"></span>
-          </div>
-          <input class="num-slider" type="range" min="1" max="8"
-                 :value="settings.search_results"
-                 @input="settings.search_results = +$event.target.value"
-                 aria-label="How many results to keep">
-        </div>
-        <p class="kind-note">
-          The snippets go in as they came, with their addresses, so the reply
-          can say where something came from. One request per message and no
-          extra model call — but it does happen before the reply starts, so a
-          slow engine is a slow turn.
-        </p>
-        </div>
-        </template>
-
-        <template x-if="settings.feature_talking_avatar">
-        <div>
-        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-avatar-video"/></svg>Talking avatar</h3>
-        <p class="note">
-          Nothing ships with a lip-sync renderer either — point this at a
-          service you run yourself and see AVATAR-VIDEO-CONTRACT.md for what
-          it needs to answer. Then switch a character's own
-          <strong>Talking avatar</strong> on in its editor: it stays off
-          until both are done, same as search above.
-        </p>
-        <label class="row"><span class="row-label">Avatar URL</span>
-          <input x-model="settings.avatar_url" spellcheck="false" inputmode="url"
-                 placeholder="http://100.1.2.3:8000">
-        </label>
-        <label class="row"><span class="row-label">Key</span>
-          <input type="password" x-model="settings.avatar_key" autocomplete="off"
-                 spellcheck="false" placeholder="Only if yours needs one">
-        </label>
-        <label class="row"><span class="row-label">Reachable at</span>
-          <input x-model="settings.avatar_self_url" spellcheck="false" inputmode="url"
-                 placeholder="http://100.4.5.6:8787 — leave blank to guess">
-        </label>
-        <p class="kind-note">
-          Where your avatar service should fetch an idle loop back from —
-          this app's own address is not knowable from inside it, so this has
-          to be told rather than detected. Left blank, whatever address the
-          browser used to reach this app is tried, which rarely works
-          once this app and the avatar service are on different machines.
-        </p>
-        </div>
-        </template>
-      </div>
-      </template>
-
-      <template x-if="brainTab === 'passes'">
-        <div
-           x-transition:enter="braintab-enter" x-transition:enter-start="braintab-from"
-           x-transition:enter-end="braintab-to">
         <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-ticket"/></svg>Passes</h3>
         <p class="note">
           Three groups of work, each with its own backend. Only the first is
@@ -1445,37 +1490,6 @@
                            @input="setPassEvery(p, $event.target.value)"
                            :aria-label="everyLabel(p)">
                     <p class="kind-note" x-text="everyNote(p)"></p>
-                  </div>
-                </template>
-
-                <!-- What the reply is built from lives with the pass that
-                     builds it. -->
-                <template x-if="g.tier === 'blocking'">
-                  <div>
-                    <h4>What reaches the model</h4>
-
-        <p class="note">
-          How much of the conversation reaches the model. The budget is what
-          decides: a chat that fits is sent whole, and only what no longer fits
-          falls outside it. Nothing is thrown away for good until the summary
-          <em>and</em> the memory pass have both covered it, and the opening
-          message — the scenario — is never thrown away at all.
-        </p>
-        <template x-for="n in numberFields('basic')" :key="n.key">
-          <div class="num-field">
-            <div class="num-head">
-              <span class="num-label" x-text="n.label"></span>
-              <input class="num-box" type="number" :min="n.min" :step="n.step || 1"
-                     :value="settings[n.key]" @input="setNumber(n, $event.target.value)"
-                     :aria-label="n.label">
-              <span class="num-unit" x-text="n.unit || ''"></span>
-            </div>
-            <input class="num-slider" type="range" :min="n.min" :max="n.max" :step="n.step || 1"
-                   :value="Math.min(n.max, Math.max(n.min, settings[n.key]))"
-                   @input="setNumber(n, $event.target.value)" :aria-label="n.label">
-            <p class="kind-note" x-text="n.note"></p>
-          </div>
-        </template>
                   </div>
                 </template>
 
@@ -1575,12 +1589,45 @@
           <span>Add a pass</span>
         </button>
 
+      </div>
+      </template>
+
+      <!-- What reaches the model and what it is built from, moved out of
+           Passes: two different tabs used to answer "how much of the
+           conversation gets in" (a fold buried in the blocking pass) and
+           "how much of everything else gets in" (a fold buried in Advanced)
+           — one question, one place now. -->
+      <template x-if="brainTab === 'prompt'">
+        <div
+           x-transition:enter="braintab-enter" x-transition:enter-start="braintab-from"
+           x-transition:enter-end="braintab-to">
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-gauge"/></svg>Budgets</h3>
+        <p class="note">
+          How much of the conversation reaches the model. The budget is what
+          decides: a chat that fits is sent whole, and only what no longer fits
+          falls outside it. Nothing is thrown away for good until the summary
+          <em>and</em> the memory pass have both covered it, and the opening
+          message — the scenario — is never thrown away at all.
+        </p>
+        <template x-for="n in numberFields('budgets')" :key="n.key">
+          <div class="num-field">
+            <div class="num-head">
+              <span class="num-label" x-text="n.label"></span>
+              <input class="num-box" type="number" :min="n.min" :step="n.step || 1"
+                     :value="settings[n.key]" @input="setNumber(n, $event.target.value)"
+                     :aria-label="n.label">
+              <span class="num-unit" x-text="n.unit || ''"></span>
+            </div>
+            <input class="num-slider" type="range" :min="n.min" :max="n.max" :step="n.step || 1"
+                   :value="Math.min(n.max, Math.max(n.min, settings[n.key]))"
+                   @input="setNumber(n, $event.target.value)" :aria-label="n.label">
+            <p class="kind-note" x-text="n.note"></p>
+          </div>
+        </template>
+
         <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-layers"/></svg>What goes into the prompt</h3>
-        <!-- Sitting here because it edits what a pass sends, not because its
-             own design is settled — it isn't. The layout below (three fixed
-             groups, sections reorderable only within one) is the part that
-             still reads as cluttered; it moved into Passes as-is rather than
-             being redrawn at the same time as everything else in this panel. -->
+        <!-- Its own design is still up for discussion — it moved here rather
+             than being reworked, so the rework can happen on its own. -->
         <p class="kind-note">
           This screen's own design is still up for discussion — it moved here
           rather than being reworked, so the rework can happen on its own.
@@ -1676,178 +1723,6 @@
             </template>
           </div>
         </div>
-      </div>
-      </template>
-
-      <!-- Formerly its own top-level panel; merged in here as the third tab
-           rather than redrawn, per the same "move it, don't redesign it yet"
-           rule as "What goes into the prompt" above. Everything in it saves
-           itself as it changes, which is why it gets no Save bar of its own —
-           see the note on .sheet-actions below. -->
-      <template x-if="brainTab === 'story'">
-        <div
-           x-transition:enter="braintab-enter" x-transition:enter-start="braintab-from"
-           x-transition:enter-end="braintab-to">
-        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-note"/></svg>Author's note</h3>
-        <p class="note">
-          A standing instruction, slipped into the conversation near the end so
-          it stays in view. Use it to steer — <em>keep the pace slow</em>,
-          <em>she is hiding something</em> — not to describe the character.
-        </p>
-        <label class="col-field">
-          <textarea x-model="note.text" rows="3" @change="saveNote()"
-                    placeholder="Left empty, nothing is added."></textarea>
-        </label>
-        <div class="num-field">
-          <div class="num-head">
-            <span class="num-label">How far back</span>
-            <span class="num-unit" x-text="note.depth === 0 ? 'at the end' :
-              `${note.depth} message${note.depth === 1 ? '' : 's'} back`"></span>
-          </div>
-          <input class="num-slider" type="range" min="0" max="8" :value="note.depth"
-                 @input="note.depth = +$event.target.value" @change="saveNote()"
-                 aria-label="How far back">
-          <p class="kind-note">
-            At the end it carries most weight and costs least. Further back it
-            reads as a standing condition rather than as something just said —
-            but everything after it has to be re-read by the model each turn.
-          </p>
-        </div>
-        <div class="num-field">
-          <div class="num-head">
-            <span class="num-label">Repeated</span>
-            <span class="num-unit" x-text="note.frequency === 1 ? 'every turn' :
-              `every ${note.frequency} turns`"></span>
-          </div>
-          <input class="num-slider" type="range" min="1" max="6" :value="note.frequency"
-                 @input="note.frequency = +$event.target.value" @change="saveNote()"
-                 aria-label="How often the note is repeated">
-        </div>
-        <p class="kind-note" x-show="noteMsg" x-text="noteMsg"></p>
-        <p class="kind-note" x-show="!noteFromChat && note.text">
-          This one comes from the character card. Editing it here makes it this
-          chat's own.
-        </p>
-
-        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-gauge"/></svg>State</h3>
-        <div class="bands">
-          <template x-for="b in bands" :key="b.variable">
-            <div class="band" :class="{ moved: bandsMoved.includes(b.variable) }">
-              <span class="band-var" x-text="b.variable"></span>
-              <span class="band-label" x-text="b.band"></span>
-              <span class="band-guide" x-text="b.guidance"></span>
-            </div>
-          </template>
-          <div class="provisional" x-show="stateProvisional">Provisional — auditor pending</div>
-        </div>
-
-        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-switch"/></svg>Toggles</h3>
-        <template x-for="t in visibleToggles()" :key="t.id">
-          <div>
-            <label class="toggle">
-              <input type="checkbox" :checked="toggleStates[t.id]" @change="setToggle(t.id, $event.target.checked)">
-              <span x-text="t.label"></span>
-            </label>
-            <!-- A switch that is on and doing nothing is the one thing worse
-                 than a switch that is off. Say why, where it is being read. -->
-            <div class="fold" :class="{ open: t.id === 'web_search' &&
-                                               toggleStates[t.id] && !settings.search_url }">
-              <div class="fold-clip">
-                <p class="kind-note">
-                  Nowhere to search yet — put a search URL in ☰ → Brain →
-                  Backends and this starts working.
-                </p>
-              </div>
-            </div>
-          </div>
-        </template>
-
-        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-people"/></svg>Who is here</h3>
-        <p class="note">
-          Several characters can share one conversation. Muting keeps someone
-          in the scene but silent — the others still know they are standing
-          there.
-        </p>
-        <template x-for="m in cast" :key="m.character_id">
-          <div class="member" :class="{ quiet: m.muted }">
-            <div class="member-head">
-              <span class="char-pfp">
-                <svg class="char-pfp-generic" viewBox="0 0 24 24" aria-hidden="true">
-                  <use href="#i-person"/>
-                </svg>
-              </span>
-              <span class="char-name" x-text="m.name"></span>
-              <button class="p-switch" :class="{ on: !m.muted }" @click="toggleMuted(m)"
-                      :aria-pressed="!m.muted"
-                      :aria-label="`${m.muted ? 'Unmute' : 'Mute'} ${m.name}`"
-                      :title="m.muted ? 'Silent, but still in the scene' : 'Can speak'">
-                <span class="p-knob"></span>
-              </button>
-              <button class="glyph-btn danger" @click="dropMember(m)"
-                      x-show="cast.length > 1"
-                      :title="`Remove ${m.name} from this chat`"
-                      :aria-label="`Remove ${m.name}`">
-                <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-close"/></svg>
-              </button>
-            </div>
-            <!-- Only meaningful with someone to compete against, and only when
-                 the policy actually weighs anybody. -->
-            <div class="num-field" x-show="cast.length > 1 && policy === 'natural'">
-              <div class="num-head">
-                <span class="num-label">How readily they speak up</span>
-                <span class="num-unit" x-text="m.talkativeness.toFixed(1)"></span>
-              </div>
-              <input class="num-slider" type="range" min="0" max="2" step="0.1"
-                     :value="m.talkativeness"
-                     @input="setTalkativeness(m, $event.target.value)"
-                     :aria-label="`How readily ${m.name} speaks up`">
-            </div>
-          </div>
-        </template>
-
-        <label class="row"><span class="row-label">Add someone</span>
-          <select @change="addMember($event.target.value); $event.target.value = ''">
-            <option value="">Choose a character…</option>
-            <template x-for="c in charactersNotHere()" :key="c.id">
-              <option :value="c.id" x-text="c.name"></option>
-            </template>
-          </select>
-        </label>
-
-        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-cycle"/></svg>Whose turn it is</h3>
-        <div class="preset-row">
-          <template x-for="p in policies" :key="p.id">
-            <button class="preset" :class="{ picked: policy === p.id }"
-                    @click="setPolicy(p.id)" x-text="p.label"></button>
-          </template>
-        </div>
-        <p class="kind-note" x-text="policyNote()"></p>
-
-        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-dice"/></svg>Unplanned things</h3>
-        <p class="note">
-          Occasionally the world does something on its own — a knock at the
-          door, the rain starting, a stranger sitting down. It is invented in
-          the background after a turn and woven into the next one, so it costs
-          the reply no waiting. At zero it never happens.
-        </p>
-        <div class="num-field">
-          <div class="num-head">
-            <span class="num-label">Chance per turn</span>
-            <span class="num-unit" x-text="eventChance ? `${Math.round(eventChance * 100)}%` : 'never'"></span>
-          </div>
-          <input class="num-slider" type="range" min="0" max="0.5" step="0.01"
-                 :value="eventChance" @input="setEventChance($event.target.value)"
-                 aria-label="Chance of something happening each turn">
-        </div>
-
-        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-list"/></svg>Summary</h3>
-        <p class="summary" x-text="summary.text || 'Nothing summarised yet'"></p>
-
-        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-bug"/></svg>Debug</h3>
-        <label class="toggle">
-          <input type="checkbox" x-model="hud">
-          <span>Pass HUD and cost</span>
-        </label>
       </div>
       </template>
 
@@ -1971,17 +1846,20 @@
           </div>
         </div>
 
-        <!-- Everything below is right at its default until there is a specific
-             reason it is not, so it is one tap away rather than in the way. -->
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-time"/></svg>Timeouts &amp; retries</h3>
+        <!-- Right at its default until there is a specific reason it is not,
+             so it is one tap away rather than in the way — the only thing
+             that changed here is the heading: this used to be a second,
+             unlabeled "Advanced" nested inside the Advanced tab. -->
         <button class="disclose" :class="{ open: showAdvancedBrain }"
                 @click="showAdvancedBrain = !showAdvancedBrain"
                 :aria-expanded="showAdvancedBrain">
           <svg class="disclose-arrow" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-back"/></svg>
-          <span>Advanced</span>
+          <span x-text="showAdvancedBrain ? 'Hide the numbers' : 'Show the numbers'"></span>
         </button>
         <div class="fold" :class="{ open: showAdvancedBrain }">
           <div class="fold-clip">
-            <template x-for="n in numberFields('advanced')" :key="n.key">
+            <template x-for="n in numberFields('timeouts')" :key="n.key">
               <div class="num-field">
                 <div class="num-head">
                   <span class="num-label" x-text="n.label"></span>
@@ -2005,13 +1883,180 @@
       </div>
     </template>
 
+    <!-- ----------------------------------------------------------- story -->
+    <!-- Its own destination now rather than Brain's third tab — this is the
+         one screen here that changes with the story instead of the app, so
+         it earns a place next to Characters in the header menu (§ menu-row)
+         rather than living inside the config panels. Everything in it saves
+         itself as it changes, which is why it gets no Save bar of its own —
+         see the note on .sheet-actions below. -->
+    <template x-if="panel === 'story'">
+      <div>
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-note"/></svg>Author's note</h3>
+        <p class="note">
+          A standing instruction, slipped into the conversation near the end so
+          it stays in view. Use it to steer — <em>keep the pace slow</em>,
+          <em>she is hiding something</em> — not to describe the character.
+        </p>
+        <label class="col-field">
+          <textarea x-model="note.text" rows="3" @change="saveNote()"
+                    placeholder="Left empty, nothing is added."></textarea>
+        </label>
+        <div class="num-field">
+          <div class="num-head">
+            <span class="num-label">How far back</span>
+            <span class="num-unit" x-text="note.depth === 0 ? 'at the end' :
+              `${note.depth} message${note.depth === 1 ? '' : 's'} back`"></span>
+          </div>
+          <input class="num-slider" type="range" min="0" max="8" :value="note.depth"
+                 @input="note.depth = +$event.target.value" @change="saveNote()"
+                 aria-label="How far back">
+          <p class="kind-note">
+            At the end it carries most weight and costs least. Further back it
+            reads as a standing condition rather than as something just said —
+            but everything after it has to be re-read by the model each turn.
+          </p>
+        </div>
+        <div class="num-field">
+          <div class="num-head">
+            <span class="num-label">Repeated</span>
+            <span class="num-unit" x-text="note.frequency === 1 ? 'every turn' :
+              `every ${note.frequency} turns`"></span>
+          </div>
+          <input class="num-slider" type="range" min="1" max="6" :value="note.frequency"
+                 @input="note.frequency = +$event.target.value" @change="saveNote()"
+                 aria-label="How often the note is repeated">
+        </div>
+        <p class="kind-note" x-show="noteMsg" x-text="noteMsg"></p>
+        <p class="kind-note" x-show="!noteFromChat && note.text">
+          This one comes from the character card. Editing it here makes it this
+          chat's own.
+        </p>
+
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-gauge"/></svg>State</h3>
+        <div class="bands">
+          <template x-for="b in bands" :key="b.variable">
+            <div class="band" :class="{ moved: bandsMoved.includes(b.variable) }">
+              <span class="band-var" x-text="b.variable"></span>
+              <span class="band-label" x-text="b.band"></span>
+              <span class="band-guide" x-text="b.guidance"></span>
+            </div>
+          </template>
+          <div class="provisional" x-show="stateProvisional">Provisional — auditor pending</div>
+        </div>
+
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-switch"/></svg>Toggles</h3>
+        <template x-for="t in visibleToggles()" :key="t.id">
+          <div>
+            <label class="toggle">
+              <input type="checkbox" :checked="toggleStates[t.id]" @change="setToggle(t.id, $event.target.checked)">
+              <span x-text="t.label"></span>
+            </label>
+            <!-- A switch that is on and doing nothing is the one thing worse
+                 than a switch that is off. Say why, where it is being read. -->
+            <div class="fold" :class="{ open: t.id === 'web_search' &&
+                                               toggleStates[t.id] && !settings.search_url }">
+              <div class="fold-clip">
+                <p class="kind-note">
+                  Nowhere to search yet — put a search URL in ☰ → Brain →
+                  Connect and this starts working.
+                </p>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-people"/></svg>Who is here</h3>
+        <p class="note">
+          Several characters can share one conversation. Muting keeps someone
+          in the scene but silent — the others still know they are standing
+          there.
+        </p>
+        <template x-for="m in cast" :key="m.character_id">
+          <div class="member" :class="{ quiet: m.muted }">
+            <div class="member-head">
+              <span class="char-pfp">
+                <svg class="char-pfp-generic" viewBox="0 0 24 24" aria-hidden="true">
+                  <use href="#i-person"/>
+                </svg>
+              </span>
+              <span class="char-name" x-text="m.name"></span>
+              <button class="p-switch" :class="{ on: !m.muted }" @click="toggleMuted(m)"
+                      :aria-pressed="!m.muted"
+                      :aria-label="`${m.muted ? 'Unmute' : 'Mute'} ${m.name}`"
+                      :title="m.muted ? 'Silent, but still in the scene' : 'Can speak'">
+                <span class="p-knob"></span>
+              </button>
+              <button class="glyph-btn danger" @click="dropMember(m)"
+                      x-show="cast.length > 1"
+                      :title="`Remove ${m.name} from this chat`"
+                      :aria-label="`Remove ${m.name}`">
+                <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-close"/></svg>
+              </button>
+            </div>
+            <!-- Only meaningful with someone to compete against, and only when
+                 the policy actually weighs anybody. -->
+            <div class="num-field" x-show="cast.length > 1 && policy === 'natural'">
+              <div class="num-head">
+                <span class="num-label">How readily they speak up</span>
+                <span class="num-unit" x-text="m.talkativeness.toFixed(1)"></span>
+              </div>
+              <input class="num-slider" type="range" min="0" max="2" step="0.1"
+                     :value="m.talkativeness"
+                     @input="setTalkativeness(m, $event.target.value)"
+                     :aria-label="`How readily ${m.name} speaks up`">
+            </div>
+          </div>
+        </template>
+
+        <label class="row"><span class="row-label">Add someone</span>
+          <select @change="addMember($event.target.value); $event.target.value = ''">
+            <option value="">Choose a character…</option>
+            <template x-for="c in charactersNotHere()" :key="c.id">
+              <option :value="c.id" x-text="c.name"></option>
+            </template>
+          </select>
+        </label>
+
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-cycle"/></svg>Whose turn it is</h3>
+        <div class="preset-row">
+          <template x-for="p in policies" :key="p.id">
+            <button class="preset" :class="{ picked: policy === p.id }"
+                    @click="setPolicy(p.id)" x-text="p.label"></button>
+          </template>
+        </div>
+        <p class="kind-note" x-text="policyNote()"></p>
+
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-dice"/></svg>Unplanned things</h3>
+        <p class="note">
+          Occasionally the world does something on its own — a knock at the
+          door, the rain starting, a stranger sitting down. It is invented in
+          the background after a turn and woven into the next one, so it costs
+          the reply no waiting. At zero it never happens.
+        </p>
+        <div class="num-field">
+          <div class="num-head">
+            <span class="num-label">Chance per turn</span>
+            <span class="num-unit" x-text="eventChance ? `${Math.round(eventChance * 100)}%` : 'never'"></span>
+          </div>
+          <input class="num-slider" type="range" min="0" max="0.5" step="0.01"
+                 :value="eventChance" @input="setEventChance($event.target.value)"
+                 aria-label="Chance of something happening each turn">
+        </div>
+
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-list"/></svg>Summary</h3>
+        <p class="summary" x-text="summary.text || 'Nothing summarised yet'"></p>
+      </div>
+    </template>
+
     <!-- -------------------------------------------------------- settings -->
     <!-- App-behaviour toggles that don't belong to model config (Brain),
          appearance (Theme), or the roster (Characters) — a destination of
          its own for exactly the same reason those three are, not a tab
-         tucked inside one of them. Saves through the same settings object
-         and Save bar as Theme, since realistic_chat_speed lives on Settings
-         like everything else here. -->
+         tucked inside one of them. Chat pacing saves through the same
+         settings object and Save bar as Theme; Debug (`hud`) is a plain
+         client-only flag that saves nowhere, kept here anyway since it is
+         app behaviour too, just not persisted behaviour. -->
     <template x-if="panel === 'settings'">
       <div>
         <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-time"/></svg>Chat pacing</h3>
@@ -2031,29 +2076,11 @@
           already on screen, both of which stay instant.
         </p>
 
-        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-switch"/></svg>Features</h3>
-        <!-- Off by default because both need a service this app does not
-             ship (a search engine, a lip-sync renderer) — most installs will
-             never touch either. Off hides every scrap of UI for the
-             feature, not just what it does, so a panel does not carry
-             config sections for something nobody has set up. -->
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-bug"/></svg>Debug</h3>
         <label class="toggle">
-          <input type="checkbox" x-model="settings.feature_web_search">
-          <span>Web search</span>
+          <input type="checkbox" x-model="hud">
+          <span>Pass HUD and cost</span>
         </label>
-        <p class="kind-note">
-          A backend the reply can ask before answering. Off hides its config
-          in Backends and its switch in Story options.
-        </p>
-        <label class="toggle">
-          <input type="checkbox" x-model="settings.feature_talking_avatar">
-          <span>Talking avatar</span>
-        </label>
-        <p class="kind-note">
-          A lip-synced clip over a character's portrait, from a service you
-          run yourself. Off hides its config in Backends and the switch for
-          it in every character's own editor.
-        </p>
       </div>
     </template>
 
@@ -2605,11 +2632,11 @@
 
         <!-- A lip-synced clip over the portrait after each reply, from a
              service run outside this app (AVATAR-VIDEO-CONTRACT.md) — off
-             until both that service is pointed at in Settings and this
+             until both that service is pointed at in Brain → Connect and this
              switch is on; either missing falls back to the ordinary
              portrait with nothing shown here or in the chat. The whole
              section is hidden below the feature's own master switch in
-             Brain → Settings — a per-character control for a service
+             Brain → Connect — a per-character control for a service
              nobody turned on is not a decision this editor should be
              offering. -->
         <template x-if="settings.feature_talking_avatar">
@@ -2653,11 +2680,11 @@
              Folded away by default rather than sitting between "Example
              dialogue" and the Save button, where three technical boxes read
              as more of the editor than they actually are for most cards. -->
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-advanced"/></svg>Advanced</h3>
         <button class="disclose" :class="{ open: advancedCharOpen }"
                 @click="advancedCharOpen = !advancedCharOpen" :aria-expanded="advancedCharOpen">
           <svg class="disclose-arrow" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-back"/></svg>
-          <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-advanced"/></svg>
-          <span>Advanced</span>
+          <span x-text="advancedCharOpen ? 'Hide the advanced fields' : 'Show the advanced fields'"></span>
         </button>
         <div class="fold" :class="{ open: advancedCharOpen }">
           <div class="fold-clip">
@@ -2824,6 +2851,8 @@
           <code>{{user}}</code>; the description is given to the model the same
           way the character's own is.
         </p>
+
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-person"/></svg>Identity</h3>
         <label class="row col-row"><span class="row-label wide-label">Name</span>
           <input x-model="draftPersona.name" placeholder="Your name in the story"></label>
         <label class="col-field"><span class="row-label wide-label">About you</span>
@@ -2847,6 +2876,7 @@
           </label>
         </div>
 
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-star"/></svg>Defaults</h3>
         <label class="toggle">
           <input type="checkbox" x-model="draftPersona.is_default">
           <span>Use this persona for new chats</span>

@@ -299,7 +299,7 @@ function makePacer(apply) {
   };
 }
 
-// "Realistic chat speed" (Brain → Settings, on by default) — see runStream.
+// "Realistic chat speed" (Settings, on by default) — see runStream.
 // Every range below is rolled once per turn, not re-rolled per word: the
 // point is that a turn's own pace varies from the next one's, not that it
 // wobbles within itself. Silence first — a person reads what was said and
@@ -521,7 +521,7 @@ function tavern() {
     _settingsSnapshot: "",
     _characterSnapshot: "",
     _personaSnapshot: "",
-    // Which of Brain's four categories is showing. Persists across closing
+    // Which of Brain's five categories is showing. Persists across closing
     // and reopening the panel — the same way openBackend/openTier already do
     // for what is folded open within one — rather than resetting to the
     // first tab every time.
@@ -1143,9 +1143,17 @@ function tavern() {
             // Served rather than duplicated here: a slider for a parameter
             // no backend is sent would be worse than no slider.
             api.get("/api/samplers").then((s) => { this.samplerBook = s; }),
-            // "Story options" is one of Brain's four tabs (§12) rather than
-            // its own panel, so what it needs loads on the way into Brain
-            // too.
+            api.get("/api/passes").then((p) => { this.passes = p; }),
+          ]);
+        } else if (name === "story") {
+          // A top-level destination of its own now, not a tab riding along
+          // inside Brain (§12) — loads only what it needs rather than
+          // everything Brain's own branch above fetches. `settings` isn't
+          // among them: boot() already loaded it once for the theme, and
+          // Story's own read of it (the web_search toggle's visibility)
+          // only ever needs whatever is already current, the same way
+          // Brain's own tabs share one copy rather than each keeping its own.
+          await Promise.all([
             this.loadNote(),
             api.get("/api/passes").then((p) => { this.passes = p; }),
           ]);
@@ -1260,10 +1268,10 @@ function tavern() {
     // ".sheet-actions-pinned"), so every panel that can be dirty gets an
     // always-visible Save without five copies of the same markup. Null means
     // "no bar here" — either nothing in this panel is saved this way (Story
-    // options save per field as you type) or the panel itself has nothing to
-    // save (browsing chats, "What was sent", ...).
+    // saves per field as you type) or the panel itself has nothing to save
+    // (browsing chats, "What was sent", ...).
     activeSaveAction() {
-      if (this.panel === "brain" && this.brainTab === "story") return null;
+      if (this.panel === "story") return null;
       if (this.panel === "brain" || this.panel === "theme" || this.panel === "settings") {
         return { save: () => this.saveSettings(), saving: this.saving, msg: this.saveMsg, error: this.saveError };
       }
@@ -4922,8 +4930,8 @@ function tavern() {
     },
 
     // The built-in `web_search` toggle, hidden along with everything else
-    // Web search owns (§ Brain → Settings, "Features") when the feature
-    // itself is off — a switch for a service nobody configured, sitting
+    // Web search owns (§ Brain → Connect) when the feature itself is off —
+    // a switch for a service nobody configured, sitting
     // beside toggles that actually do something, is exactly the clutter
     // that master switch exists to hide. A custom toggle a person made
     // themselves is never filtered here, whatever it happens to be called.
@@ -4966,9 +4974,14 @@ function tavern() {
       this.snapshotSettings();
     },
 
-    // The numbers behind the reply. Two groups on purpose: `basic` is what
-    // someone actually reaches for, and `advanced` is everything that is
-    // correct at its default until there is a specific reason it is not.
+    // The numbers behind the reply. Two groups, split by what question they
+    // answer rather than how often they get touched: `budgets` is every
+    // number that decides how much reaches the model — token budget, memory,
+    // lorebook, the rolling summary — grouped together in Brain → Prompt
+    // regardless of which pass reads it, so "how much" is answered in one
+    // place instead of two different hidden folds. `timeouts` is retry/wait
+    // knobs, correct at their default until there is a specific reason they
+    // are not — those stay in Brain → Advanced.
     //
     // Ranges are the useful span, not the legal one. A slider whose track
     // covers every value the field will accept spends most of its length in
@@ -4977,7 +4990,7 @@ function tavern() {
     // beside it still takes anything the server allows.
     numberFields(group) {
       const fields = {
-        basic: [
+        budgets: [
           { key: "token_budget", label: "Context budget", min: 1024, max: 131072, step: 1024,
             unit: " tok",
             note: "Prompt the reply is built from. Match your model's window — past it, the far end is dropped anyway. 32k is what a local model on a PC usually has." },
@@ -4986,8 +4999,6 @@ function tavern() {
                 + "budget decides, so a chat with room to spare is sent whole." },
           { key: "memory_max_injected", label: "Memories recalled", min: 0, max: 12,
             note: "Extracted facts added to a prompt at most. Zero turns recall off." },
-        ],
-        advanced: [
           { key: "summary_budget", label: "Summary budget", min: 200, max: 2000, step: 50,
             unit: " tok",
             note: "How long the rolling summary may grow before it is re-summarised." },
@@ -4996,6 +5007,8 @@ function tavern() {
           { key: "lorebook_total_budget", label: "Lorebook budget", min: 0, max: 2000, step: 50,
             unit: " tok",
             note: "Tokens of lorebook entries allowed into one prompt." },
+        ],
+        timeouts: [
           { key: "background_retries", label: "Retries", min: 0, max: 5,
             note: "Attempts a failed background pass gets before it gives up." },
           { key: "pass_timeout", label: "Pass timeout", min: 15, max: 600, step: 5, float: true,

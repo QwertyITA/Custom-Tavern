@@ -296,6 +296,11 @@ body {
 .menu-row { display: flex; gap: 6px; padding: 8px 2px 4px; }
 .menu-btn {
   flex: 1;
+  /* Without this a flex item's minimum width defaults to its content's, so a
+     long single-word label with nowhere to break (this row grew from 4 items
+     to 5 without shrinking) could push its button wider than its share of
+     the row instead of wrapping inside it. */
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -318,7 +323,7 @@ body {
 .menu-wrap.open .menu-btn:nth-child(2) { transition-delay: 45ms; }
 .menu-wrap.open .menu-btn:nth-child(3) { transition-delay: 90ms; }
 .menu-btn.on { color: var(--accent); border-color: var(--accent); background: var(--panel); }
-.menu-label { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
+.menu-label { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; overflow-wrap: anywhere; }
 
 /* ---- Brain's own tab bar: the same button, a shorter row ---- */
 /* Reuses .menu-btn wholesale — same icon-over-label shape, same press
