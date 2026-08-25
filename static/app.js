@@ -108,9 +108,14 @@ const HINT_MS = 1900;
 const REACTION_BUBBLE_MS = 3400;
 // Quiet time after the last keystroke before the template preview re-renders.
 const PREVIEW_DEBOUNCE_MS = 200;
-// Character budget for the name and the world-info fields to share the
-// header's one line — see pillFitsInline.
-const WORLDBAR_INLINE_BUDGET = 30;
+// Character budgets for the header's own row — see pillFitsInline. The
+// fields can now wrap onto a second line inside the pill rather than
+// forcing the whole thing out to float over the chat, so their budget is
+// generous; the name never wraps (it ellipsizes on its own single line
+// instead), so a name past this length is the one thing that still sends
+// the pill out to float — there is no line left to give it more room on.
+const WORLDBAR_NAME_BUDGET = 24;
+const WORLDBAR_FIELDS_BUDGET = 64;
 // How long a prompt section takes to slide past its neighbour when reordered.
 const SECTION_MOVE_MS = 260;
 // The four samplers every pass ships with a tuned value for. "Turn the extras
@@ -499,9 +504,6 @@ function tavern() {
     // The header menu, and which of its destinations is open. One panel at a
     // time — "" means the conversation is unobstructed.
     menu: false,
-    // The truncated world line, opened out. Closed again on every chat change
-    // so it never carries the previous room's weather into a new one.
-    worldOpen: false,
     // Two fields rather than one: `panel` says which body to render and
     // `panelOpen` says whether the sheet is on screen. Clearing the name at
     // the moment of closing would unmount the body through its own x-if, and
@@ -906,40 +908,31 @@ function tavern() {
       return this.messages[this.messages.length - 1].role === "user";
     },
 
-    // The setting spelled out, for the panel the truncated header line opens.
-    // Only the fields that have a value: an empty row would say less than no
-    // row, and the header already leaves out what it does not know.
-    get worldLines() {
-      return [
-        { label: "Place", value: this.scene.place },
-        { label: "Weather", value: this.scene.weather },
-        { label: "Time", value: this.scene.time },
-      ].filter((f) => f.value);
-    },
-
     // Whether the scene pass has produced anything yet. Before it has, the
     // header shows the name alone rather than a row of placeholder dashes.
     get hasScene() {
       return !!(this.scene.place || this.scene.weather || this.scene.time);
     },
 
-    // Whether the name and the world-info fields are short enough to share
-    // the header's one line (§ .world-pill-inline in index.html) rather than
-    // the pill floating over the chat instead (§ .world-pill, the Dynamic
-    // Island for whenever they don't). A character count, not a measured
-    // pixel width: the header holds a fixed 44px menu button and stretches
-    // over whatever width the phone actually has, so there is no one pixel
-    // budget to measure against without a ResizeObserver re-running on every
-    // keystroke of a streamed scene update — and the two texts are set in
-    // the same font at adjacent sizes, so length tracks width closely enough
-    // to draw the line. WORLDBAR_INLINE_BUDGET is tuned for a 360-412px
-    // phone, which is what this app is built for.
+    // Whether the world-info fields belong in the header (§ .world-pill-inline
+    // in index.html, wrapping onto a second line there if one line isn't
+    // enough) rather than floating over the chat instead (§ .world-pill, the
+    // Dynamic Island — now the fallback of last resort, not the everyday
+    // case). A character count, not a measured pixel width: the header holds
+    // a fixed 44px menu button and stretches over whatever width the phone
+    // actually has, so there is no one pixel budget to measure against
+    // without a ResizeObserver re-running on every keystroke of a streamed
+    // scene update — and the two texts are set in the same font at adjacent
+    // sizes, so length tracks width closely enough to draw the line. Both
+    // budgets are tuned for a 360-412px phone, which is what this app is
+    // built for.
     pillFitsInline() {
       if (!this.character) return false;
       const fields = [this.scene.place, this.scene.weather, this.scene.time].filter(Boolean);
       if (!fields.length) return false;
-      const budget = this.character.name.length + fields.join("").length + fields.length;
-      return budget <= WORLDBAR_INLINE_BUDGET;
+      if (this.character.name.length > WORLDBAR_NAME_BUDGET) return false;
+      const fieldsCost = fields.join("").length + fields.length;
+      return fieldsCost <= WORLDBAR_FIELDS_BUDGET;
     },
 
     get portrait() {
@@ -1091,7 +1084,6 @@ function tavern() {
       this.turn = this.messages.length ? this.messages[this.messages.length - 1].turn : 0;
       this.sceneBackgroundFile = "";
       this.nextSpeaker = "";
-      this.worldOpen = false;
       this.applyTheme();
       // Not awaited: the transcript should be on screen before the room's
       // membership is known, and a speaker label appearing a beat later is

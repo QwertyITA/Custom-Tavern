@@ -294,19 +294,19 @@
     <!-- The inline twin of the floating world-pill below (§ that comment
          for the full reasoning) — same fields, same refresh button, living
          in the header row beside the name instead of floating over the
-         chat, for whenever the two are short enough to fit there together.
-         Textually duplicated rather than shared, since Alpine has no
-         partial to pull one copy of a template into two different places in
-         the tree — but both read the same state, so the two can never show
-         different values, only render in different spots. See
-         pillFitsInline for the rule that decides which one is showing. -->
+         chat. This is the everyday case now: the fields wrap onto a second
+         line here (§ .world-fields in styles.css) rather than handing off
+         to the float the moment one line runs out of room. Textually
+         duplicated rather than shared, since Alpine has no partial to pull
+         one copy of a template into two different places in the tree — but
+         both read the same state, so the two can never show different
+         values, only render in different spots. See pillFitsInline for the
+         rule that decides which one is showing — a long name is the one
+         thing that still sends this to the float instead, since the name
+         has no second line of its own to grow into. Plain text, not a
+         control: nothing here opens or expands anything anymore. -->
     <div class="world-pill world-pill-inline" x-show="!menu && hasScene && pillFitsInline()" x-cloak>
-      <div class="world-fields"
-           role="button" tabindex="0" :aria-expanded="worldOpen"
-           aria-label="Show the setting in full"
-           @click="worldOpen = !worldOpen"
-           @keydown.enter.prevent="worldOpen = !worldOpen"
-           @keydown.space.prevent="worldOpen = !worldOpen">
+      <div class="world-fields">
         <span class="field" :class="{ refreshing: refreshing.scene }"
               :title="`Place: ${scene.place || 'unknown'}`" x-show="scene.place">
           <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-place"/></svg>
@@ -378,39 +378,30 @@
   </div>
 </header>
 
-<!-- The world-info pill's floating twin — the Dynamic Island for whenever
-     it and the name will not both fit on the header's line (§
-     world-pill-inline above), and for before there is a scene at all
-     (pillFitsInline only asks the question once there is real text to
-     measure, so a bare "generate this" button with no fields yet always
-     lands here). `position: fixed` (§ styles.css) takes it out of the
-     document flow entirely, so `.chat` gives up none of its own height
-     reserving a place for this; the pill sits on top of whatever `.chat`
-     has scrolled to underneath it, on its own solid background so that
-     content is genuinely covered there, not bleeding through. `--worldbar-h`
-     (§ initWorldbarHeight in app.js) is what lets `top` sit flush under the
-     header without hard-coding its height, which changes with the
-     safe-area inset and isn't the same on every phone. Hidden outright
-     while the menu is open rather than left for the opening buttons to
-     cover — a covered-but-still-there pill bled through the gaps between
-     them under glass, which looked broken, and there is nothing to bleed
-     through when it is not rendered at all. -->
+<!-- The world-info pill's floating twin — the last resort now, not the
+     common case: only for a name so long it leaves the inline pill (§
+     world-pill-inline above) nowhere to go even with its own second line,
+     and for before there is a scene at all (pillFitsInline only asks the
+     question once there is real text to measure, so a bare "generate this"
+     button with no fields yet always lands here). `position: fixed`
+     (§ styles.css) takes it out of the document flow entirely, so `.chat`
+     gives up none of its own height reserving a place for this; the pill
+     sits on top of whatever `.chat` has scrolled to underneath it, on its
+     own solid background so that content is genuinely covered there, not
+     bleeding through. `--worldbar-h` (§ initWorldbarHeight in app.js) is
+     what lets `top` sit flush under the header without hard-coding its
+     height, which changes with the safe-area inset and isn't the same on
+     every phone. Hidden outright while the menu is open rather than left
+     for the opening buttons to cover — a covered-but-still-there pill bled
+     through the gaps between them under glass, which looked broken, and
+     there is nothing to bleed through when it is not rendered at all. -->
 <div class="world-pill world-pill-float" :class="{ empty: !hasScene }" x-show="!menu && (!hasScene || !pillFitsInline())" x-cloak
      x-transition:enter="braintab-enter" x-transition:enter-start="braintab-from"
      x-transition:enter-end="braintab-to">
   <!-- Hidden entirely until a scene exists. Three em-dashes said nothing
-       except that the app had not got round to it yet. -->
-  <!-- Tapping it opens the line in full underneath. On a 412px screen all
-       three fields truncate — "the tavern common room" arrives as "the
-       tavern com…" — and `title` is a hover affordance, which a phone does
-       not have. So the scene pass costs a model call, writes a result, and
-       the result cannot be read. This is how it gets read. -->
-  <div class="world-fields" x-show="hasScene" x-cloak
-       role="button" tabindex="0" :aria-expanded="worldOpen"
-       aria-label="Show the setting in full"
-       @click="worldOpen = !worldOpen"
-       @keydown.enter.prevent="worldOpen = !worldOpen"
-       @keydown.space.prevent="worldOpen = !worldOpen">
+       except that the app had not got round to it yet. Plain text, not a
+       control — same as the inline pill, nothing here opens or expands. -->
+  <div class="world-fields" x-show="hasScene" x-cloak>
     <span class="field" :class="{ refreshing: refreshing.scene }"
           :title="`Place: ${scene.place || 'unknown'}`" x-show="scene.place">
       <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-place"/></svg>
@@ -439,21 +430,6 @@
           :title="hasScene ? 'Refresh world info' : 'Generate world info'">
     <svg class="icon" viewBox="0 0 24 24"><use href="#i-refresh"/></svg>
   </button>
-</div>
-
-<!-- The setting, in full, when the truncated line above is tapped. Same fold
-     mechanism as the menu row, so it eases open rather than appearing. -->
-<div class="fold world-full" :class="{ open: worldOpen && hasScene }">
-  <div class="fold-clip">
-    <dl class="world-long">
-      <template x-for="f in worldLines" :key="f.label">
-        <div class="world-long-row">
-          <dt x-text="f.label"></dt>
-          <dd x-text="f.value"></dd>
-        </div>
-      </template>
-    </dl>
-  </div>
 </div>
 
 <!-- pass-status HUD (debug, toggleable) (§12) -->

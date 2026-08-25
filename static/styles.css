@@ -197,10 +197,13 @@ body {
   top: 0;
   z-index: 5;
 }
-/* One line: menu, who, where. Each side is fixed-width and the two text runs
-   share what is left, so a long character name and a long place shrink
-   together instead of one of them pushing the other off the row. */
-.bar-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+/* Menu, who, where. Wraps rather than squeezing: the name always renders in
+   full (up to its own budget — § pillFitsInline in app.js) and takes
+   whatever width that needs, so if too little is left over for the pill to
+   be legible (§ .world-pill-inline's min-width below), it drops to a row of
+   its own underneath instead of being crushed into a sliver beside the
+   name. */
+.bar-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
 
 .who {
   /* A button, but it has to look like the title it replaced. */
@@ -379,9 +382,9 @@ body {
 /* The chrome shared by both places this pill can render (§ world-pill-inline
    and world-pill-float below): the rounded chip itself, not where it sits.
    Thinner than it once was — min-height and padding both trimmed — because
-   this is a secondary reading, not a primary control: the fields are also
-   reachable in full by tapping through to `.world-full` below, so the pill
-   itself only has to be legible, not a full 44px target. */
+   this is a secondary reading, not a primary control: plain text now, with
+   nothing to tap through to, so the pill only has to be legible, not a full
+   44px target. */
 .world-pill {
   display: flex;
   align-items: center;
@@ -394,9 +397,25 @@ body {
   border: 1px solid var(--line);
 }
 /* Living in the header's own row beside the name, an ordinary flex child of
-   `.bar-row` — for whenever the name and the fields are short enough to
-   share that line (§ pillFitsInline in app.js). */
-.world-pill-inline { flex: 0 1 auto; min-width: 0; }
+   `.bar-row` — the everyday case now that the fields can wrap onto a second
+   line here (§ .world-fields below) rather than needing to fit one. Only a
+   name with no room left to give (§ pillFitsInline in app.js) sends the pill
+   to float instead.
+   `flex-basis: 0` rather than `auto` matters once the fields can wrap: an
+   `auto` basis measures this against its own max-content width, and a
+   wrappable box's max-content width is only as wide as its longest
+   unbreakable piece — much narrower than the unwrapped line it used to be —
+   so the flex-shrink math started reading `.who` (the name) as the bigger
+   item and crushed *it* down first instead. Starting from 0 and taking all
+   the growth once the name has its own natural width keeps the name whole
+   and hands whatever is left to the fields to wrap into.
+   The 130px floor is what keeps that handoff honest: without it, "whatever
+   is left" can be a sliver too narrow for even one short field, and the
+   fields wrap and ellipsize down to nothing legible rather than reading as
+   two clean lines. `.bar-row`'s own wrap (above) is what a floor like this
+   needs to mean anything — below it the pill drops to a fresh line under
+   the name instead of being held to a width smaller than its floor. */
+.world-pill-inline { flex: 1 1 0; min-width: 130px; }
 .world-pill-inline .world-fields { min-width: 0; }
 /* The Dynamic Island: a floating capsule pinned just under the header, over
    the chat rather than in a row of its own — for whenever the pill and the
@@ -426,28 +445,39 @@ body {
    an oval it didn't fill, which read as a broken shape rather than a control.
    Even padding around one round button reads as a plain icon button instead. */
 .world-pill.empty { padding: 1px; gap: 0; }
+/* Wraps rather than clipping: pillFitsInline already keeps anything wider
+   than two lines' worth out of here entirely, so whatever does land here is
+   meant to be read in full. `justify-content: center` centers each wrapped
+   line on its own, which is what actually gives a 2-line pill its centered
+   look — flex only centers a single line otherwise. Plain text, not a
+   control, so no cursor change on hover either. */
 .world-fields {
   display: flex;
   align-items: center;
-  gap: 7px;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 3px 7px;
   min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  /* It opens the full line, so it behaves like the button it now is. */
-  cursor: pointer;
   min-height: 28px;
   font-size: 11.5px;
 }
 
 /* Each reading is its own icon-and-value pair. The icon says which reading it
    is, so the words "place", "weather" and "time" no longer have to fit on the
-   row beside three values and a name. */
-/* Place gets twice the room of the other two: a room name is several words and
-   carries the most, while weather and time are usually one or two. Splitting
-   the row evenly truncated all three to nothing in particular. */
-.field { display: inline-flex; align-items: center; gap: 3px; min-width: 0; flex: 1 1 auto; }
-.field:first-child { flex: 2 1 auto; }
-.field-value { color: var(--text); overflow: hidden; text-overflow: ellipsis; }
+   row beside three values and a name. Sized to its own content now rather
+   than grown to fill the row: growing made sense back when the three always
+   shared one fixed-width line and needed the space split between them, but
+   `.world-fields` wraps onto a second line now, and flex-grow distributes
+   leftover space per wrapped line independently — a lone field left on a
+   short second line would stretch to fill it, pushing its text to one side
+   and defeating the `justify-content: center` centering that line is meant
+   to have. */
+.field { display: inline-flex; align-items: center; gap: 3px; min-width: 0; flex: 0 1 auto; }
+/* `white-space: nowrap` lives here, not on `.world-fields` — the wrap that
+   container allows is between fields (so the *set* can spill onto a second
+   line), not inside one. Without this a single overlong value would wrap
+   itself across lines instead of ellipsizing on its own one. */
+.field-value { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* per-field refresh animation (§12) */
 .field.refreshing .field-value,
@@ -3379,28 +3409,6 @@ input.mono {
   width: 100%;
 }
 
-
-/* --------------------------------------------------- the setting in full */
-
-/* What the header line says when it has room to say it. Reached by tapping
-   the truncated version, which is the only way to read it on a phone —
-   `title` needs a pointer that can hover, and a phone has none. */
-.world-full { border-bottom: 1px solid var(--line); }
-.world-long { margin: 0; padding: 8px 2px 10px; font-size: 12px; }
-.world-long-row {
-  display: grid;
-  grid-template-columns: 62px 1fr;
-  gap: 8px;
-  padding: 3px 0;
-}
-.world-long dt { color: var(--muted); }
-.world-long dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
-
-/* Each line arrives after the one above it, the same way the empty state and
-   the menu row do. The fold is already easing open underneath them. */
-.world-full.open .world-long-row { animation: nobody-in 260ms var(--ease-out) backwards; }
-.world-full.open .world-long-row:nth-child(2) { animation-delay: 50ms; }
-.world-full.open .world-long-row:nth-child(3) { animation-delay: 100ms; }
 
 /* ------------------------------------------------------ contrast warning */
 
