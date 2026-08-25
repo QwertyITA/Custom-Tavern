@@ -1752,7 +1752,10 @@ function tavern() {
       const span = min === max ? `${min} paragraph${min === 1 ? "" : "s"}` : `${min} to ${max} paragraphs`;
       const wordsMin = words(min), wordsMax = words(max);
       const wordSpan = wordsMin === wordsMax ? `roughly ${wordsMin} words` : `roughly ${wordsMin} to ${wordsMax} words`;
-      section.text = `${span}, ${wordSpan}. Close enough is close enough.\n\n`
+      section.text = `${span}, ${wordSpan}. The upper end is a hard ceiling — `
+        + "stop there even mid-thought and leave the rest for the next reply, rather than "
+        + "adding one more paragraph to tie things up. The lower end is not a floor to "
+        + "fill: shorter is always fine.\n\n"
         + "Do not take the length of earlier messages in the conversation as the target.\n";
     },
 

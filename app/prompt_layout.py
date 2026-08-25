@@ -325,37 +325,11 @@ do.
 """,
     },
     {
-        # Moved here from the prefix band — was buried among a dozen other
-        # craft:* rules near the top of the prompt, which a smaller local
-        # model (roughly 8B-30B) tends to weight far less reliably than
-        # something read right before it starts writing. `craft:format`
-        # (below) already leans on that same recency effect for its own,
-        # more load-bearing reason; putting length right before it costs the
-        # cache nothing extra, since the whole volatile band is rebuilt every
-        # turn regardless of what lives in it (§ this module's docstring).
-        # The paragraph range is generated text, not hand phrasing: the
-        # editor in static/index.html reads it back out of `s.text` with a
-        # `paragraphs?` regex and rewrites it from two number boxes, so this
-        # shipped default has to stay in the exact "N to M paragraphs,
-        # roughly A to B words." shape static/app.js's setLengthRange()
-        # produces — words = round(paragraphs * 90 / 50) * 50 there, which is
-        # where 100 and 200 below come from.
-        "id": "craft:length", "band": "volatile", "label": "How long a reply runs",
-        "note": "1 to 2 paragraphs by default — set with the stepper in the "
-                "editor below rather than typing prose. Kept in the volatile "
-                "band, right before House style, so it's one of the last "
-                "things the model reads: a length target buried early in a "
-                "long system prompt is exactly what a smaller model forgets.",
-        "text": """\
-1 to 2 paragraphs, roughly 100 to 200 words. Close enough is close enough.
-
-Do not take the length of earlier messages in the conversation as the target.
-""",
-    },
-    {
         "id": "craft:format", "band": "volatile", "label": "House style",
-        "note": "Speech in quotes, actions in asterisks. The one instruction the "
-                "renderer depends on, so it is stated where it is read last.",
+        "note": "Speech in quotes, actions in asterisks. Kept in the volatile "
+                "band, near the end of the prompt, since the renderer depends "
+                "on it and a small model follows markup convention it read "
+                "recently far more reliably than one buried earlier.",
         "text": """\
 Speech goes in "double quotes". Everything else — action, narration, what a
 body does — goes in *single asterisks*. Emphasis inside either is **double**.
@@ -366,6 +340,47 @@ asterisk on the page.
 
 Nothing else is markup here. No headings, no bullet lists, no tables, no HTML
 tags, no code fences; they arrive on the page as themselves.
+""",
+    },
+    {
+        # Moved here from the prefix band — was buried among a dozen other
+        # craft:* rules near the top of the prompt, which a smaller local
+        # model (roughly 8B-30B) weighs far less reliably than something read
+        # right before it starts writing. Placed after craft:format rather
+        # than before it: format is a markup convention most models already
+        # carry strongly from their own fine-tuning, where a paragraph-count
+        # ceiling is a much more foreign, easily-dropped constraint — between
+        # the two, length is the one that most needs to be the very last
+        # thing read. Still ahead of the STRUCTURAL `final` slot (the card's
+        # own post-history instruction, § _order below) — that one gets to
+        # stay truly last regardless, since overriding it is the whole point
+        # of the feature, and it is empty text for most cards anyway, so this
+        # is the actual last thing read for the common case. Costs the cache
+        # nothing extra either way: the whole volatile band is rebuilt every
+        # turn regardless of what lives in it (§ this module's docstring).
+        # The paragraph range is generated text, not hand phrasing: the
+        # editor in static/index.html reads it back out of `s.text` with a
+        # `paragraphs?` regex and rewrites it from two number boxes, so this
+        # shipped default has to stay in the exact "N to M paragraphs,
+        # roughly A to B words." shape static/app.js's setLengthRange()
+        # produces — words = round(paragraphs * 90 / 50) * 50 there, which is
+        # where 100 and 200 below come from.
+        "id": "craft:length", "band": "volatile", "label": "How long a reply runs",
+        "note": "1 to 2 paragraphs by default — set with the stepper in the "
+                "editor below rather than typing prose. The very last thing "
+                "the model reads for most characters, on purpose: a length "
+                "target buried early in a long system prompt, or with room "
+                "left to \"wrap things up\" in, is exactly what a smaller "
+                "model ignores.",
+        # Unwrapped, unlike its neighbours above: this text is regenerated by
+        # setLengthRange() (§ static/app.js) as one line per paragraph, and
+        # this has to stay a byte-for-byte match with whatever that produces
+        # at 1-2 paragraphs, or an untouched install would show a phantom
+        # "edit" the moment to_storage() compared the two.
+        "text": """\
+1 to 2 paragraphs, roughly 100 to 200 words. The upper end is a hard ceiling — stop there even mid-thought and leave the rest for the next reply, rather than adding one more paragraph to tie things up. The lower end is not a floor to fill: shorter is always fine.
+
+Do not take the length of earlier messages in the conversation as the target.
 """,
     },
     {
@@ -449,34 +464,47 @@ def _shipped(base: dict[str, Any]) -> dict[str, Any]:
     return section
 
 
-# One-time migration: craft:length moved from the prefix band to volatile in
-# this release (§ recency placement — see its own comment in WRITING), and
-# belongs right next to the block it maps to here. `to_storage` never
-# persists a band, only order/enabled/text, so a settings file saved before
-# the move has no record of which band this id used to sit in — normalise()
-# cannot tell "stale position from before a band change" from "the user put
-# it here on purpose" just by looking at one stored entry. What it *can* look
-# at is where that entry falls relative to the rest of the stored order: a
-# settings file from before the move stored craft:length among the other
-# prefix craft:* blocks, i.e. before every genuinely-volatile id in the file;
-# one saved since the move — including one a person has since dragged
-# somewhere else on purpose — has it after at least one of them. Safe to
-# delete, along with `_stale_relocation`, once installs from before the move
-# are no longer in the wild.
-RELOCATION_ANCHORS: dict[str, str] = {"craft:length": "craft:format"}
+# One-time migration: craft:length has moved twice now — prefix to volatile,
+# then from right before craft:format to right before the STRUCTURAL `final`
+# slot (§ recency placement — see its own comment in WRITING, and craft:len-
+# gth's own comment for why `final` specifically). `to_storage` never
+# persists a band or a neighbour, only order/enabled/text, so a settings file
+# saved before either move has no record of where this id used to sit —
+# normalise() cannot tell "stale position from an earlier layout" from "the
+# user put it here on purpose" just by looking at one stored entry.
+#
+# Two different ids are involved on purpose: `RELOCATION_ANCHORS` is *where
+# it goes* — inserted immediately in front of that id below — while
+# `RELOCATE_AFTER` is *what proves it hasn't gotten there yet*. They can't be
+# the same id here, because the actual destination (`final`) is, by design,
+# always the last item in its band (§ `_order` above) — comparing a stored
+# position against something that's always last is never useful, since
+# anything anywhere in the band is "before" it. `craft:format`, the id it now
+# has to come directly after, is what actually distinguishes "still needs to
+# move" (not yet stored after it — true from the very first prefix position,
+# and still true of the intermediate spot the first move alone would have
+# left it at) from "already moved" (stored after it, including a spot a
+# person has since dragged it to on purpose). Safe to delete, along with
+# `_stale_relocation`, once installs from before both moves are no longer in
+# the wild.
+RELOCATION_ANCHORS: dict[str, str] = {"craft:length": "final"}
+RELOCATE_AFTER: dict[str, str] = {"craft:length": "craft:format"}
 
 
 def _stale_relocation(stored: list[dict], section_id: str) -> bool:
-    length_idx: int | None = None
+    after = RELOCATE_AFTER[section_id]
+    length_idx = after_idx = None
     for i, entry in enumerate(stored):
         if not isinstance(entry, dict):
             continue
         sid = str(entry.get("id") or "")
         if sid == section_id:
             length_idx = i
-        elif sid in BUILTIN_BY_ID and BUILTIN_BY_ID[sid]["band"] == "volatile":
-            return length_idx is None or length_idx < i
-    return False
+        elif sid == after:
+            after_idx = i
+    if length_idx is None:
+        return False
+    return after_idx is None or length_idx < after_idx
 
 
 def normalise(raw: Any) -> list[dict[str, Any]]:

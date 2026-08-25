@@ -97,15 +97,15 @@ def test_an_edited_block_is_kept_and_a_cleared_one_falls_back():
     assert {s["id"]: s for s in cleared}["craft:length"]["text"] == shipped
 
 
-def test_a_relocated_id_lands_at_the_end_of_its_new_band_not_its_old_position():
-    """craft:length moved prefix -> volatile. A settings file saved before
-    that move has it stored early — among the other prefix craft:* blocks —
-    and normalise() has no record of which band it used to carry, so without
-    the migration it would inherit that early position and sort to the
-    *front* of volatile instead of next to craft:format where it belongs."""
-    stale = [
+def test_a_relocated_id_lands_right_before_final_not_its_old_position():
+    """craft:length has moved twice: prefix -> volatile, then from right
+    before craft:format to right before the STRUCTURAL final slot. A settings
+    file saved before either move has it stored somewhere that no longer
+    matches, and normalise() has no record of where it used to sit, so
+    without the migration it would inherit that stale position instead of
+    landing right after craft:format where it belongs now."""
+    base = [
         {"id": "craft:sim", "enabled": True},
-        {"id": "craft:length", "enabled": True},
         {"id": "craft:banned", "enabled": True},
         {"id": "state", "enabled": True},
         {"id": "setting", "enabled": True},
@@ -115,15 +115,30 @@ def test_a_relocated_id_lands_at_the_end_of_its_new_band_not_its_old_position():
         {"id": "craft:format", "enabled": True},
         {"id": "final", "enabled": True},
     ]
-    volatile_ids = ids(prompt_layout.normalise(stale), "volatile")
-    assert volatile_ids.index("craft:length") == volatile_ids.index("craft:format") - 1
+
+    def stored_with_length_at(i):
+        out = list(base)
+        out.insert(i, {"id": "craft:length", "enabled": True})
+        return out
+
+    # Fully original: still among the prefix craft:* blocks.
+    original = stored_with_length_at(1)
+    volatile_ids = ids(prompt_layout.normalise(original), "volatile")
+    assert volatile_ids.index("craft:length") == volatile_ids.index("craft:format") + 1
     assert volatile_ids[-1] == "final"
 
-    # And it stays put on a second pass — the migration only fires on a
-    # stored position that still looks like the old, pre-move one; a file
-    # that already has craft:length in its new spot (including one where a
-    # person has since dragged it somewhere else on purpose) is trusted as-is.
-    again = prompt_layout.to_storage(prompt_layout.normalise(stale))
+    # Intermediate: already in volatile, but only as far as the first move
+    # (right before craft:format) would have left it — needs to move once
+    # more, to right after it, rather than being trusted as already-settled.
+    intermediate = stored_with_length_at(base.index({"id": "craft:format", "enabled": True}))
+    assert ids(prompt_layout.normalise(intermediate), "volatile") == volatile_ids
+
+    # And it stays put once it's actually there — the migration only fires on
+    # a stored position that still looks like one of the earlier ones; a file
+    # that already has craft:length in its current spot (including one where
+    # a person has since dragged it somewhere else on purpose) is trusted
+    # as-is.
+    again = prompt_layout.to_storage(prompt_layout.normalise(original))
     assert ids(prompt_layout.normalise(again), "volatile") == volatile_ids
 
 
