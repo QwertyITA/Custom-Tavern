@@ -1509,6 +1509,7 @@ body {
 /* --------------------------------------------------- characters & chats */
 
 .char {
+  position: relative;
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 7px;
@@ -1521,8 +1522,24 @@ body {
    Comes after .current above so gold wins the border when a character is
    both open and starred; the row still reads as "open" from its position in
    the panel and doesn't need the border to say it twice. */
-.char.favourite {
-  border-color: color-mix(in srgb, #e8b923 55%, var(--line));
+.char.favourite { border-color: color-mix(in srgb, #e8b923 55%, var(--line)); }
+/* The pulse lives on its own pseudo-element rather than animating `.char`
+   itself — `.char` is also every roster row's entrance animation target
+   (§ .sheet-body > div > * below), and animation is a shorthand: putting
+   char-glow directly on `.char.favourite` made it the property's only
+   value while starred, silently replacing the entrance animation rather
+   than layering over it. The instant a row unstarred, the entrance
+   animation stopped being overridden and reapplied as if newly mounted —
+   backwards fill snapping straight back to its own "from" keyframe — which
+   is what actually read as the row vanishing and sliding back in. A
+   pseudo-element never touches `.char`'s own `animation` property at all,
+   so nothing there is ever fighting the entrance animation for it. */
+.char.favourite::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
   animation: char-glow 2.6s var(--ease-in-out) infinite;
 }
 @keyframes char-glow {
