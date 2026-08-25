@@ -1882,6 +1882,21 @@ body {
      read as words, so they are shown as words. */
   text-transform: capitalize;
 }
+/* A full sentence rather than a short field name, with a real switch at the
+   end instead of a native checkbox — .row-label's usual fixed 74px column
+   is sized for "Name"/"URL", not "Remember things about this character".
+   The label grows to fill the row and wraps; the switch (§ .p-switch) stays
+   fixed at the far end, same shape as every other on/off in a list here
+   (tiers, passes, regex rules) rather than the checkbox .toggle uses. */
+.switch-row { justify-content: space-between; }
+.switch-row .row-label {
+  width: auto;
+  flex: 1;
+  color: var(--text);
+  font-size: 13px;
+  text-transform: none;
+}
+
 .row input, .row select, .backend-head input, .backend-head select {
   flex: 1;
   min-width: 0;

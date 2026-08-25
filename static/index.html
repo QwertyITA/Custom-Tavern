@@ -2640,10 +2640,15 @@
              memory, rather than one still quietly running in the
              background with no way to see it. -->
         <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-brain"/></svg>Memories</h3>
-        <label class="toggle" x-show="draftCharacter.id">
-          <input type="checkbox" x-model="draftCharacter.memory_enabled">
-          <span>Remember things about this character</span>
-        </label>
+        <div class="row switch-row" x-show="draftCharacter.id">
+          <span class="row-label">Remember things about this character</span>
+          <button class="p-switch" :class="{ on: draftCharacter.memory_enabled }"
+                  @click="draftCharacter.memory_enabled = !draftCharacter.memory_enabled"
+                  :aria-pressed="draftCharacter.memory_enabled"
+                  aria-label="Remember things about this character">
+            <span class="p-knob"></span>
+          </button>
+        </div>
         <button class="wide" @click="openMemories()">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-brain"/></svg>
           <span>Edit memories</span>
