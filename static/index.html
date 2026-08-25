@@ -1115,6 +1115,35 @@
           back to this page — a field showing <code>•••</code> already has one.
         </p>
 
+        <!-- Three one-tap starting points rather than one more thing to
+             configure by hand: applying one is a plain local settings edit
+             (§ applyHordePreset, app.js), same as any field below — it rides
+             this same Save bar and nothing here is a persisted "mode" a
+             later hand-edit could leave stale. Stacked full-width cards
+             rather than the compact swatch row Theme's presets use (§
+             applyPreset): those need only a swatch and a name, these need
+             real description text to actually be understandable. -->
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-gauge"/></svg>Quick setup</h3>
+        <p class="note">
+          Three ready-made starting points built around AI Horde — its free,
+          queue-based community compute. Pick one, then change anything by
+          hand afterward; nothing here is locked in.
+        </p>
+        <template x-for="preset in hordePresets()" :key="preset.id">
+          <div class="backend horde-preset">
+            <p class="horde-preset-title" x-text="preset.label"></p>
+            <p class="note" x-text="preset.tagline"></p>
+            <p class="kind-note" x-text="preset.summary"></p>
+            <button class="wide primary" @click="applyHordePreset(preset.id)">
+              Use this setup
+            </button>
+          </div>
+        </template>
+        <p class="kind-note">
+          Uses the anonymous Horde key by default — free, but slow and lower
+          priority. Add your own key on the backend below once you have one.
+        </p>
+
         <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-backend"/></svg>Backends</h3>
         <p class="note">
           Where the work is sent. Tap one to open it — a backend that is set up

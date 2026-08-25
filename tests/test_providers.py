@@ -73,6 +73,30 @@ def test_context_length_is_within_limits():
     assert LIMITS["max_context_length"][0] <= value <= LIMITS["max_context_length"][1]
 
 
+def _max_context(**overrides) -> int:
+    provider = horde_provider(**overrides)
+    request = GenRequest(system="s", messages=[{"role": "user", "content": "hi"}])
+    return provider.build_payload(request)["params"]["max_context_length"]
+
+
+def test_a_configured_context_reaches_the_actual_request():
+    """This is the value that decides which workers are even eligible to pick
+    the job up — distinct from context_limit(), which only fits the app's own
+    prompt budget and already honoured a configured context. This one used to
+    stay hardcoded regardless of it."""
+    assert _max_context(context=4096) == 4096
+
+
+def test_an_unconfigured_context_falls_back_to_the_safe_default():
+    from app.providers.horde import DEFAULT_CONTEXT
+
+    assert _max_context(context=0) == DEFAULT_CONTEXT
+
+
+def test_a_configured_context_past_the_ceiling_still_clamps():
+    assert _max_context(context=999999) == LIMITS["max_context_length"][1]
+
+
 def test_empty_stop_sequences_are_omitted_rather_than_sent_empty():
     provider = horde_provider(template="plain")
     request = GenRequest(system="s", messages=[], sampling=Sampling(stop=[]))

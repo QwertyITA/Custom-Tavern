@@ -2058,6 +2058,13 @@ body {
   margin-bottom: 10px;
   background: var(--panel);
 }
+/* The Quick-setup preset cards (§ index.html) reuse .backend's box wholesale
+   — same bordered-card language as the connection list sitting right below
+   them — and only add a bold title above the description text .backend
+   itself has no opinion on. */
+.horde-preset-title { font-size: 14px; font-weight: 600; color: var(--text); margin: 0 0 4px; }
+.horde-preset .note { margin-bottom: 6px; }
+.horde-preset .kind-note { margin-bottom: 10px; }
 .backend-head { display: flex; gap: 8px; align-items: center; margin-bottom: 9px; }
 .backend-head .grow { flex: 2; }
 .backend-foot {

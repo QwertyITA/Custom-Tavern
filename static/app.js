@@ -134,6 +134,60 @@ const WORDS_PER_PARAGRAPH = 90;
 // tinkering, and resetting it would be a trap under that label.
 const SAMPLING_DEFAULTS = { temp: 0.8, top_p: 0.95, top_k: 40, rep_penalty: 1.1 };
 
+// ---- AI Horde quick-setup presets (§ applyHordePreset) ----
+//
+// Which of the eleven "writing" library blocks each tier turns on — the
+// other four (craft:format, craft:length, craft:combat, craft:adult) are
+// never touched by a preset, see applyHordePreset's own comment for why.
+// Each tier builds on the one below it rather than being listed from
+// scratch, so the progression (bare coherence rules -> +voice/agency/polish
+// -> +the two priciest descriptive blocks) is visible here as a list, not
+// something you have to diff three separate arrays to see.
+const HORDE_WRITING_MINI = ["craft:sim", "craft:pov", "craft:autonomy", "craft:knowledge"];
+const HORDE_WRITING_STANDARD = [
+  ...HORDE_WRITING_MINI,
+  "craft:voice", "craft:bold", "craft:banned", "craft:hours",
+];
+const HORDE_WRITING_MAX = [
+  ...HORDE_WRITING_STANDARD,
+  "craft:first_look", "craft:prose", "craft:drives",
+];
+// The full set a preset is allowed to have an opinion on — used to clear
+// anything *not* in a preset's own list back off, so applying Mini after Max
+// actually turns blocks back off instead of only ever adding more.
+const HORDE_WRITING_SCALING = new Set(HORDE_WRITING_MAX);
+
+const HORDE_PRESETS = [
+  {
+    id: "mini", label: "AI Horde — Mini",
+    tagline: "Lightest and fastest: a small context keeps you nearer the "
+      + "front of Horde's queue, and only the essential writing rules run. "
+      + "Good for a quick back-and-forth or an older phone.",
+    context: 4096, max_tokens: 350,
+    foreground: false, background: false,
+    writing: HORDE_WRITING_MINI,
+  },
+  {
+    id: "standard", label: "AI Horde — Standard",
+    tagline: "A balanced middle ground: place, weather and memories stay on "
+      + "and more writing rules apply, at a moderate context size. Slower "
+      + "than Mini, more consistent.",
+    context: 8192, max_tokens: 512,
+    foreground: false, background: true,
+    writing: HORDE_WRITING_STANDARD,
+  },
+  {
+    id: "max", label: "AI Horde — Max",
+    tagline: "Everything on: the Refiner double-checks each reply, all "
+      + "writing rules apply, and the context is as large as Horde allows. "
+      + "Slowest and heaviest — pick this only when you want the best Horde "
+      + "can give and don't mind the wait.",
+    context: 32000, max_tokens: 512,
+    foreground: true, background: true,
+    writing: HORDE_WRITING_MAX,
+  },
+];
+
 // Hold-to-open action wheel.
 const HOLD_MS = 380;          // press this long and the wheel opens
 const HOLD_SLOP = 10;         // finger movement that cancels the hold instead
@@ -5552,6 +5606,79 @@ function tavern() {
       for (const tier of this.settings.tier_names) {
         if (this.settings.tiers[tier] === gone.name) this.settings.tiers[tier] = fallback;
       }
+    },
+
+    // ---- AI Horde quick-setup presets ----
+
+    hordePresets() {
+      return HORDE_PRESETS.map((p) => ({ ...p, summary: this.hordePresetSummary(p) }));
+    },
+
+    // One line of plain fact under each card's tagline, generated rather
+    // than hand typed so it can never drift from what applyHordePreset()
+    // actually does to your settings.
+    hordePresetSummary(preset) {
+      return [
+        `Refiner ${preset.foreground ? "on" : "off"}`,
+        `Secondary info ${preset.background ? "on" : "off"}`,
+        `${preset.writing.length} writing rule${preset.writing.length === 1 ? "" : "s"}`,
+        // /1000 rather than /1024: this is the number as anyone shopping for
+        // "a 32k model" already thinks of it, and 32000/1024 rounds to a
+        // slightly-off-looking "31k" that the tagline's own "as large as
+        // Horde allows" then has to live down.
+        `~${Math.round(preset.context / 1000)}k context`,
+      ].join(" · ");
+    },
+
+    // A local, one-shot bulk mutation — same shape as applyPreset() (§ theme
+    // presets) below: it rides the existing Save bar rather than saving
+    // itself, so tapping a card is exactly as reversible as hand-editing any
+    // one field, and nothing here is a persisted "which preset is active"
+    // flag that could go stale the moment something is tweaked afterward.
+    applyHordePreset(id) {
+      const preset = HORDE_PRESETS.find((p) => p.id === id);
+      if (!preset) return;
+
+      // One horde backend, found or made — not one per preset. Re-picking a
+      // different tier is meant to retune the same connection, not leave
+      // three "AI Horde" entries behind for every tier someone tried.
+      let backend = this.settings.backends.find((b) => b.kind === "horde");
+      const isNew = !backend;
+      if (isNew) {
+        backend = { name: "AI Horde", kind: "horde", models: [] };
+        this.settings.backends.push(backend);
+      }
+      const defaults = (this.settings.kind_defaults || {}).horde || {};
+      backend.base_url = defaults.base_url ?? backend.base_url ?? "";
+      backend.template = defaults.template ?? backend.template ?? "chatml";
+      backend.timeout = defaults.timeout ?? backend.timeout ?? 300;
+      backend.model = defaults.model ?? backend.model ?? "";
+      backend.think = defaults.think ?? backend.think ?? "off";
+      // Only written on a fresh backend: re-applying a preset over one a
+      // person has already put their own key into must not quietly erase it.
+      if (isNew) backend.api_key = defaults.api_key ?? "0000000000";
+      backend.context = preset.context;
+      backend.max_tokens = preset.max_tokens;
+      backend.models = backend.models || [];
+
+      // Committed to Horde for every tier regardless of which are switched
+      // on below — so flipping Refiner back on by hand later finds it
+      // already pointed here instead of at whatever backend it last was.
+      this.settings.tiers.blocking = backend.name;
+      this.settings.tiers.foreground = backend.name;
+      this.settings.tiers.background = backend.name;
+      const off = [];
+      if (!preset.foreground) off.push("foreground");
+      if (!preset.background) off.push("background");
+      this.settings.tiers_off = off;
+
+      const wanted = new Set(preset.writing);
+      for (const section of this.settings.prompt_sections || []) {
+        if (HORDE_WRITING_SCALING.has(section.id)) section.enabled = wanted.has(section.id);
+      }
+
+      if (isNew) this.openBackend = this.settings.backends.length - 1;
+      this.flashHint(`${preset.label} applied — review and Save`);
     },
 
     async saveSettings() {

@@ -64,7 +64,6 @@ class HordeProvider(Provider):
     def __init__(self, config) -> None:
         super().__init__(config)
         self._client: httpx.AsyncClient | None = None
-        self.context_length = DEFAULT_CONTEXT
 
     async def _probe_context(self) -> int | None:
         """Horde's own ceiling, not a model's: a worker may hold more, but the
@@ -105,9 +104,20 @@ class HordeProvider(Provider):
         for name, bounds in LIMITS.items():
             if name in params and isinstance(bounds, tuple):
                 params[name] = type(params[name])(_clamp(params[name], *bounds))
+        # The value actually sent to Horde's queue, distinct from
+        # `context_limit()` above: that one only fits the *app's own* prompt
+        # budget to what a backend can hold, a different code path that a
+        # configured `context` already reached. This is what tells Horde
+        # which workers are even eligible to pick the job up — the fewer
+        # tokens asked for, the more (smaller-window) workers qualify, which
+        # is the actual lever behind "a smaller context answers faster."
+        # Configured wins when set; unset falls back to a modest default
+        # rather than Horde's full 32000 ceiling, so a backend nobody has
+        # tuned does not silently shut out most of the pool.
+        context_length = int(self.config.context) or DEFAULT_CONTEXT
         params.update({
             "max_length": int(_clamp(self.cap(sampling), *LIMITS["max_length"])),
-            "max_context_length": int(_clamp(self.context_length, *LIMITS["max_context_length"])),
+            "max_context_length": int(_clamp(context_length, *LIMITS["max_context_length"])),
             "n": 1,
         })
         if stops:
