@@ -732,6 +732,34 @@ async def forget_memory(memory_id: str) -> dict:
     return {"ok": True}
 
 
+@app.post("/api/characters/{character_id}/reactions/regenerate")
+async def regenerate_reactions(character_id: str, payload: dict = Body(default={})) -> dict:
+    """The "Regenerate reactions" button, and the quiet backfill fired right
+    after a person clears a line by hand (§ static/app.js's
+    saveReactionField) — both the same underlying fill, just told which
+    keys to touch and awaited so the editor can show what came back, unlike
+    the fire-and-forget calls in character_reactions.py's own docstring.
+
+    `keys` in the body forces exactly those lines regardless of what is
+    already there — the button passes all three. Omitted, this only fills
+    in whatever is still blank, same as an ordinary unforced fill.
+    """
+    db = get_db()
+    character = repo.get_character(db, character_id)
+    if character is None:
+        raise HTTPException(404, "character not found")
+    if not config.SETTINGS.feature_character_reactions:
+        raise HTTPException(400, "character reactions are turned off")
+    keys = payload.get("keys")
+    if keys is not None:
+        if not isinstance(keys, list) or not all(k in REACTION_KEYS for k in keys):
+            raise HTTPException(400, f"keys must be a subset of {list(REACTION_KEYS)}")
+    updated = await character_reactions.fill_missing(db, config.SETTINGS, character, force=keys)
+    if updated is None:
+        raise HTTPException(502, "couldn't reach a backend to generate reactions")
+    return {"reactions": updated.reactions.model_dump()}
+
+
 # ------------------------------------------------------------------- chats
 
 

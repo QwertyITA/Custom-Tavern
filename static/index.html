@@ -294,19 +294,28 @@
     <!-- The inline twin of the floating world-pill below (§ that comment
          for the full reasoning) — same fields, same refresh button, living
          in the header row beside the name instead of floating over the
-         chat. This is the everyday case now: the fields wrap onto a second
-         line here (§ .world-fields in styles.css) rather than handing off
-         to the float the moment one line runs out of room. Textually
-         duplicated rather than shared, since Alpine has no partial to pull
-         one copy of a template into two different places in the tree — but
-         both read the same state, so the two can never show different
-         values, only render in different spots. See pillFitsInline for the
-         rule that decides which one is showing — a long name is the one
-         thing that still sends this to the float instead, since the name
-         has no second line of its own to grow into. Plain text, not a
-         control: nothing here opens or expands anything anymore. -->
-    <div class="world-pill world-pill-inline" x-show="!menu && hasScene && pillFitsInline()" x-cloak>
-      <div class="world-fields">
+         chat. This is the everyday case now, and covers two situations:
+         the ordinary one where there is a scene and it fits (the fields
+         wrap onto a second line here, § .world-fields in styles.css, rather
+         than handing off to the float the moment one line runs out of
+         room), and the empty one where there is no scene yet at all — just
+         the refresh/"generate this" button, which is small enough to
+         always belong in the header rather than floating on its own. Only
+         a real scene that is too much even for two lines (in practice, an
+         unusually long character name leaving it no room) sends this to
+         the float instead — see pillFitsInline. Textually duplicated
+         rather than shared, since Alpine has no partial to pull one copy
+         of a template into two different places in the tree — but both
+         read the same state, so the two can never show different values,
+         only render in different spots. Plain text, not a control: nothing
+         here opens or expands anything anymore. -->
+    <div class="world-pill world-pill-inline" :class="{ empty: !hasScene }"
+         x-show="!menu && (!hasScene || pillFitsInline())" x-cloak>
+      <!-- x-show, not left to the three field spans hiding themselves —
+           empty otherwise still reserves world-fields' own min-height
+           beside the refresh button, the same collapsed-box gap the float
+           pill (§ below) used to have to guard against too. -->
+      <div class="world-fields" x-show="hasScene" x-cloak>
         <span class="field" :class="{ refreshing: refreshing.scene }"
               :title="`Place: ${scene.place || 'unknown'}`" x-show="scene.place">
           <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-place"/></svg>
@@ -379,29 +388,31 @@
 </header>
 
 <!-- The world-info pill's floating twin — the last resort now, not the
-     common case: only for a name so long it leaves the inline pill (§
-     world-pill-inline above) nowhere to go even with its own second line,
-     and for before there is a scene at all (pillFitsInline only asks the
-     question once there is real text to measure, so a bare "generate this"
-     button with no fields yet always lands here). `position: fixed`
-     (§ styles.css) takes it out of the document flow entirely, so `.chat`
-     gives up none of its own height reserving a place for this; the pill
-     sits on top of whatever `.chat` has scrolled to underneath it, on its
-     own solid background so that content is genuinely covered there, not
-     bleeding through. `--worldbar-h` (§ initWorldbarHeight in app.js) is
-     what lets `top` sit flush under the header without hard-coding its
-     height, which changes with the safe-area inset and isn't the same on
-     every phone. Hidden outright while the menu is open rather than left
-     for the opening buttons to cover — a covered-but-still-there pill bled
-     through the gaps between them under glass, which looked broken, and
-     there is nothing to bleed through when it is not rendered at all. -->
-<div class="world-pill world-pill-float" :class="{ empty: !hasScene }" x-show="!menu && (!hasScene || !pillFitsInline())" x-cloak
+     common case: only for a real scene that is too much even for two lines
+     inside the header (§ world-pill-inline above), which in practice means
+     an unusually long character name leaving it no room. The empty state
+     (no scene yet, just the refresh/"generate this" button) lives in the
+     header now, not here — it is small enough to always fit there, so this
+     never renders for it. `position: fixed` (§ styles.css) takes it out of
+     the document flow entirely, so `.chat` gives up none of its own height
+     reserving a place for this; the pill sits on top of whatever `.chat`
+     has scrolled to underneath it, on its own solid background so that
+     content is genuinely covered there, not bleeding through. `--worldbar-h`
+     (§ initWorldbarHeight in app.js) is what lets `top` sit flush under the
+     header without hard-coding its height, which changes with the
+     safe-area inset and isn't the same on every phone. Hidden outright
+     while the menu is open rather than left for the opening buttons to
+     cover — a covered-but-still-there pill bled through the gaps between
+     them under glass, which looked broken, and there is nothing to bleed
+     through when it is not rendered at all. -->
+<div class="world-pill world-pill-float" x-show="!menu && hasScene && !pillFitsInline()" x-cloak
      x-transition:enter="braintab-enter" x-transition:enter-start="braintab-from"
      x-transition:enter-end="braintab-to">
-  <!-- Hidden entirely until a scene exists. Three em-dashes said nothing
-       except that the app had not got round to it yet. Plain text, not a
+  <!-- No empty state to hide here — the outer x-show above already
+       guarantees hasScene by the time this renders (empty lives on the
+       inline pill instead, § world-pill-inline). Plain text, not a
        control — same as the inline pill, nothing here opens or expands. -->
-  <div class="world-fields" x-show="hasScene" x-cloak>
+  <div class="world-fields">
     <span class="field" :class="{ refreshing: refreshing.scene }"
           :title="`Place: ${scene.place || 'unknown'}`" x-show="scene.place">
       <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-place"/></svg>
@@ -839,7 +850,7 @@
            bubble above the sheet rather than a line laid into the sheet's
            own flow, so it can appear without pushing the Delete button a
            single pixel out from under the finger already holding it down. -->
-      <div class="reaction-bubble kill-preview" x-show="killHold && killHold.previewShown && killHold.character.reactions && killHold.character.reactions.killed" x-cloak
+      <div class="reaction-bubble kill-preview" x-show="settings.feature_character_reactions && killHold && killHold.previewShown && killHold.character.reactions && killHold.character.reactions.killed" x-cloak
            x-transition:enter="reaction-bubble-enter" x-transition:enter-start="reaction-bubble-from"
            x-transition:enter-end="reaction-bubble-to"
            x-text="killHold ? killHold.character.reactions.killed : ''"></div>
@@ -2052,6 +2063,18 @@
           already on screen, both of which stay instant.
         </p>
 
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-heart"/></svg>Reactions</h3>
+        <label class="toggle">
+          <input type="checkbox" x-model="settings.feature_character_reactions">
+          <span>Character reactions</span>
+        </label>
+        <p class="kind-note">
+          A character's own words on being starred, unstarred, or deleted
+          (§ Reactions, in each character's editor). Off stops both halves:
+          nothing gets generated in the background, and the bubbles that
+          would show one fall back to the plain toast instead.
+        </p>
+
         <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-bug"/></svg>Debug</h3>
         <label class="toggle">
           <input type="checkbox" x-model="hud">
@@ -2597,7 +2620,11 @@
              explicit open rather than sitting in the editor by default:
              generated text nobody asked to read yet is a spoiler the moment
              it is on screen, and opening this editor just to rename someone
-             used to hand you all three unasked. -->
+             used to hand you all three unasked. Gone entirely, same as the
+             Connect-tab features, when Settings turns them off — nothing
+             here to edit once nothing here ever gets written. -->
+        <template x-if="settings.feature_character_reactions">
+        <div>
         <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-heart"/></svg>Reactions</h3>
         <button class="wide" @click="reactionsOpen = true">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-heart"/></svg>
@@ -2605,6 +2632,8 @@
           <span class="p-count" x-show="draftCharacter.id && missingReactions().length"
                 x-text="missingReactions().length + ' pending'"></span>
         </button>
+        </div>
+        </template>
 
         <!-- Durable facts the memory pass pulls out of the conversation
              (§ app/memory.py) — full-screen the same way Reactions is,
@@ -2805,9 +2834,14 @@
 
     <!-- Reactions, the same way — full-screen and behind an explicit open,
          so opening the character editor for any other reason never shows
-         generated text meant to surprise the player later. -->
+         generated text meant to surprise the player later. Each line saves
+         the moment it changes (§ saveReactionField in app.js), the same
+         "no separate Save button" idiom Memories below uses — and clearing
+         one is itself the trigger for getting it back, so that field has to
+         actually be in the database the instant it is blank, not sitting in
+         a draft waiting on the character editor's own Save bar. -->
     <div class="sheet-modal" x-show="reactionsOpen" x-cloak
-         @keydown.escape.window="reactionsOpen = false"
+         @click="closeReactions()" @keydown.escape.window="closeReactions()"
          x-transition:enter="sheet-modal-enter" x-transition:enter-start="sheet-modal-from"
          x-transition:enter-end="sheet-modal-to"
          x-transition:leave="sheet-modal-leave" x-transition:leave-start="sheet-modal-to"
@@ -2819,26 +2853,39 @@
         <div class="sheet-modal-body">
           <p class="note" x-show="draftCharacter.id && missingReactions().length">
             Still filling in: <span x-text="missingReactions().join(', ')"></span> —
-            it finishes the first time this character is talked to.
+            comes back on its own once a backend can reach it, or tap
+            Regenerate below.
           </p>
           <label class="col-field" x-show="draftCharacter.reactions">
             <span class="row-label wide-label">Starred</span>
-            <textarea x-model="draftCharacter.reactions.starred" rows="2"
+            <textarea :value="draftCharacter.reactions.starred" rows="2"
+                      @change="saveReactionField('starred', $event.target.value)"
                       placeholder="How they'd take being marked a favourite. 5–8 words."></textarea>
           </label>
           <label class="col-field" x-show="draftCharacter.reactions">
             <span class="row-label wide-label">Unstarred</span>
-            <textarea x-model="draftCharacter.reactions.unstarred" rows="2"
+            <textarea :value="draftCharacter.reactions.unstarred" rows="2"
+                      @change="saveReactionField('unstarred', $event.target.value)"
                       placeholder="How they'd take being un-favourited. 5–8 words."></textarea>
           </label>
           <label class="col-field" x-show="draftCharacter.reactions">
             <span class="row-label wide-label">Killed</span>
-            <textarea x-model="draftCharacter.reactions.killed" rows="2"
+            <textarea :value="draftCharacter.reactions.killed" rows="2"
+                      @change="saveReactionField('killed', $event.target.value)"
                       placeholder="Their very last line, if this character is ever deleted. 5–8 words."></textarea>
           </label>
+          <!-- The deliberate do-over — overwrites all three regardless of
+               what is already there, unlike the automatic backfill above,
+               which only ever touches a blank. -->
+          <button class="wide" @click="regenerateAllReactions()"
+                  :disabled="regeneratingReactions || !draftCharacter.id">
+            <svg class="icon" :class="{ spinning: regeneratingReactions }" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-refresh"/></svg>
+            <span x-text="regeneratingReactions ? 'Regenerating…' : 'Regenerate reactions'"></span>
+          </button>
+          <span class="save-msg bad" x-show="reactionsError" x-text="reactionsError"></span>
         </div>
         <div class="btn-row crop-actions">
-          <button class="wide primary" @click="reactionsOpen = false">Done</button>
+          <button class="wide primary" @click="closeReactions()">Done</button>
         </div>
       </div>
     </div>
@@ -2848,7 +2895,7 @@
          same idiom as an author's note or a theme colour: there is nothing
          here that needs an explicit commit separate from just changing it. -->
     <div class="sheet-modal" x-show="memoriesOpen" x-cloak
-         @keydown.escape.window="closeMemories()"
+         @click="closeMemories()" @keydown.escape.window="closeMemories()"
          x-transition:enter="sheet-modal-enter" x-transition:enter-start="sheet-modal-from"
          x-transition:enter-end="sheet-modal-to"
          x-transition:leave="sheet-modal-leave" x-transition:leave-start="sheet-modal-to"

@@ -438,13 +438,18 @@ body {
      not show through. */
   box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--text) 30%, transparent);
 }
-/* Before there is a scene, .world-fields renders nothing (x-show="hasScene")
-   and the refresh button is this pill's only content — the lopsided padding
+/* Before there is a scene — always the inline pill now (§ index.html), the
+   float one never renders empty — .world-fields is x-show'd away entirely
+   and the refresh button is this pill's only content. The lopsided padding
    above exists to balance a row of text against the button beside it, and
    with no text left to balance it just pushed the button off-centre inside
    an oval it didn't fill, which read as a broken shape rather than a control.
-   Even padding around one round button reads as a plain icon button instead. */
+   Even padding around one round button reads as a plain icon button instead.
+   The 130px floor above is for wrapped field text finding room to breathe —
+   nothing this small needs it, and holding an empty pill to that width left
+   it a wide oval with one small button adrift in it. */
 .world-pill.empty { padding: 1px; gap: 0; }
+.world-pill-inline.empty { min-width: 0; }
 /* Wraps rather than clipping: pillFitsInline already keeps anything wider
    than two lines' worth out of here entirely, so whatever does land here is
    meant to be read in full. `justify-content: center` centers each wrapped
@@ -1516,7 +1521,13 @@ body {
   background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--line);
-  border-radius: 18px;
+  /* Matches the global textarea:focus-visible rule (§ below, "focus, for
+     anyone not using a finger") on purpose: that rule sets its own
+     border-radius, and on a phone a tap into a text field counts as
+     focus-visible same as a real keyboard tab does — so a different radius
+     here only ever showed while typing, then snapped back the moment focus
+     left. One value, so there is nothing left to snap between. */
+  border-radius: 6px;
   padding: 9px 12px;
   font: inherit;
 }

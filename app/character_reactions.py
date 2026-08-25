@@ -8,11 +8,16 @@ character's replies, so the voice matches — and generated once per line:
 whichever of the three already has something in it, typed by hand or
 generated earlier, is never touched again.
 
-Called from two places, both fire-and-forget (a broken generation must never
-hold up a character import or a reply): `main.py` right after a card import,
-and `passes/scheduler.py`'s `run_turn`, after the reply for a turn has
-already gone out, so a character that failed at import keeps getting another
-try each time someone actually talks to it.
+Called from three places: `main.py` right after a card import and
+`passes/scheduler.py`'s `run_turn` (both fire-and-forget — a broken
+generation must never hold up an import or a reply — so a character that
+failed at import, or had a line cleared by hand, keeps getting another try
+each time someone actually talks to it), and `main.py`'s reactions/regenerate
+route, awaited so the character sheet can show what came back.
+
+Settings.feature_character_reactions gates all three at once, checked here
+rather than at each call site: off, `fill_missing` is a no-op regardless of
+who called it or why.
 """
 
 from __future__ import annotations
@@ -58,15 +63,23 @@ def _prompt(character: Character, wanted: list[str]) -> str:
 
 
 async def fill_missing(
-    db: Database, settings: Settings, character: Character
+    db: Database, settings: Settings, character: Character, *, force: list[str] | None = None
 ) -> Character | None:
     """Generate whichever lines are missing and save them.
+
+    `force`, when given, regenerates exactly those keys regardless of what is
+    already there — the one place a line already filled in gets overwritten
+    by this module itself, used by the "Regenerate reactions" button
+    (§ main.py's reactions/regenerate route) for a deliberate do-over. Left
+    at the default, this only ever fills in a blank.
 
     Returns the updated character, or None when there was nothing to do or
     the attempt failed outright. A failure here is silent by design — see the
     module docstring for where the next attempt comes from.
     """
-    wanted = missing_keys(character)
+    if not settings.feature_character_reactions:
+        return None
+    wanted = force if force is not None else missing_keys(character)
     if not wanted:
         return None
 

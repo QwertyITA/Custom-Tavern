@@ -400,6 +400,15 @@ class Settings:
     # configured underneath it; only what is shown changes.
     feature_web_search: bool = False
     feature_talking_avatar: bool = False
+    # Same shape, opposite default: character_reactions.py needs nothing this
+    # app doesn't already ship (it rides the Messages backend everything else
+    # uses), so it is on for everyone unless turned off. Off means both
+    # halves stop — character_reactions.py itself checks this before ever
+    # calling a backend, so no line gets written while it's off, and the
+    # frontend hides the reaction bubbles (starring, unstarring, deleting)
+    # and the Reactions editor in the character sheet, the same "hide the
+    # feature's UI outright" treatment as the two above.
+    feature_character_reactions: bool = True
 
     # Which prompt sections are built and in what order inside each band (§14).
     # Empty means "the defaults", so a settings file written before this existed
@@ -717,6 +726,9 @@ def build_settings(payload: dict[str, Any], current: Settings) -> Settings:
     )
     settings.feature_talking_avatar = bool(
         payload.get("feature_talking_avatar", current.feature_talking_avatar)
+    )
+    settings.feature_character_reactions = bool(
+        payload.get("feature_character_reactions", current.feature_character_reactions)
     )
     settings.theme = (
         validate_theme(payload["theme"]) if "theme" in payload else dict(current.theme)

@@ -106,6 +106,10 @@ const HINT_MS = 1900;
 // A character's own line, on the other hand, is a sentence to actually read —
 // longer than a two-word toast earns.
 const REACTION_BUBBLE_MS = 3400;
+// The three lines models.CharacterReactions holds, in the order the editor
+// shows them. Kept as one list rather than repeated at each call site (§
+// missingReactions, saveReactionField, regenerateAllReactions).
+const REACTION_KEYS = ["starred", "unstarred", "killed"];
 // Quiet time after the last keystroke before the template preview re-renders.
 const PREVIEW_DEBOUNCE_MS = 200;
 // Character budgets for the header's own row — see pillFitsInline. The
@@ -647,6 +651,11 @@ function tavern() {
     // the editor by default, which showed them to anyone who so much as
     // opened the character to change its name.
     reactionsOpen: false,
+    // Set while a fill (background backfill or the explicit "Regenerate
+    // reactions" button) is in flight, so the button can show it is doing
+    // something instead of sitting there looking clickable a second time.
+    regeneratingReactions: false,
+    reactionsError: "",
     // What this character's memory pass has extracted so far — loaded
     // alongside the rest of the draft (§ editCharacter) so the "Edit
     // memories" button can show a live count without a second trip once the
@@ -2275,7 +2284,102 @@ function tavern() {
 
     missingReactions() {
       const r = this.draftCharacter.reactions || {};
-      return ["starred", "unstarred", "killed"].filter((k) => !(r[k] || "").trim());
+      return REACTION_KEYS.filter((k) => !(r[k] || "").trim());
+    },
+
+    // A field saves the moment it is changed rather than waiting on the
+    // character editor's own pinned Save bar — same idiom as a memory's
+    // textarea (§ saveMemoryEdit below), and for the same reason a step
+    // further: clearing this field is the trigger for getting the line back
+    // (see the call to fillMissingReactions at the bottom), and that only
+    // works against what is actually in the database, not a draft still
+    // sitting unsaved in the browser. Keeps `_characterSnapshot` in step too,
+    // so having only touched Reactions does not leave the editor claiming
+    // unsaved changes on the way out.
+    async saveReactionField(key, value) {
+      const text = value.trim();
+      this.draftCharacter.reactions[key] = text;
+      if (!this.draftCharacter.id) return; // a new, unsaved character — nothing to persist yet
+      try {
+        await api.put(`/api/characters/${this.draftCharacter.id}`, {
+          reactions: { [key]: text },
+        });
+      } catch (e) {
+        this.reactionsError = errorText(e);
+        return;
+      }
+      this.reactionsError = "";
+      this.syncCharacterReactions();
+      this.snapshotCharacter();
+      if (!text) this.fillMissingReactions();
+    },
+
+    // Whatever is left blank comes back on its own — no button to press,
+    // just the same fill a stalled import or a first reply already gets
+    // (§ app/character_reactions.py). Quiet on failure: this runs after
+    // every field save, including ones nobody is watching for a result, so
+    // an unreachable backend here should not read as this save having
+    // failed — the field it just typed is not blank, only the generated one
+    // still is.
+    async fillMissingReactions() {
+      if (!this.draftCharacter.id || this.regeneratingReactions) return;
+      this.regeneratingReactions = true;
+      try {
+        const data = await api.post(
+          `/api/characters/${this.draftCharacter.id}/reactions/regenerate`, {},
+        );
+        Object.assign(this.draftCharacter.reactions, data.reactions);
+        this.syncCharacterReactions();
+        this.snapshotCharacter();
+      } catch (e) {
+        // silent — see comment above
+      } finally {
+        this.regeneratingReactions = false;
+      }
+    },
+
+    // The explicit do-over: all three, regardless of what is already there
+    // — the one call that overwrites a line someone is happy with, so it
+    // only ever runs off a tap, never on its own.
+    async regenerateAllReactions() {
+      if (!this.draftCharacter.id || this.regeneratingReactions) return;
+      this.regeneratingReactions = true;
+      this.reactionsError = "";
+      try {
+        const data = await api.post(
+          `/api/characters/${this.draftCharacter.id}/reactions/regenerate`,
+          { keys: [...REACTION_KEYS] },
+        );
+        Object.assign(this.draftCharacter.reactions, data.reactions);
+        this.syncCharacterReactions();
+        this.snapshotCharacter();
+      } catch (e) {
+        this.reactionsError = errorText(e);
+      } finally {
+        this.regeneratingReactions = false;
+      }
+    },
+
+    // draftCharacter, the character behind the open chat, and this
+    // character's own row in the roster are three separate objects — a
+    // regenerated line has to reach all three it appears in, or a bubble
+    // shown from whichever one this did not reach (star/unstar reads the
+    // roster row; the header reads the open chat's copy) would still be
+    // showing the stale line. saveCharacter()'s own flow gets this for free
+    // by reloading the whole roster after every save; a reactions edit
+    // saves far more often than that (every field, on blur) and reloading
+    // the roster on each of those would be a lot of network for a change
+    // this small, so it patches the one row that could actually be stale.
+    syncCharacterReactions() {
+      if (this.character && this.character.id === this.draftCharacter.id) {
+        this.character.reactions = { ...this.draftCharacter.reactions };
+      }
+      const row = this.characters.find((c) => c.id === this.draftCharacter.id);
+      if (row) row.reactions = { ...this.draftCharacter.reactions };
+    },
+
+    closeReactions() {
+      this.reactionsOpen = false;
     },
 
     // ---- memories (§ app/memory.py) ----
@@ -2967,10 +3071,13 @@ function tavern() {
         return;
       }
       character.favourite = wanted;
-      // The character's own reaction where there is one; the plain toast
-      // where there isn't yet (§ character_reactions.py — a card can still
-      // be waiting on its first generation).
-      const line = (character.reactions || {})[wanted ? "starred" : "unstarred"];
+      // The character's own reaction where there is one and the feature is
+      // on; the plain toast otherwise — either there isn't a line yet
+      // (§ character_reactions.py — a card can still be waiting on its
+      // first generation), or reactions are switched off in Settings, which
+      // hides this the same way it stops one from ever being written.
+      const line = this.settings.feature_character_reactions
+        && (character.reactions || {})[wanted ? "starred" : "unstarred"];
       if (line) this.showReactionBubble(character.id, line);
       else this.flashHint(wanted ? `${character.name} starred` : `${character.name} unstarred`);
     },
@@ -3171,6 +3278,7 @@ function tavern() {
         this.hueEditorOpen = false;
         this.advancedCharOpen = false;
         this.reactionsOpen = false;
+        this.reactionsError = "";
         this.memoriesOpen = false;
         this.newMemoryText = "";
         this.memoryError = "";
