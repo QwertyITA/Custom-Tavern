@@ -1223,11 +1223,14 @@
                    easiest way to misconfigure a backend, and the mistake
                    surfaces much later as a confusing error from the provider.
                    The list is what the backend says it can serve; it loads
-                   itself when this opens. -->
+                   itself when this opens. Horde's own entries carry an ETA
+                   (§ Provider.list_models_detail) and arrive already sorted
+                   fastest-first, so the option order here is the server's,
+                   not something this re-sorts. -->
               <select x-model="b.model">
                 <option value="" x-show="!modelOptions(b).length">— load the list —</option>
-                <template x-for="m in modelOptions(b)" :key="m">
-                  <option :value="m" x-text="m"></option>
+                <template x-for="m in modelOptions(b)" :key="m.name">
+                  <option :value="m.name" x-text="modelLabel(m)"></option>
                 </template>
               </select>
               <button class="link" @click.prevent="loadModels(b)" :disabled="loadingModels === b.name">
@@ -1235,6 +1238,13 @@
               </button>
             </label>
             <p class="kind-note" x-show="modelHint(b.name)" x-text="modelHint(b.name)"></p>
+            <!-- Horde's real API rejects a job with no model named at all,
+                 rather than picking one on its own (§ config.py's Save
+                 validation, HordeProvider.generate's own guard) — the one
+                 backend kind where this field is not optional. -->
+            <p class="save-msg bad" x-show="b.kind === 'horde' && !b.model">
+              AI Horde needs a model selected — pick one above, fastest first.
+            </p>
             <label class="row" x-show="b.kind !== 'echo'"><span class="row-label">URL</span>
               <input x-model="b.base_url" placeholder="http://100.x.y.z:11434" inputmode="url"></label>
             <label class="row" x-show="b.kind === 'openai' || b.kind === 'horde'">

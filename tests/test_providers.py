@@ -9,7 +9,7 @@ import pytest
 
 from app.config import BackendConfig, KIND_DEFAULTS, VALID_KINDS, VALID_TEMPLATES
 from app.models import Sampling
-from app.providers import GenRequest, build
+from app.providers import GenRequest, ProviderError, build
 from app.providers.horde import LIMITS, HordeProvider
 from app.providers.templates import (
     CUSTOM_FIELDS,
@@ -306,14 +306,64 @@ def test_openai_parses_its_model_list():
     assert OpenAICompatProvider.parse_models(data) == ["gpt-4o", "gpt-4o-mini"]
 
 
-def test_horde_ranks_models_by_worker_count():
-    """A model with no workers queues forever, so availability is the order."""
+def test_horde_ranks_models_by_eta():
+    """The estimated wait a job would actually see, not a proxy for it."""
+    data = [
+        {"name": "slow/model", "count": 12, "eta": 120},
+        {"name": "quick/model", "count": 1, "eta": 5},
+        {"name": "medium/model", "count": 3, "eta": 40},
+    ]
+    assert HordeProvider.parse_models(data) == ["quick/model", "medium/model", "slow/model"]
+
+
+def test_horde_falls_back_to_worker_count_with_no_eta_reported():
+    """A model with no workers queues forever, so availability is the order —
+    unchanged from before ETA was read at all, for the case there is none."""
     data = [
         {"name": "quiet/model", "count": 0},
         {"name": "busy/model", "count": 12},
         {"name": "some/model", "count": 3},
     ]
     assert HordeProvider.parse_models(data) == ["busy/model", "some/model", "quiet/model"]
+
+
+def test_horde_a_missing_eta_sorts_after_a_reported_one():
+    """Unknown wait is not the same claim as no wait."""
+    data = [
+        {"name": "no-eta/model", "count": 50},
+        {"name": "has-eta/model", "count": 1, "eta": 999},
+    ]
+    assert HordeProvider.parse_models(data) == ["has-eta/model", "no-eta/model"]
+
+
+def test_horde_model_detail_carries_eta_and_context_when_reported():
+    data = [{"name": "m", "count": 2, "eta": 7, "queued": 500,
+             "performance": "12.3", "max_context_length": 8192}]
+    [row] = HordeProvider.parse_models_detail(data)
+    assert row == {"name": "m", "count": 2, "eta": 7, "queued": 500,
+                    "performance": "12.3", "context": 8192}
+
+
+def test_horde_model_detail_omits_context_when_not_reported():
+    """Undocumented field, so absence is not filled in with a guess."""
+    data = [{"name": "m", "count": 2, "eta": 7}]
+    [row] = HordeProvider.parse_models_detail(data)
+    assert "context" not in row
+
+
+def test_horde_refuses_to_generate_with_no_model_selected():
+    provider = horde_provider()
+    with pytest.raises(ProviderError, match="no model selected"):
+        sync(provider.generate(GenRequest()))
+
+
+def test_horde_build_payload_stays_usable_with_no_model_selected():
+    """The payload itself is not the network call — every sampler-clamping
+    test above builds one with no model configured at all, and none of them
+    are testing model selection."""
+    provider = horde_provider()
+    payload = provider.build_payload(GenRequest())
+    assert "models" not in payload
 
 
 @pytest.mark.parametrize("junk", [None, {}, {"models": None}, {"data": None}, [], "nonsense"])

@@ -366,16 +366,31 @@ never seems to remember anything:
 
 - **`Provider.context_limit()` clamps, it does not merely fall back.** A backend that
   can genuinely be asked what it holds — Ollama and llama.cpp probe the live server
-  (`/api/ps`, `/api/show`, `/props`); Horde reports its own hardcoded API ceiling, not
-  a specific worker's real capacity, since which worker a job lands on is not known in
-  advance — now has that answer win over a *larger* configured number, not only stand
-  in for a missing one. A configured number still wins when it is the *smaller* of the
-  two: asking for less than a backend could give is a choice, not a mistake to correct.
-  `assembly.fit_token_budget` is the shared arithmetic (`settings.token_budget`
-  tightened to what a backend actually holds, reply cost and safety margin already
-  spent) — used both by a live turn (`PassScheduler._fitted`) and by the two checks
-  below, so a warning shown before anyone has sent a message means what a real turn
-  would actually find out.
+  (`/api/ps`, `/api/show`, `/props`); Horde's `_probe_context` checks whether the
+  currently-selected model(s) are named in a cached `/status/models` call and reports
+  the smallest context any of them carries there, falling back to Horde's own hardcoded
+  API ceiling when none is — now has that answer win over a *larger* configured
+  number, not only stand in for a missing one. A configured number still wins when it
+  is the *smaller* of the two: asking for less than a backend could give is a choice,
+  not a mistake to correct. `assembly.fit_token_budget` is the shared arithmetic
+  (`settings.token_budget` tightened to what a backend actually holds, reply cost and
+  safety margin already spent) — used both by a live turn (`PassScheduler._fitted`) and
+  by the two checks below, so a warning shown before anyone has sent a message means
+  what a real turn would actually find out.
+  A model must actually be selected for this to mean anything on Horde in the first
+  place — with none picked, Horde's real API rejects the job outright rather than
+  choosing one on its own, so at least one is required to Save a Horde backend at all
+  (§config.py `_merge_secrets`), and `HordeProvider.generate` guards the same thing
+  again for whatever reaches it some other way (an older settings file, one edited by
+  hand). `Provider.list_models_detail` is what makes picking one worth doing: every
+  backend reports at least a name, and Horde also reports each model's queue position
+  and ETA — the estimated wait a job would actually see — and its own `parse_models`
+  sorts by that ETA rather than worker count, quickest first, with a model reporting no
+  ETA sorting after one that does rather than before it. `/status/models`'s documented
+  schema is name/count/performance/queued/eta, not a context size, so the per-model
+  context lookup above stays best-effort by design: real when a deployment's response
+  happens to carry one of the common field names anyway, quietly absent rather than
+  guessed at when it does not.
 - **`assembly.mandatory_cost`** is a card's own floor — prefix plus the two volatile
   writing blocks that need no chat state (`craft:format`, `craft:length`) — computed
   with no conversation in it at all and no `db`/`chat` dependency, so it can be asked

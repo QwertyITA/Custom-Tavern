@@ -34,6 +34,30 @@ LIMITS = {
 
 DEFAULT_CONTEXT = 4096
 
+# Field names a `/status/models` row's context size might arrive under —
+# undocumented (the endpoint's own schema promises name/count/performance/
+# queued/eta, not this), so read defensively rather than committing to one.
+_CONTEXT_KEYS = ("max_context_length", "context_length", "max_length")
+
+
+def _context_field(row: dict) -> int:
+    for key in _CONTEXT_KEYS:
+        try:
+            value = int(row.get(key) or 0)
+        except (TypeError, ValueError):
+            continue
+        if value:
+            return value
+    return 0
+
+
+def _wanted_models(config) -> list[str]:
+    """The models a request is actually restricted to — `models` is the list
+    Horde's own API takes; `model` is the single-name field every other
+    backend uses, honoured as shorthand so the settings screen behaves the
+    same way for every kind (§ build_payload's own comment)."""
+    return [m for m in (config.models or []) if m] or ([config.model] if config.model else [])
+
 
 def _clamp(value: float, low: float, high: float) -> float:
     try:
@@ -64,10 +88,62 @@ class HordeProvider(Provider):
     def __init__(self, config) -> None:
         super().__init__(config)
         self._client: httpx.AsyncClient | None = None
+        # Per (base_url, sorted models) — cleared with the client, same
+        # "cannot change without a reload, and asking on every turn would add
+        # a round trip to every reply" reasoning as Ollama's _CONTEXT_CACHE
+        # (§ providers/ollama.py), just keyed on the models list rather than
+        # a single model name since that is what actually selects the worker
+        # pool here.
+        self._status_cache: list[dict] | None = None
+
+    async def _status_models(self) -> list[dict]:
+        """The raw `/status/models` rows, fetched once and reused — both
+        `_probe_context` and `list_models_detail` read the same call rather
+        than each making their own. Raises on a real failure; it is each
+        caller's own business whether that means "nothing extra to go on"
+        (`_probe_context`, which has a ceiling to fall back on) or a real
+        error to show (`list_models`/`list_models_detail`, discovering
+        models *is* the point of that call)."""
+        if self._status_cache is not None:
+            return self._status_cache
+        response = await self.client().get("/status/models", params={"type": "text"})
+        response.raise_for_status()
+        data = response.json()
+        rows = data if isinstance(data, list) else (data.get("models") or []) if isinstance(data, dict) else []
+        self._status_cache = [r for r in rows if isinstance(r, dict)]
+        return self._status_cache
 
     async def _probe_context(self) -> int | None:
-        """Horde's own ceiling, not a model's: a worker may hold more, but the
-        API refuses a request that asks for more than this."""
+        """The smallest context any currently-selected model reports, if
+        Horde's own model list happens to say — falling back to Horde's own
+        API ceiling (a worker may hold more, but the API refuses a request
+        that asks for more than this) when it does not.
+
+        Best-effort on purpose: `/status/models` is documented to carry
+        `name`/`count`/`performance`/`queued`/`eta`, not a context size, so
+        this only ever improves on the flat ceiling if a deployment's
+        response happens to carry one of the common field names anyway —
+        never a promise, just not thrown away if it is there. The minimum
+        across selected models, not the first or the biggest: several
+        workers can serve the same model name at different windows, and the
+        smallest is the only one that is honest about what every one of
+        them can actually hold.
+        """
+        wanted = _wanted_models(self.config)
+        if wanted:
+            try:
+                rows = await self._status_models()
+            except (httpx.HTTPError, ValueError):
+                rows = []
+            found = [
+                size
+                for row in rows
+                if str(row.get("name") or "") in wanted
+                for size in [_context_field(row)]
+                if size
+            ]
+            if found:
+                return min(found)
         return LIMITS["max_context_length"][1]
 
     def client(self) -> httpx.AsyncClient:
@@ -125,21 +201,31 @@ class HordeProvider(Provider):
 
         payload = {"prompt": request.prompt_text(template, self.config.template_spec), "params": params}
         # Horde selects by a models *list*; `model` is the single-model field
-        # every other backend uses. Treat one as shorthand for the other so the
-        # settings screen behaves the same way for every kind.
-        wanted = [m for m in (self.config.models or []) if m] or (
-            [self.model] if self.model else []
-        )
+        # every other backend uses. Treat one as shorthand for the other so
+        # the settings screen behaves the same way for every kind. Left
+        # unset rather than raised on here when neither is configured: a
+        # caller building a payload just to inspect its other fields (every
+        # sampler-clamping test in this suite among them) has no model to
+        # give it, and building the payload itself is not the network call —
+        # `generate` is where "Horde will reject this outright" actually
+        # belongs (§ its own guard, just below).
+        wanted = _wanted_models(self.config)
         if wanted:
             payload["models"] = wanted
         return payload
 
     @staticmethod
-    def parse_models(data) -> list[str]:
-        """Active text models, busiest first — worker count is availability.
-
-        A model with no workers will sit in the queue indefinitely, so ordering
-        by worker count is the difference between a reply and a timeout.
+    def parse_models_detail(data) -> list[dict]:
+        """Every active text model Horde is reporting right now, quickest
+        ETA first — the wait a job would actually see, which is a more
+        direct answer to "which one will answer fastest" than worker count
+        ever was (that was this function's own order before ETA was read at
+        all). Ties, and rows with no ETA reported, fall back to worker
+        count and then name — stable rather than reshuffling between two
+        calls for no visible reason. A context size rides along under
+        `context` wherever `_context_field` finds one, undocumented as it
+        is (§ _probe_context's own comment) — present when the API happens
+        to say, absent rather than guessed at when it does not.
         """
         if isinstance(data, list):
             items = data
@@ -147,25 +233,67 @@ class HordeProvider(Provider):
             items = data.get("models") or []
         else:
             items = []
-        ranked = []
+        rows: list[dict] = []
         for item in items:
             if not isinstance(item, dict):
                 continue
             name = item.get("name")
-            if name:
-                ranked.append((int(item.get("count") or 0), str(name)))
-        ranked.sort(key=lambda pair: (-pair[0], pair[1]))
-        return [name for _count, name in ranked]
+            if not name:
+                continue
+            try:
+                count = int(item.get("count") or 0)
+            except (TypeError, ValueError):
+                count = 0
+            try:
+                eta = int(item.get("eta"))
+            except (TypeError, ValueError):
+                eta = None
+            try:
+                queued = int(item.get("queued") or 0)
+            except (TypeError, ValueError):
+                queued = 0
+            row = {"name": str(name), "count": count, "eta": eta, "queued": queued}
+            performance = item.get("performance")
+            if performance not in (None, ""):
+                row["performance"] = performance
+            context = _context_field(item)
+            if context:
+                row["context"] = context
+            rows.append(row)
+        # No ETA reported sorts last, not first — "unknown wait" is not "no wait".
+        rows.sort(key=lambda r: (r["eta"] if r["eta"] is not None else 10**9, -r["count"], r["name"]))
+        return rows
 
-    async def list_models(self) -> list[str]:
+    @classmethod
+    def parse_models(cls, data) -> list[str]:
+        """Just the names, in the same quickest-ETA-first order."""
+        return [row["name"] for row in cls.parse_models_detail(data)]
+
+    async def list_models_detail(self) -> list[dict]:
         try:
-            response = await self.client().get("/status/models", params={"type": "text"})
-            response.raise_for_status()
-            return self.parse_models(response.json())
+            rows = await self._status_models()
         except (httpx.HTTPError, ValueError) as exc:
             raise ProviderError(f"horde: could not list models: {exc}") from exc
+        return self.parse_models_detail(rows)
+
+    async def list_models(self) -> list[str]:
+        return [row["name"] for row in await self.list_models_detail()]
 
     async def generate(self, request: GenRequest) -> GenResult:
+        # Horde's real API rejects a job with no model named at all rather
+        # than picking one on its own — caught here, before a submit that
+        # would otherwise 400 with a message about "models" that says
+        # nothing about what to actually do differently. §config.py's
+        # settings validation catches the same thing earlier, at Save; this
+        # is what stands between a config that slipped through some other
+        # way (an older settings file, one edited by hand) and a confusing
+        # failure deep inside a poll loop instead of a clear one before the
+        # first request even goes out.
+        if not _wanted_models(self.config):
+            raise ProviderError(
+                "horde: no model selected — pick at least one on the Backends "
+                "tab; Horde does not accept a job with none named"
+            )
         payload = self.build_payload(request)
         client = self.client()
         try:

@@ -679,6 +679,24 @@ def _merge_secrets(incoming: list[dict], existing: list[BackendConfig]) -> list[
         raise SettingsError("backend names must be unique")
     if not out:
         raise SettingsError("at least one backend is required")
+    # Horde's real API rejects a job with no model named rather than picking
+    # one on its own — caught here at Save, not only at generation time
+    # (§ HordeProvider.build_payload's own guard, for whatever reaches that
+    # point some other way: an older settings file, one edited by hand).
+    # Only checked here, not in merge_backend itself: that function also
+    # backs the connection-test and model-discovery routes, and discovering
+    # which models exist is exactly what a backend with none picked yet
+    # needs to do first.
+    for backend in out:
+        # `models` is the list Horde's own API takes; `model` is the single-
+        # name field every other backend uses, honoured here the same way
+        # HordeProvider treats it as shorthand for one (§ providers/horde.py
+        # _wanted_models) — either one satisfies "a model is selected".
+        if backend.kind == "horde" and not backend.models and not backend.model:
+            raise SettingsError(
+                f"{backend.name}: AI Horde needs at least one model selected — "
+                "pick one or more from the list on its Backends card"
+            )
     return out
 
 

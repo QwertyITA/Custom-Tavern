@@ -114,6 +114,28 @@ def test_invalid_settings_return_400_and_change_nothing(client, isolated_setting
     assert config.SETTINGS.verbatim_window == before
 
 
+def test_saving_a_horde_backend_with_no_model_is_rejected(client, isolated_settings):
+    """Horde's real API rejects a job with no model named rather than
+    picking one on its own — caught here, at Save, not only at generation
+    time (§ HordeProvider.generate's own guard)."""
+    response = client.put("/api/settings", json={
+        "backends": [{"name": "h", "kind": "horde"}],
+        "tiers": {"blocking": "h", "foreground": "h", "background": "h"},
+    })
+    assert response.status_code == 400
+    assert "model" in response.json()["detail"].lower()
+    assert not isolated_settings.exists()
+
+
+def test_saving_a_horde_backend_with_the_singular_model_field_is_accepted(client, isolated_settings):
+    """`model` and `models` are the same choice; either satisfies it."""
+    response = client.put("/api/settings", json={
+        "backends": [{"name": "h", "kind": "horde", "model": "koboldcpp/Mistral-7B"}],
+        "tiers": {"blocking": "h", "foreground": "h", "background": "h"},
+    })
+    assert response.status_code == 200
+
+
 def test_connection_test_probes_a_backend(client):
     body = client.post("/api/settings/test", json={"name": "echo", "kind": "echo", "model": "echo-1"}).json()
     assert body["ok"] is True
@@ -330,7 +352,7 @@ class _fake_request:
 def test_model_discovery_lists_what_a_backend_serves(client):
     body = client.post("/api/settings/models", json={"name": "echo", "kind": "echo"}).json()
     assert body["ok"] is True
-    assert body["models"] == ["echo-1"]
+    assert body["models"] == [{"name": "echo-1"}]
 
 
 def test_model_discovery_fails_softly_on_an_unreachable_backend(client):

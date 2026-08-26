@@ -197,6 +197,16 @@ class Provider:
         """
         return []
 
+    async def list_models_detail(self) -> list[dict]:
+        """`list_models`, but with whatever else a backend can say about each
+        one — Horde overrides this with queue position and ETA (§ horde.py),
+        which is the whole reason this exists rather than every caller doing
+        `[{"name": n} for n in await list_models()]` itself. The default
+        here *is* exactly that, so a backend with nothing more to say about
+        its models needs no override at all.
+        """
+        return [{"name": name} for name in await self.list_models()]
+
     async def stream(
         self, request: GenRequest, sink: GenResult | None = None
     ) -> AsyncIterator[str]:

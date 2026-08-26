@@ -260,6 +260,12 @@ async def discover_models(payload: dict = Body(...)) -> dict:
 
     Same body shape and masked-key handling as the connection test, so the
     model list can be pulled for a stored backend without retyping its key.
+
+    Objects, not bare names (§ Provider.list_models_detail): every backend
+    reports at least `{"name": ...}`, and Horde also reports `eta`/`count`/
+    `queued` — the queue position and estimated wait a model picker can
+    actually sort "fastest first" by, which was the whole point of asking
+    for more than a name.
     """
     try:
         backend = config.merge_backend(payload, config.SETTINGS.backends)
@@ -268,7 +274,7 @@ async def discover_models(payload: dict = Body(...)) -> dict:
 
     provider = providers.build(backend)
     try:
-        models = await asyncio.wait_for(provider.list_models(), timeout=30)
+        models = await asyncio.wait_for(provider.list_models_detail(), timeout=30)
     except (providers.ProviderError, asyncio.TimeoutError, OSError) as exc:
         return {"ok": False, "models": [], "error": _safe_error(exc, backend.api_key)}
     finally:

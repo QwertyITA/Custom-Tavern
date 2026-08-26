@@ -179,6 +179,31 @@ own, still exceed a 1-2k or 2-3k prompt budget. Nothing here changes that —
 see that entry for the full measurement and why the fix is the card, not the
 preset.
 
+Fixed on 2026-08-26 — AI Horde's real API rejects a job with no model named
+at all rather than picking one on its own, and the app had no guard for
+that: `HordeProvider.build_payload` quietly omitted the `models` field when
+none was configured, so a Horde backend saved with nothing picked failed
+only once someone actually tried to talk to it, with an unhelpful "models"
+400 from Horde itself. Fixed with two guards: `config.py`'s Save validation
+now rejects a Horde backend with neither `models` nor the singular `model`
+set, and `HordeProvider.generate` checks the same thing again right before
+submitting, for a config that reaches that point some other way (an older
+settings file, one edited by hand) — `build_payload` itself stays
+permissive, since every sampler-clamping test in `tests/test_providers.py`
+builds a payload with no model at all and is testing something else
+entirely. The settings screen's model picker (previously names only) now
+shows Horde's own queue ETA next to each one and sorts fastest-first —
+`Provider.list_models_detail`, `HordeProvider.parse_models`'s new sort key
+— and applying an AI Horde quick-setup preset now opens the backend's model
+picker and, when nothing is chosen yet, auto-loads and picks the fastest
+one rather than leaving a backend that cannot be saved. A model actually
+being selected also makes `context_limit()`'s per-backend probing mean more
+for Horde specifically: `_probe_context` now checks whether `/status/models`
+happens to report a context size for the selected model(s) (best-effort —
+that endpoint's documented schema is name/count/performance/queued/eta, not
+a context field, so this is a bonus when a deployment's response carries
+one anyway, not a promise) before falling back to Horde's flat ceiling.
+
 ---
 
 ## Medium

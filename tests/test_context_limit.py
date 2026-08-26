@@ -108,6 +108,45 @@ def test_horde_knows_its_own_ceiling():
     assert sync(provider.context_limit()) == LIMITS["max_context_length"][1]
 
 
+def test_horde_uses_a_selected_models_own_context_when_status_reports_one():
+    """Best-effort: /status/models is not documented to carry a context
+    size, so this only ever improves on the flat ceiling when a deployment's
+    response happens to have one anyway (§ HordeProvider._probe_context)."""
+    from app.providers.horde import HordeProvider
+
+    def handler(request):
+        return httpx.Response(200, json=[
+            {"name": "picked/model", "count": 2, "max_context_length": 8192},
+            {"name": "other/model", "count": 5, "max_context_length": 32000},
+        ])
+
+    provider = wired(handler, kind=HordeProvider, models=["picked/model"])
+    assert sync(provider.context_limit()) == 8192
+
+
+def test_horde_takes_the_smallest_across_several_selected_models():
+    from app.providers.horde import HordeProvider
+
+    def handler(request):
+        return httpx.Response(200, json=[
+            {"name": "a", "count": 1, "max_context_length": 16384},
+            {"name": "b", "count": 1, "max_context_length": 4096},
+        ])
+
+    provider = wired(handler, kind=HordeProvider, models=["a", "b"])
+    assert sync(provider.context_limit()) == 4096
+
+
+def test_horde_falls_back_to_the_ceiling_when_status_says_nothing_about_context():
+    from app.providers.horde import LIMITS, HordeProvider
+
+    def handler(request):
+        return httpx.Response(200, json=[{"name": "picked/model", "count": 2}])
+
+    provider = wired(handler, kind=HordeProvider, models=["picked/model"])
+    assert sync(provider.context_limit()) == LIMITS["max_context_length"][1]
+
+
 # ------------------------------------------------------------- clamping
 
 

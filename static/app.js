@@ -5725,11 +5725,28 @@ function tavern() {
 
     // What the model list offers: whatever the backend reported, plus whatever
     // is configured — a model that has been pulled since, or one this backend
-    // cannot enumerate, must not vanish from its own setting.
+    // cannot enumerate, must not vanish from its own setting. Objects, not
+    // bare names (§ Provider.list_models_detail) — Horde's carry an eta and
+    // arrive pre-sorted fastest-first; a name synthesised here for a
+    // still-configured-but-unlisted model carries none, which modelLabel
+    // reads as "nothing more to say about this one" rather than "instant".
     modelOptions(backend) {
       const found = this.models[backend.name] || [];
       const current = (backend.model || "").trim();
-      return current && !found.includes(current) ? [current, ...found] : found;
+      return current && !found.some((m) => m.name === current)
+        ? [{ name: current }, ...found]
+        : found;
+    },
+
+    // The option text for one model: its name alone, or with Horde's own
+    // ETA alongside it once there is one to show.
+    modelLabel(m) {
+      return m.eta === undefined || m.eta === null ? m.name : `${m.name} · ~${this.etaText(m.eta)}`;
+    },
+
+    etaText(seconds) {
+      if (seconds < 60) return `${Math.max(0, Math.round(seconds))}s`;
+      return `${Math.round(seconds / 60)}m`;
     },
 
     // Ask the backend what it can serve. Typing a model name from memory is
@@ -5840,7 +5857,7 @@ function tavern() {
     // itself, so tapping a card is exactly as reversible as hand-editing any
     // one field, and nothing here is a persisted "which preset is active"
     // flag that could go stale the moment something is tweaked afterward.
-    applyHordePreset(id) {
+    async applyHordePreset(id) {
       const preset = HORDE_PRESETS.find((p) => p.id === id);
       if (!preset) return;
 
@@ -5901,8 +5918,22 @@ function tavern() {
       this.settings.lorebook_total_budget = preset.lorebook_budget;
       this.settings.memory_max_injected = preset.memory_max;
 
-      if (isNew) this.openBackend = this.settings.backends.length - 1;
+      // Opened regardless of isNew, not only for a fresh backend: AI Horde
+      // is the one kind that cannot be saved with no model chosen at all
+      // (§ config.py's Save validation), so the field that makes this
+      // savable needs to actually be on screen, not just true it will load
+      // once someone happens to open the row by hand.
+      this.openBackend = this.settings.backends.indexOf(backend);
       this.flashHint(`${preset.label} applied — review and Save`);
+
+      // Fastest first is the whole point of ordering by ETA (§ modelLabel) —
+      // picked automatically only when nothing is chosen yet, so re-applying
+      // a preset over a model someone already picked never overrides it.
+      if (!backend.model) {
+        await this.loadModels(backend);
+        const fastest = (this.models[backend.name] || [])[0];
+        if (fastest && !backend.model) backend.model = fastest.name;
+      }
     },
 
     async saveSettings() {
