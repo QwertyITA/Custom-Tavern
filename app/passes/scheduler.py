@@ -930,9 +930,10 @@ class PassScheduler:
         # post_process actually produced rather than second-guessing a draft
         # it is about to replace.
         draft_text = ""
+        tracked_proposal = None
         if hold_for_polish:
             try:
-                reply, draft_text = await self._polish_reply(
+                reply, draft_text, tracked_proposal = await self._polish_reply(
                     ctx, polish_definition, reply, assembled
                 )
             except asyncio.CancelledError:
@@ -1030,6 +1031,16 @@ class PassScheduler:
             variant_id=ctx.variant_id,
             provisional=True,
         )
+
+        # post_process's own state proposal, if it made one (§6, §5.7) — after
+        # the reply's own provisional write above, so the merge it reads
+        # includes this turn's deltas rather than racing them.
+        if tracked_proposal:
+            yield {
+                "type": "state",
+                "turn": ctx.turn,
+                "state": await self._apply_tracked_variable(ctx, ctx.chat_id, tracked_proposal),
+            }
 
         # And back into your language (roadmap 23). After the stream rather
         # than during it: a translation cannot be produced a token at a time,
@@ -1704,9 +1715,10 @@ class PassScheduler:
         # Same copy-edit as the first attempt, before the same backstop below
         # (§ _run_reply above).
         draft_text = ""
+        tracked_proposal = None
         if hold_for_polish:
             try:
-                reply, draft_text = await self._polish_reply(
+                reply, draft_text, tracked_proposal = await self._polish_reply(
                     ctx, polish_definition, reply, assembled
                 )
             except asyncio.CancelledError:
@@ -1780,6 +1792,16 @@ class PassScheduler:
             "variant": variant,
             "state": _state_view(ctx.schema, values, provisional=True),
         }
+
+        # Same as the reply pass's own version of this (§ _run_reply above) —
+        # after the swipe's own provisional write, so the merge it reads
+        # includes this variant's deltas rather than racing them.
+        if tracked_proposal:
+            yield {
+                "type": "state",
+                "turn": ctx.turn,
+                "state": await self._apply_tracked_variable(ctx, chat["id"], tracked_proposal),
+            }
 
         # Only the variant the user lands on commits background passes (§9).
         launched = self._launch_background(ctx)
@@ -1900,23 +1922,29 @@ class PassScheduler:
 
     async def _polish_reply(
         self, ctx: TurnContext, definition: PassDef, reply: str, assembled
-    ) -> tuple[str, str]:
+    ) -> tuple[str, str, tuple[str, VariableSchema, float] | None]:
         """Runs post_process on a finished, cleaned reply.
 
-        Returns `(final, draft)` — `draft` is `""` when nothing changed
-        (post_process decided the draft needed nothing, or it failed and fell
-        back), which is also what the caller stores as `draft_text`, so
-        "Restore original draft" only ever shows for a message that is
-        actually different from what the model first wrote.
+        Returns `(final, draft, proposal)` — `draft` is `""` when nothing
+        changed (post_process decided the draft needed nothing, or it failed
+        and fell back), which is also what the caller stores as `draft_text`,
+        so "Restore original draft" only ever shows for a message that is
+        actually different from what the model first wrote. `proposal` is
+        `None` unless Settings.post_process_tracks_state is on and this turn
+        produced a validated new variable — the caller (§ _run_reply/
+        _run_swipe) still has to persist it; this only decides what it is.
         """
         provider = provider_for_tier(definition.model_tier, self.settings)
         run_id = self._record_run(
             ctx, definition, "running", model=provider.model, started_at=time.time()
         )
         try:
-            edited = await reply_polish.run(
+            edited, proposal = await reply_polish.run(
                 provider, definition, reply, ctx.character.name, assembled.parts,
                 self.settings.pass_timeout,
+                track_state=self.settings.post_process_tracks_state,
+                existing_variables=[spec.label or name for name, spec in ctx.schema.items()],
+                schema_size=len(ctx.schema),
             )
         except asyncio.CancelledError:
             # The reader hung up while this was still working. Its own run
@@ -1931,7 +1959,61 @@ class PassScheduler:
             ctx, definition, "done", run_id=run_id,
             model=provider.model, finished_at=time.time(),
         )
-        return (edited, reply) if edited != reply else (reply, "")
+        draft_text = reply if edited != reply else ""
+        return edited, draft_text, proposal
+
+    async def _apply_tracked_variable(
+        self, ctx: TurnContext, chat_id: str, proposal: tuple[str, VariableSchema, float]
+    ) -> dict:
+        """Persists a validated new-variable proposal (§ _polish_reply) —
+        onto the character's own card, so it exists for this chat and every
+        other one with the same character from now on, the same way any
+        hand-written state_schema entry would. Returns the `state` event
+        payload the caller yields; the caller decides whether that happens
+        (§ _run_reply/_run_swipe both do this identically).
+
+        Read-modify-write against the character row, not a patch — the same
+        way the character editor's own Save works. Two turns in different
+        chats both proposing a variable for the same character in the same
+        narrow window could still race and one could lose the other's
+        addition; on a single-phone, single-user install this is judged
+        unlikely enough not to be worth a lock for.
+        """
+        name, spec, value = proposal
+        character = repo.get_character(self.db, ctx.character.id) or ctx.character
+        # An empty state_schema on the card is not the same as "nothing
+        # tracked" — state_mod.load_schema falls back to
+        # state_mod.DEFAULT_STATE_SCHEMA (willingness/trust/mood/energy)
+        # whenever the card's own is empty, and that fallback is what every
+        # turn has actually been reading and writing against. Saving just
+        # `{name: spec}` over an empty card schema would make it non-empty
+        # and switch that fallback off for good — silently deleting four
+        # variables this chat's own history already has values for, the
+        # instant the first one is proposed.
+        base = character.state_schema or state_mod.load_schema(None)
+        character.state_schema = {**base, name: spec}
+        repo.save_character(self.db, character)
+        # Kept in step so anything reading ctx.schema for the rest of this
+        # turn (the length/POV context post_process itself was already
+        # given, e.g.) already sees the variable that now exists.
+        ctx.schema = character.state_schema
+        # And ctx.pre_values, for the same reason but sharper: background
+        # passes launched after this (state_auditor above all) build their
+        # own correction from *that* dict via apply_deltas, which copies it
+        # wholesale and only touches the keys its own deltas name — so a
+        # pre_values missing this variable entirely would have the auditor's
+        # write silently drop it from the slice the moment it lands, not
+        # merely leave it at the wrong number.
+        ctx.pre_values[name] = value
+
+        values = assembly.current_values(self.db, chat_id, ctx.schema, ctx.character.id)
+        values[name] = value
+        await state_mod.write_slice(
+            self.db, chat_id, slice_for(SLICE_VARS, ctx.character.id), values,
+            source_turn=ctx.turn, source_pass="post_process",
+            variant_id=ctx.variant_id, provisional=False,
+        )
+        return _state_view(ctx.schema, values, provisional=False)
 
     async def _one_more_go(self, provider, request, definition) -> str:
         """A second attempt at a reply that came back with nothing usable.

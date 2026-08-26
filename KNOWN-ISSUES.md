@@ -271,6 +271,46 @@ Brain panel's own switches use — independent of whatever else is happening
 on background. `false` for Mini and Standard, `true` for Max, restoring the
 exact three-way split the tier move had erased.
 
+Fixed on 2026-08-26 — two bugs found while building post_process's optional
+state-tracking (`Settings.post_process_tracks_state`, §6/§5.7), both only
+visible by actually running a turn against a character whose card had no
+`state_schema` of its own, not by reading either diff in isolation.
+
+First: a card with an empty `state_schema` is not a card with no state —
+`state_mod.load_schema` has always fallen back to `DEFAULT_STATE_SCHEMA`
+(willingness/trust/mood/energy) whenever the card's own is empty, so every
+turn against such a card was already reading and writing those four. The
+first version of `PassScheduler._apply_tracked_variable` saved a proposed
+variable as `{name: spec}` straight onto the card — which makes the schema
+non-empty and switches the fallback off for good, silently deleting the
+four variables the very same turn had just written real values for. Caught
+by asserting on them in the persistence test, not by the assertion the test
+was actually written to check. Fixed by seeding from the fallback explicitly
+(`state_mod.load_schema(None)`) before adding the new variable, when the
+card's own schema was empty going in.
+
+Second: even with that fixed, the newly-added variable's own value came
+back wrong in a live test — 4.0 instead of the 7.0 that had just been
+written. `character_reactions.spawn` (fire-and-forget, launched after every
+reply that still has a card field it hasn't generated yet) was mutating and
+saving the same in-memory `Character` object the turn started with; its own
+slow part — a model call — finishing after the state write had already
+landed overwrote the character row with a copy of the card from before that
+call started, and separately, `state_auditor`'s own correction (built from
+`ctx.pre_values`, a snapshot taken before the new variable existed) dropped
+it from the slice the same way, since `apply_deltas` copies its input
+wholesale and a key that was never in that snapshot is simply never in the
+output either. Both are the same shape of bug — a write built from a
+stale-by-construction snapshot rather than what the row currently holds —
+and both are fixed the same way: `character_reactions.fill_missing` now
+reloads the character immediately before its own save instead of building
+on the one it was called with, and `_apply_tracked_variable` writes the new
+value into `ctx.pre_values` in place the moment it is chosen, so anything
+reading that dict afterwards (state_auditor's own generic write handler
+included) already knows the variable exists. The first of the two is general
+hygiene — nothing about it is specific to state-tracking, and it could have
+lost *any* concurrent edit to the card, not just this one.
+
 ---
 
 ## Medium

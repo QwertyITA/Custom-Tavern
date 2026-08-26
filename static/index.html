@@ -1539,6 +1539,27 @@
             </div>
             <p class="kind-note" x-text="g.note"></p>
 
+            <!-- Off by default, and only meaningful with the group above it
+                 also on — checked together everywhere this is read (§
+                 app/passes/scheduler.py _polish_enabled/_apply_tracked_
+                 variable), never assumed from one alone. Placed here rather
+                 than behind the fold: whether "Story -> State" ever fills in
+                 on its own is exactly the kind of thing worth seeing without
+                 having to open this group first. -->
+            <label class="toggle" x-show="g.tier === 'foreground'" x-cloak>
+              <input type="checkbox" x-model="settings.post_process_tracks_state">
+              <span>Also track new state variables</span>
+            </label>
+            <p class="kind-note" x-show="g.tier === 'foreground'" x-cloak>
+              When this reply reveals something about the character worth
+              tracking numerically that nothing already does, post_process
+              can propose one new variable for it — shown under Story &gt;
+              State from then on, for this character in every chat. A
+              character's state starts with nothing tracked at all (there is
+              no editor for writing one by hand yet) — this is what fills it
+              in, turn by turn, instead.
+            </p>
+
             <!-- Which passes are in this group, and whether each one is on.
                  Above the fold on purpose: "is the summary running" is the
                  question someone opens this panel with, and it was three taps
@@ -2070,7 +2091,15 @@
         </p>
 
         <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-gauge"/></svg>State</h3>
-        <div class="bands">
+        <!-- Off is not the same as empty — a character with a hand-written
+             schema and the toggle off still has bands to show, just nothing
+             adding to them; a character with neither has nothing to show at
+             all. Both read as "inactive", not "broken", either way. -->
+        <p class="kind-note" x-show="!stateTrackingActive()">
+          Off — turn on Post-process and "Also track new state variables"
+          (Brain → Passes) to have this fill in on its own.
+        </p>
+        <div class="bands" :class="{ disabled: !stateTrackingActive() }">
           <template x-for="b in bands" :key="b.variable">
             <div class="band" :class="{ moved: bandsMoved.includes(b.variable) }">
               <span class="band-var" x-text="b.variable"></span>
@@ -2078,6 +2107,10 @@
               <span class="band-guide" x-text="b.guidance"></span>
             </div>
           </template>
+          <p class="kind-note" x-show="stateTrackingActive() && !bands.length">
+            Nothing tracked yet — the next reply that reveals something worth
+            it will be the first.
+          </p>
           <div class="provisional" x-show="stateProvisional">Provisional — auditor pending</div>
         </div>
 

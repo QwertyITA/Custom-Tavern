@@ -1918,6 +1918,11 @@ body {
 .band-label { color: var(--accent); margin-left: 6px; }
 .band-guide { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
 .provisional { color: var(--pending); font-size: 11px; padding-top: 6px; font-style: italic; }
+/* Same dimming every other "off" list in the app uses (.pass-line.off,
+   .p-row.off) — whatever bands are already here (hand-written, or found
+   before the toggle was switched off) stay visible rather than vanishing,
+   just read as inactive rather than current. */
+.bands.disabled { opacity: .55; }
 
 /* The whole row is the label, so the whole row is the target — which is what
    makes 44px cheap here: the box itself only has to be big enough to see and

@@ -126,9 +126,17 @@ async def fill_missing(
     if not updates:
         return None
 
-    character.reactions = character.reactions.model_copy(update=updates)
-    repo.save_character(db, character)
-    return character
+    # Reloaded immediately before the save, not mutated on the `character`
+    # this was called with: the generate() call above is the slow part of
+    # this function, and it runs fire-and-forget after a reply (§ module
+    # docstring) — anything else that touched this character's row while it
+    # was in flight (an edit, post_process proposing a new tracked variable
+    # — § app/reply_polish.py) must not be clobbered by a save built from a
+    # copy of the card as it stood before that generate() call started.
+    current = repo.get_character(db, character.id) or character
+    current.reactions = current.reactions.model_copy(update=updates)
+    repo.save_character(db, current)
+    return current
 
 
 async def spawn(db: Database, settings: Settings, character: Character) -> None:

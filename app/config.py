@@ -394,6 +394,16 @@ class Settings:
     # model actually wrote.
     cut_excess_paragraphs: bool = False
 
+    # Off by default (§6, §5.7) — a character's state_schema starts empty and
+    # stays empty until either someone writes one by hand or this is on. With
+    # it on, post_process's own model call also decides whether anything in
+    # the reply is worth tracking numerically that nothing already does, and
+    # — best-effort, same as everything else about post_process — proposes
+    # one new variable if so. Meaningless without post_process itself also
+    # being on (§ Settings.tiers_off "foreground"); checked together
+    # wherever this is read, never assumed from one alone.
+    post_process_tracks_state: bool = False
+
     # Client-side pacing only (Brain → Settings) — the server has nothing to
     # do with this, it never changes what is sent or when the pass actually
     # runs, only whether the browser is allowed to show what it already has
@@ -752,6 +762,9 @@ def build_settings(payload: dict[str, Any], current: Settings) -> Settings:
     )
     settings.cut_excess_paragraphs = bool(
         payload.get("cut_excess_paragraphs", current.cut_excess_paragraphs)
+    )
+    settings.post_process_tracks_state = bool(
+        payload.get("post_process_tracks_state", current.post_process_tracks_state)
     )
     settings.realistic_chat_speed = bool(
         payload.get("realistic_chat_speed", current.realistic_chat_speed)

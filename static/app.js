@@ -1053,6 +1053,16 @@ function tavern() {
       document.addEventListener("pointercancel", release);
     },
 
+    // Whether anything can add to Story > State on its own right now — both
+    // halves have to be true (§ app/config.py post_process_tracks_state):
+    // the foreground tier itself running, and the sub-toggle within it. Read
+    // by the State section to show itself as inactive rather than just
+    // silently empty when either is off.
+    stateTrackingActive() {
+      return !(this.settings.tiers_off || []).includes("foreground")
+        && !!this.settings.post_process_tracks_state;
+    },
+
     // Which variables changed on the last update, so the rows that moved can
     // say so. Trust and mood shift every turn and the panel used to just
     // re-render with different words — the most distinctive thing the engine

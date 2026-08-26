@@ -268,6 +268,50 @@ versioned by source turn. `willingness = 3 at turn 40` belongs to the conversati
 the *guidance text*. Decay toward baseline runs deterministically each turn (zero LLM
 cost). Rule-based keyword/regex nudges adjust values before any model pass — cheapest tier.
 
+**A card with no `state_schema` is not a card with no state.**
+`state_mod.load_schema(raw)` falls back to `state_mod.DEFAULT_STATE_SCHEMA` — a
+shipped four-variable set (willingness, trust, mood, energy) — whenever `raw`
+is empty, and `cards.py`'s own card-import path (`_state_schema_from`) falls
+back to the same constant at import time. So every character already has
+somewhere for decay, nudges and bands to act on before anyone writes a line
+of JSON; a *custom* schema is what's manual, not state tracking itself.
+
+**Growing a schema at runtime (§5.7).** `Settings.post_process_tracks_state`
+— off by default, meaningful only alongside post_process itself also being
+on, checked together everywhere either is read — lets post_process's own
+model call also decide whether this reply revealed something worth tracking
+that nothing already does, and propose exactly one new variable
+(`<<<track>>>{...}` after the corrected text, parsed and validated in
+`app/reply_polish.py`: a coherent min/max/baseline/bands, a name that isn't
+already tracked, and a ceiling — `MAX_TRACKED_VARIABLES`, 8 — on how large a
+schema is allowed to grow on its own). Accepted, it is persisted onto the
+character's own card (`PassScheduler._apply_tracked_variable`) — visible to
+every chat with that character from then on, the same as a hand-written
+entry would be — and this chat gets an initial value for it immediately,
+live, via the same `state` SSE event a correction from state_auditor uses.
+
+Two things this has to get right that a first pass missed, both caught by
+running it rather than by reading the diff:
+
+- **The fallback has to be made explicit, once, not silently dropped.** A
+  card whose `state_schema` was empty was living entirely on
+  `DEFAULT_STATE_SCHEMA`; saving `{new_variable}` alone over that emptiness
+  makes the schema non-empty and switches the fallback off for good — four
+  variables this chat already had values for gone the instant the first
+  discovery lands. The fix seeds from `load_schema(None)` first when the
+  card's own schema was empty, so what gets saved is the defaults plus the
+  addition, not the addition alone.
+- **A concurrent card save must not clobber it.** `character_reactions.spawn`
+  (fire-and-forget, launched after every reply) used to mutate and save the
+  same in-memory `Character` object the turn started with; its own slow part
+  (a model call) finishing after this had already saved a new variable would
+  overwrite the row with a copy from before that variable existed. Fixed by
+  having `character_reactions.fill_missing` reload the character immediately
+  before its own save rather than build on a snapshot from before its
+  generate() call — general hygiene, not specific to this feature, since
+  *anything* touching the character mid-turn could have lost to it the same
+  way.
+
 ---
 
 ## 7. Memory & context management

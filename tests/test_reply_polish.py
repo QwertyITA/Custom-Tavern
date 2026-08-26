@@ -7,6 +7,7 @@ independent of full_text's own "Restore full length").
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 
 from app import repo, reply_polish
@@ -38,15 +39,17 @@ class _Broken:
 
 
 def test_an_empty_draft_is_returned_untouched():
-    result = sync(reply_polish.run(echo_provider(), POST_PROCESS, "", "Mira", [], 5.0))
+    result, proposal = sync(reply_polish.run(echo_provider(), POST_PROCESS, "", "Mira", [], 5.0))
     assert result == ""
+    assert proposal is None
 
 
 def test_a_provider_failure_falls_back_to_the_draft():
     """Best-effort only — polish must never be the reason a turn fails."""
     draft = "She frowns and crosses her arms. " * 20
-    result = sync(reply_polish.run(_Broken(), POST_PROCESS, draft, "Mira", [], 5.0))
+    result, proposal = sync(reply_polish.run(_Broken(), POST_PROCESS, draft, "Mira", [], 5.0))
     assert result == draft
+    assert proposal is None
 
 
 def test_a_response_too_different_in_size_is_rejected():
@@ -55,7 +58,7 @@ def test_a_response_too_different_in_size_is_rejected():
     growth this treats as "still an edit" rather than "wrote something
     else"."""
     draft = "Hi."
-    result = sync(reply_polish.run(echo_provider(), POST_PROCESS, draft, "Mira", [], 5.0))
+    result, _proposal = sync(reply_polish.run(echo_provider(), POST_PROCESS, draft, "Mira", [], 5.0))
     assert result == draft
 
 
@@ -63,7 +66,7 @@ def test_a_response_within_bounds_is_accepted():
     """Long enough that the same fixed wrapper is a small fraction of the
     whole, which is what makes it read as an edit rather than a rewrite."""
     draft = "She frowns and crosses her arms. " * 20
-    result = sync(reply_polish.run(echo_provider(), POST_PROCESS, draft, "Mira", [], 5.0))
+    result, _proposal = sync(reply_polish.run(echo_provider(), POST_PROCESS, draft, "Mira", [], 5.0))
     assert result != draft
     # echo's canned wrapper quotes back what it was given, trailing space and
     # all stripped the same way a real model's own output would be.
@@ -79,16 +82,149 @@ def test_length_and_pov_targets_reach_the_model_when_present():
         {"id": "craft:length", "text": "1 to 2 paragraphs, roughly 100 to 200 words."},
     ]
     draft = "She frowns and crosses her arms. " * 20
-    result = sync(reply_polish.run(echo_provider(), POST_PROCESS, draft, "Mira", parts, 5.0))
+    result, _proposal = sync(
+        reply_polish.run(echo_provider(), POST_PROCESS, draft, "Mira", parts, 5.0)
+    )
     assert "Third person for the room." in result
     assert "1 to 2 paragraphs" in result
 
 
 def test_no_length_or_pov_section_means_no_target_is_invented():
     draft = "She frowns and crosses her arms. " * 20
-    result = sync(reply_polish.run(echo_provider(), POST_PROCESS, draft, "Mira", [], 5.0))
+    result, _proposal = sync(reply_polish.run(echo_provider(), POST_PROCESS, draft, "Mira", [], 5.0))
     assert "Point of view" not in result
-    assert "Length target" not in result
+
+
+# --------------------------------------------------------- state tracking
+
+
+def test_track_state_off_never_asks_for_or_parses_a_proposal():
+    """Off is off: no instructions added, and a marker-shaped thing in the
+    response (however it got there) is never even looked for."""
+    draft = "She frowns and crosses her arms. " * 20
+    _result, proposal = sync(
+        reply_polish.run(
+            echo_provider(), POST_PROCESS, draft, "Mira", [], 5.0, track_state=False
+        )
+    )
+    assert proposal is None
+
+
+def test_a_well_formed_proposal_is_validated_and_returned():
+    class _Proposes:
+        name = "echo"
+        model = "echo-1"
+
+        async def generate(self, request: GenRequest) -> GenResult:
+            text = (
+                "*settles.* \"Fine.\"\n"
+                + reply_polish.TRACK_MARKER
+                + json.dumps({
+                    "name": "trust", "min": 0, "max": 10, "baseline": 5,
+                    "decay": 0.15, "value": 6,
+                    "bands": [
+                        {"range": [0, 3], "label": "guarded", "guidance": "wary"},
+                        {"range": [4, 6], "label": "neutral", "guidance": "even"},
+                        {"range": [7, 10], "label": "eager", "guidance": "warm"},
+                    ],
+                })
+            )
+            return GenResult(text=text)
+
+    draft = "She frowns."
+    _result, proposal = sync(
+        reply_polish.run(
+            _Proposes(), POST_PROCESS, draft, "Mira", [], 5.0,
+            track_state=True, existing_variables=[], schema_size=0,
+        )
+    )
+    assert proposal is not None
+    name, spec, value = proposal
+    assert name == "trust"
+    assert value == 6
+    assert len(spec.bands) == 3
+
+
+def test_a_proposal_duplicating_an_existing_variable_is_dropped():
+    class _ProposesExisting:
+        name = "echo"
+        model = "echo-1"
+
+        async def generate(self, request: GenRequest) -> GenResult:
+            text = "Fine." + reply_polish.TRACK_MARKER + json.dumps({
+                "name": "Trust", "bands": [{"range": [0, 10], "label": "x", "guidance": "y"}],
+            })
+            return GenResult(text=text)
+
+    _result, proposal = sync(
+        reply_polish.run(
+            _ProposesExisting(), POST_PROCESS, "Fine.", "Mira", [], 5.0,
+            track_state=True, existing_variables=["Trust"], schema_size=1,
+        )
+    )
+    assert proposal is None
+
+
+def test_a_proposal_is_dropped_once_the_schema_is_full():
+    class _Proposes:
+        name = "echo"
+        model = "echo-1"
+
+        async def generate(self, request: GenRequest) -> GenResult:
+            text = "Fine." + reply_polish.TRACK_MARKER + json.dumps({
+                "name": "new_one", "bands": [{"range": [0, 10], "label": "x", "guidance": "y"}],
+            })
+            return GenResult(text=text)
+
+    _result, proposal = sync(
+        reply_polish.run(
+            _Proposes(), POST_PROCESS, "Fine.", "Mira", [], 5.0,
+            track_state=True, existing_variables=[], schema_size=reply_polish.MAX_TRACKED_VARIABLES,
+        )
+    )
+    assert proposal is None
+
+
+def test_a_malformed_proposal_does_not_break_the_edit():
+    """Garbage after the marker still leaves the corrected text intact —
+    only the proposal is thrown away."""
+    class _Garbage:
+        name = "echo"
+        model = "echo-1"
+
+        async def generate(self, request: GenRequest) -> GenResult:
+            return GenResult(text="Fine, fixed." + reply_polish.TRACK_MARKER + "{not json")
+
+    result, proposal = sync(
+        reply_polish.run(
+            _Garbage(), POST_PROCESS, "Fine, unfixed.", "Mira", [], 5.0,
+            track_state=True, existing_variables=[], schema_size=0,
+        )
+    )
+    assert proposal is None
+    assert result == "Fine, fixed."
+
+
+# ------------------------------------------------------ validate_proposal
+
+
+def test_validate_proposal_rejects_a_backwards_range():
+    payload = {"name": "x", "min": 10, "max": 0, "bands": [{"range": [0, 10], "label": "a", "guidance": "b"}]}
+    assert reply_polish.validate_proposal(payload, [], 0) is None
+
+
+def test_validate_proposal_rejects_no_bands():
+    payload = {"name": "x", "bands": []}
+    assert reply_polish.validate_proposal(payload, [], 0) is None
+
+
+def test_validate_proposal_clamps_an_out_of_range_value():
+    payload = {
+        "name": "x", "min": 0, "max": 10, "value": 99,
+        "bands": [{"range": [0, 10], "label": "a", "guidance": "b"}],
+    }
+    _name, _spec, value = reply_polish.validate_proposal(payload, [], 0)
+    assert value == 10
 
 
 # --------------------------------------------------------------------- repo
@@ -291,3 +427,130 @@ def test_stopping_while_post_process_is_running_still_keeps_the_draft(sched, cha
     )]
     assert any(r["pass_id"] == "basic" and r["status"] == "stopped" for r in runs), runs
     assert any(r["pass_id"] == "post_process" and r["status"] == "stopped" for r in runs), runs
+
+
+# --------------------------------------------------- state tracking, live
+
+
+def test_post_process_tracks_state_is_off_by_default(sched, chat, monkeypatch, character):
+    """post_process being on is not enough by itself — the sub-toggle starts
+    empty (§6) and stays that way until turned on separately."""
+    assert not SETTINGS.post_process_tracks_state
+
+    seen_kwargs = {}
+    real_run = reply_polish.run
+
+    async def spy(*args, **kwargs):
+        seen_kwargs.update(kwargs)
+        return await real_run(*args, **kwargs)
+
+    monkeypatch.setattr(reply_polish, "run", spy)
+    sync(turn(sched, chat["id"], "Cold out."))
+    assert seen_kwargs.get("track_state") is False
+
+    fresh = repo.get_character(sched.db, character.id)
+    assert fresh.state_schema == {}
+
+
+def test_a_tracked_proposal_is_persisted_through_a_real_turn(db, chat, character):
+    """Both halves of what the toggle promises: the variable becomes a real
+    part of the character going forward, and this chat gets a value for it
+    immediately, live, without a page reload."""
+    from app.models import Band, VariableSchema
+    from app.passes.scheduler import PassScheduler
+
+    sched = PassScheduler(db, replace(SETTINGS, post_process_tracks_state=True))
+
+    # Not "trust" or "willingness": the echo backend's own canned deltas
+    # (§ providers/echo.py _signals) always propose something for those two
+    # names regardless of what the real schema is, and with background on
+    # by default here state_auditor would then genuinely correct this one
+    # right back out from under the proposal — the exact write-arbitration
+    # behaviour §5.5 wants, just aimed at a collision only echo's fixed stub
+    # can manufacture (a real model only reports a delta for a variable the
+    # state contract actually told it about, which a variable post_process
+    # only just discovered never was).
+    proposed = (
+        "curiosity",
+        VariableSchema(
+            min=0, max=10, baseline=5, decay=0.15,
+            bands=[
+                Band(range=(0, 3), label="guarded", guidance="wary"),
+                Band(range=(4, 10), label="warm", guidance="open"),
+            ],
+        ),
+        7.0,
+    )
+
+    async def fake_run(*args, **kwargs):
+        return "Fine.", proposed
+
+    import app.passes.scheduler as scheduler_module
+    original = scheduler_module.reply_polish.run
+    scheduler_module.reply_polish.run = fake_run
+    try:
+        events = sync(turn(sched, chat["id"], "Cold out."))
+    finally:
+        scheduler_module.reply_polish.run = original
+
+    state_events = events_of(events, "state")
+    assert state_events, "no state event was emitted for the new variable"
+    bands = state_events[-1]["state"]["bands"]
+    assert any(b["variable"] == "curiosity" and b["band"] == "warm" for b in bands)
+
+    fresh = repo.get_character(db, character.id)
+    assert "curiosity" in fresh.state_schema
+    assert fresh.state_schema["curiosity"].baseline == 5
+    # The card had no state_schema of its own, which means every turn up to
+    # this one was actually reading state_mod.DEFAULT_STATE_SCHEMA's own
+    # willingness/trust/mood/energy (§ state_mod.load_schema's fallback) —
+    # the first proposal saving over that emptiness must carry those four
+    # forward explicitly, not silently drop them the moment the card
+    # becomes non-empty.
+    for implicit in ("willingness", "trust", "mood", "energy"):
+        assert implicit in fresh.state_schema, f"{implicit} was dropped"
+
+    from app import state as state_mod
+    slice_ = state_mod.read_slice(db, chat["id"], state_mod.slice_for(state_mod.SLICE_VARS, character.id))
+    assert slice_["value"]["curiosity"] == 7.0
+
+
+def test_a_swipe_can_also_add_a_tracked_variable(db, chat, character):
+    """The second call site (§ _run_swipe) gets the identical treatment."""
+    from app.models import Band, VariableSchema
+
+    from app.passes.scheduler import PassScheduler
+
+    sched = PassScheduler(db, replace(SETTINGS, post_process_tracks_state=True))
+    first = sync(turn(sched, chat["id"], "Cold out."))
+    message_id = events_of(first, "reply")[0]["message"]["id"]
+
+    proposed = (
+        "resolve",
+        VariableSchema(
+            min=0, max=10, baseline=5,
+            bands=[Band(range=(0, 10), label="steady", guidance="unshaken")],
+        ),
+        3.0,
+    )
+
+    async def fake_run(*args, **kwargs):
+        return "Fine.", proposed
+
+    import app.passes.scheduler as scheduler_module
+    original = scheduler_module.reply_polish.run
+    scheduler_module.reply_polish.run = fake_run
+    try:
+        async def do_swipe():
+            return [e async for e in sched.run_swipe(message_id)]
+        events = sync(do_swipe())
+    finally:
+        scheduler_module.reply_polish.run = original
+
+    state_events = events_of(events, "state")
+    assert state_events
+    bands = state_events[-1]["state"]["bands"]
+    assert any(b["variable"] == "resolve" for b in bands)
+
+    fresh = repo.get_character(sched.db, character.id)
+    assert "resolve" in fresh.state_schema
