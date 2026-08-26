@@ -1853,7 +1853,7 @@ function tavern() {
           note: "The most this backend writes in one answer. Every pass asks "
               + "for what it needs and is capped here; reasoning is paid for "
               + "on top." },
-        { key: "context", label: "Context window", min: 0, max: 131072, step: 1024,
+        { key: "context", label: "Context window", min: 0, max: 250000, step: 1024,
           unit: " tok", zero: "asked",
           note: "Prompt and answer together. Left at 0 the backend is asked "
               + "what it is serving, which is the right answer whenever it can "
