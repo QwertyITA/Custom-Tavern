@@ -179,6 +179,30 @@ def test_triggered_lore_lands_in_the_dynamic_middle(db, chat, character):
     assert assembled.lore_hits == ["Harrow"]
 
 
+def test_triggered_lore_expands_macros_same_as_constant_lore(db):
+    """Constant lore (§ world, the prefix section) has always run through
+    `expand()`; a triggered entry did not, so a keyed lorebook entry that
+    writes `{{char}}`/`{{user}}` the way a constant one does sent the model
+    the literal, unresolved placeholder text instead of a name."""
+    from app.models import Character
+
+    macro_char = Character(
+        id="macro-char", name="Kutra",
+        persona="Guarded.", first_mes="Hi.",
+        lorebook=[LorebookEntry(keys=["wolfboy"],
+                                 content="{{char}} is secretly a wolfboy who likes {{user}}.")],
+    )
+    repo.save_character(db, macro_char)
+    macro_chat = repo.create_chat(db, macro_char.id, "macro test")
+    repo.add_message(db, macro_chat["id"], "assistant", macro_char.first_mes)
+    repo.add_message(db, macro_chat["id"], "user", "are you secretly a wolfboy?")
+    assembled = build(db, macro_chat, macro_char)
+    middle = assembled.messages[0]["content"]
+    assert "Kutra is secretly a wolfboy" in middle
+    assert "{{char}}" not in middle
+    assert "{{user}}" not in middle
+
+
 def test_memories_are_injected_when_enabled_for_the_character(db, chat, character):
     memory_store.store(db, character.id, [{"text": "Mira promised to return the knife.",
                                            "keys": ["knife"]}])

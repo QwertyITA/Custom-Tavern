@@ -90,28 +90,80 @@ each step, and screenshots for the cropper's UI); `run.sh` at a shell,
 against all three host/port precedence cases (settings only, env override,
 neither).
 
-Fixed on 2026-08-26 — the AI Horde quick-setup presets (Mini/Standard/Max,
-`static/app.js`) set a `context` far above what they were meant to: 4096 /
-8192 / 32000, against a stated design of roughly 1-2k / 2-3k / 4-5k. Measured
-with the app's own assembly code against two real, moderately detailed
-character cards and a 20-exchange conversation: on the *old* numbers Mini
-still sent 25 of 41 messages (Nyami) or 33 of 41 (Kutra) — workable, but
-already trimming meaningfully more than a 4k-context tier should need to, and
-the two larger tiers weren't trimming anything, which is a second problem —
-see below. Presets now set 1536 / 2560 / 4608, and the two "not a matter of
-tier" blocks (`craft:format`, `craft:length`) aside, the writing-library
-selection was retuned around correctness over polish at the tighter budgets
-(Mini: only `craft:autonomy` + `craft:knowledge`, the two rules whose absence
-reads as broken rather than merely plain), the card's own example dialogue
-— often the single most expensive optional prefix section — now switches
-off below Max, and `lorebook_total_budget`/`memory_max_injected` scale down
-with the tier the same way. All within the existing mechanism (a one-shot
-settings edit under the Save bar), nothing auto-truncated.
+Fixed on 2026-08-26 — a triggered (keyed) lorebook entry never ran through
+macro expansion, so `{{char}}`/`{{user}}` inside one reached the model as
+the literal, unresolved placeholder text rather than a name (`app/assembly.py`
+build_reply_context, the "lore" middle-band section). Constant entries — the
+"World" prefix section — always expanded correctly; only the scanned/keyed
+path was missed. Reproduced directly: a lorebook entry reading `"{{char}} is
+secretly a wolfboy who likes {{user}}."`, once its key was mentioned, was
+sent to the model exactly like that rather than with the character's and
+persona's actual names substituted in. Found while investigating a real,
+large card (Kutra, `character_book`, 38 entries) whose keyed entries — most
+of them describing entirely different named characters (Wira, Isiya, Emas,
+Sarpint, and more, not Kutra) — write `{{char}}` to refer to themselves; on
+the broken code, triggering one of those keys mid-conversation (species
+words like "wolfboy"/"catgirl", or the other characters' own names) sent the
+model that other character's raw JSON sheet with the literal `{{char}}`
+token left in it. Fixed by expanding it the same way the constant path
+already did (`expand(render_lore(triggered))`); covered by
+`test_triggered_lore_expands_macros_same_as_constant_lore`
+(`tests/test_context.py`).
 
-That surfaced a second, unfixed thing, recorded below under Not a defect: a
-verbose card's own identity content can, on its own, exceed even the fixed
-budgets. Nothing here changes that — see that entry for the measurement and
-why the fix is the card, not the preset.
+**This fix does not, on its own, make a card like that read as consistent.**
+Once expanded, `{{char}}` resolves to whichever character is actually in the
+chat — so a keyed entry written for a *different* character now attributes
+that character's traits to the active one fluently and confidently instead
+of visibly-broken raw template syntax, which is a worse failure to read
+even though it is a strictly more correct implementation of what macro
+expansion is supposed to do. The entries themselves are the actual defect,
+not something either version of this code path can fix: a keyed lorebook
+entry that is not about the chat's own character should never write
+`{{char}}` for itself in the first place, constant or triggered — it should
+name that other character literally, the way the app's own constant/prefix
+convention already implicitly assumes every `{{char}}` in the book means
+"the character this chat is about." Recorded, not fixed, in the entries
+themselves — see the card-content note below.
+
+Fixed on 2026-08-26 — the AI Horde quick-setup presets (Mini/Standard/Max,
+`static/app.js`) were conflating two different numbers under one name.
+`backend.context` (Horde's `max_context_length`, a worker-eligibility floor
+told to Horde's queue — asking for less does not shrink the prompt, it only
+widens which workers qualify) was set to 4096 / 8192 / 32000 per tier, and
+that same number was standing in for the thing actually meant: how much
+*prompt* — card, craft library and conversation together — the app itself
+writes before `assembly.py` starts trimming. Those never had separate
+numbers. Fixed by pulling them apart: `backend.context` and the per-request
+reply cap now sit at Horde's own ceiling (32000 / 512) on every tier, since
+asking Horde for less than it allows was never the point — and
+`settings.token_budget`, which `assembly.py` actually trims against, now
+carries the real Mini/Standard/Max number (1536 / 2560 / 4608, i.e. 1-2k /
+2-3k / 4-5k of prompt), set independently via the same one-shot settings
+edit the writing-library toggles already used. `PassScheduler._fitted` only
+ever tightens a configured `token_budget` toward what a backend can hold,
+never loosens it, so a generous `backend.context` alongside a small
+`token_budget` is exactly "give Horde's queue its normal run, but only ever
+write this much prompt" rather than a contradiction between the two.
+
+The writing-library selection was also retuned around correctness over
+polish at the tighter prompt budgets (Mini: only `craft:autonomy` +
+`craft:knowledge`, the two rules whose absence reads as broken rather than
+merely plain), the card's own example dialogue — often the single most
+expensive optional prefix section — now switches off below Max, and
+`lorebook_total_budget`/`memory_max_injected` scale down with the tier the
+same way. The two "not a matter of tier" blocks (`craft:format`,
+`craft:length`) are untouched either way. All within the existing mechanism,
+nothing auto-truncated.
+
+Measured with the app's own assembly code against two real, moderately
+detailed character cards and a 20-exchange conversation, on the fixed
+numbers: Mini and Standard both send only the pinned opening message for
+either card — none of the actual back-and-forth — while Max sends 21 of 41
+(Nyami) or 30 of 41 (Kutra). That surfaced a second, unfixed thing, recorded
+below under Not a defect: a verbose card's own identity content can, on its
+own, still exceed a 1-2k or 2-3k prompt budget. Nothing here changes that —
+see that entry for the full measurement and why the fix is the card, not the
+preset.
 
 ---
 
@@ -159,25 +211,55 @@ often it happens without being able to prevent it outright.
 Measured directly against two real cards (Nyami, Kutra) with the fixed
 presets above and a 20-exchange conversation: on Mini both sent only the
 pinned opening message — none of the actual back-and-forth — and so did
-Standard, and so did Max. The card's own mandatory identity (system prompt +
-persona + scenario, before a single writing rule or example is added) is
-already ~1360-2100 tokens for these two; Nyami's alone, with every optional
-section switched off, still runs to ~1620 tokens against Mini's ~980-token
-effective budget once the reply and safety margin are taken out. This is not
-something a preset can tune away: §7.1's rule is that only the *middle*
-(the conversation) is ever trimmed, never the prefix a card supplies — doing
-that automatically would mean silently rewriting someone's character, which
-is a worse failure than a short-lived amnesia the person can see and correct
-for. A character that reads as having no memory of the last several
-messages on Mini or Standard, with a card this size, is that rule working
-as designed, not a bug in it. The two available fixes both live outside the
-app: trim the card itself (Nyami's `system_prompt` and `mes_example`, or
-Kutra's lorebook — 38 entries totalling ~22.5k tokens, of which the app
-already budget-caps what any one turn can inject, but a smaller book still
-leaves more of that cap for the entries that actually matter), or run a
-detailed card like this on Standard/Max with a non-Horde backend instead,
-where the context is large enough that identity and conversation are not
-competing for the same few hundred tokens.
+Standard. Max recovers substantially (21 of 41 for Nyami, 30 of 41 for
+Kutra) now that its prompt budget is not also being quietly shrunk by the
+reply cap and safety margin the old, conflated `context` number carried —
+but Mini and Standard, at 1-2k and 2-3k of prompt, still cannot fit both a
+card this size and any conversation. The card's own mandatory identity
+(system prompt + persona + scenario, before a single writing rule or example
+is added) is already ~1360-2100 tokens for these two; Nyami's alone, with
+every optional section switched off, still runs to ~1620 tokens against
+Mini's 1536-token prompt budget — the card's identity by itself is already
+past the ceiling. This is not something a preset can tune away: §7.1's rule
+is that only the *middle* (the conversation) is ever trimmed, never the
+prefix a card supplies — doing that automatically would mean silently
+rewriting someone's character, which is a worse failure than a short-lived
+amnesia the person can see and correct for. A character that reads as having
+no memory of the last several messages on Mini or Standard, with a card this
+size, is that rule working as designed, not a bug in it. The two available
+fixes both live outside the app: trim the card itself (Nyami's
+`system_prompt` and `mes_example`, or Kutra's lorebook — 38 entries
+totalling ~22.5k tokens, of which the app already budget-caps what any one
+turn can inject, but a smaller book still leaves more of that cap for the
+entries that actually matter), or run a detailed card like this on
+Standard/Max instead, where — Max especially, now that its real prompt
+budget isn't being silently eaten by the reply/safety margin — identity and
+conversation are no longer competing for the same few hundred tokens.
+
+### A card's lorebook can misattribute another character's traits
+
+Found while investigating the macro-expansion fix above, against a real card
+(Kutra). Of its 38 `character_book` entries, roughly 15 write `{{char}}` to
+refer to *themselves* while describing a completely different named
+character — Wira, Isiya, Emas, Sarpint, and others, each keyed on their own
+name and species ("wolfboy", "catgirl", "deergirl", …), not Kutra's. In this
+or any solo chat `{{char}}` always resolves to the chat's own character, so
+the moment the conversation says one of those keys — plausible on its own
+given the card's premise, an owner with several demi-humans, and at least
+three of the roster (Zamj, Aese, Myval) are legitimately part of Kutra's own
+greetings — the model is handed that other character's full sheet with
+every `{{char}}` now reading "Kutra": a card built to misattribute a wolfboy
+or a lamia's traits to her, fluently, the moment the topic comes up. This is
+almost certainly a bigger source of "the character is inconsistent" than
+anything on this page that the app controls. It is not a code defect —
+nothing server-side rewrites lorebook content — and not something the app
+can safely correct on its own either: telling the difference between "this
+entry is about a different character on purpose" (legitimate — a shared
+world where several demi-humans recur) and "this entry was never about this
+character at all" needs reading each entry, which only the person who wrote
+or assembled the book can actually judge. The fix is the book: an entry
+about a character other than the one the chat is about should name that
+character literally, never `{{char}}`.
 
 ### The pre-pass ("would the character say yes") is not built
 

@@ -333,7 +333,13 @@ def build_reply_context(
             if not e.constant
         ]
         if triggered:
-            text = render_lore(triggered)
+            # Constant lore (the "world" prefix section, above) has always
+            # gone through `expand()`; triggered lore never did — a keyed
+            # entry that writes `{{char}}`/`{{user}}` the same way a
+            # constant one does was sent to the model as the literal,
+            # unresolved placeholder text instead. Same macro context either
+            # way, so there is no reason for the two to disagree.
+            text = expand(render_lore(triggered))
             middle_parts["lore"] = f"## Relevant lore\n{text}"
             assembled.lore_hits = [e.keys[0] if e.keys else "" for e in triggered]
             _section(assembled, "lorebook", text)
