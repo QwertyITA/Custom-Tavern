@@ -125,6 +125,20 @@ convention already implicitly assumes every `{{char}}` in the book means
 "the character this chat is about." Recorded, not fixed, in the entries
 themselves — see the card-content note below.
 
+Fixed on 2026-08-26 — a lorebook entry's own `token_budget` (its per-entry
+cap, DESIGN.md §7.4: "per-entry and total token cap") was only ever used to
+decide whether the entry *fit* the total budget during selection
+(`lorebook.scan`'s `cost = min(estimate_tokens(entry.content),
+entry.token_budget)`) — `render` then emitted the entry's full, uncapped
+content regardless, so an oversized entry was charged its declared budget
+but sent several times that. Reproduced against a real card (Kutra): one
+lorebook entry with `token_budget: 200` rendered at **591 tokens** — over a
+third of the Mini preset's entire 1536-token prompt budget spent on one
+entry that was supposed to cost 200. Fixed by actually cutting the rendered
+content to `token_budget` (word-boundary safe) in `lorebook.render`;
+covered by `test_render_caps_an_entry_to_its_own_token_budget` and
+`test_render_leaves_a_short_entry_untouched` (`tests/test_context.py`).
+
 Fixed on 2026-08-26 — the AI Horde quick-setup presets (Mini/Standard/Max,
 `static/app.js`) were conflating two different numbers under one name.
 `backend.context` (Horde's `max_context_length`, a worker-eligibility floor
@@ -235,6 +249,25 @@ entries that actually matter), or run a detailed card like this on
 Standard/Max instead, where — Max especially, now that its real prompt
 budget isn't being silently eaten by the reply/safety margin — identity and
 conversation are no longer competing for the same few hundred tokens.
+
+**Confirmed live, not just in synthetic testing.** Reported symptom: a real
+Kutra chat (11 turns / 23 stored messages) started "narrating the story
+from the beginning" once the conversation got long enough. Replayed the
+exact stored history against the real card: right before the turn where
+this happened, Mini's assembled prompt held the pinned opening and *nothing
+else of the conversation* — not even the immediately preceding turn — and
+Standard was the same; Max held only the last two turns. A model handed
+[vivid, detailed arrival scene] + [a single recent line, no bridge between
+them] has almost nothing to continue *except* the arrival scene, which is
+exactly what every one of that turn's four regenerated variants did,
+independently, in the real transcript. Two real bugs surfaced and were
+fixed in the process of tracing this (the macro-expansion and
+lorebook-token_budget entries above; the second alone was quietly spending
+591 of Mini's 1536 tokens on one lorebook entry meant to cost 200) — fixing
+both recovers some room but does not change the outcome for this card on
+Mini or Standard, because the card's own identity content was already over
+budget before either bug. The fix for this specific symptom is the same as
+above: Max (where real headroom now exists) or a smaller card.
 
 ### A card's lorebook can misattribute another character's traits
 

@@ -29,6 +29,31 @@ def matches(entry: LorebookEntry, haystack: str) -> bool:
     return any(_pattern(key, entry.case_sensitive).search(haystack) for key in entry.keys if key)
 
 
+# ~4 chars/token, the same estimate `estimate_tokens` inverts (§ providers.base).
+_CHARS_PER_TOKEN = 4
+
+
+def _capped(entry: LorebookEntry) -> str:
+    """This entry's own content, cut to its own `token_budget` if it runs over.
+
+    `scan`'s budget accounting already charges an oversized entry only
+    `entry.token_budget` against the total — the per-entry cap this field
+    documents (§7.4, DESIGN.md) — so the rendered text has to actually be
+    that short too, or the total a chat is charged for and the total it is
+    sent stop agreeing with each other, which is how one entry ends up
+    spending three or four times its declared share.
+    """
+    text = entry.content.strip()
+    limit = entry.token_budget * _CHARS_PER_TOKEN
+    if limit <= 0 or len(text) <= limit:
+        return text
+    # Back off to the last whole word inside the limit rather than splitting
+    # one in half; a lorebook entry is usually a single dense paragraph with
+    # nowhere else to look for a clean edge.
+    cut = text.rfind(" ", 0, limit)
+    return text[: cut if cut > 0 else limit].rstrip()
+
+
 def scan(
     entries: list[LorebookEntry],
     recent_texts: list[str],
@@ -63,7 +88,7 @@ def scan(
 
 
 def render(entries: list[LorebookEntry]) -> str:
-    return "\n".join(entry.content.strip() for entry in entries if entry.content.strip())
+    return "\n".join(_capped(entry) for entry in entries if entry.content.strip())
 
 
 def split_by_constancy(

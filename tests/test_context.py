@@ -61,6 +61,25 @@ def test_disabled_entries_are_skipped():
     assert not lorebook.scan([entry(constant=True, enabled=False)], ["k"])
 
 
+def test_render_caps_an_entry_to_its_own_token_budget():
+    """`scan`'s total-budget accounting has always charged an oversized entry
+    only `token_budget` tokens (§ the `min(...)` in scan) — the per-entry cap
+    DESIGN.md §7.4 documents. `render` never actually cut the entry down to
+    that size, so what a chat was charged for one entry and what it was
+    actually sent could disagree by several times over."""
+    words = [f"word{i}" for i in range(400)]  # distinct words, so a mid-word
+    long_entry = entry(content=" ".join(words), token_budget=50)  # cut is detectable below
+    rendered = lorebook.render([long_entry])
+    assert lorebook.estimate_tokens(rendered) <= 55  # a little slack for the word-boundary backoff
+    assert rendered  # not emptied out entirely
+    assert rendered.split(" ")[-1] in words  # cut at a word boundary, not mid-word
+
+
+def test_render_leaves_a_short_entry_untouched():
+    short = entry(content="Harrow is the harbourmaster.", token_budget=200)
+    assert lorebook.render([short]) == "Harrow is the harbourmaster."
+
+
 # ----------------------------------------------------------------- memory
 
 
