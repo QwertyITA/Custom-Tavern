@@ -3210,6 +3210,36 @@
 
         <template x-if="sent">
           <div>
+            <!-- The budget only exists on a record saved after this was
+                 built — an older one still shows every row below, just with
+                 nothing here to measure them against. -->
+            <template x-if="sent.budget">
+              <div class="ctx-meter">
+                <div class="ctx-meter-head">
+                  <strong class="ctx-meter-label">Context window</strong>
+                  <span class="ctx-meter-nums"
+                        x-text="`${fmtTokens(sent.total_tokens)} / ${fmtTokens(sent.budget)} (${ctxMeterPct()}%)`"></span>
+                </div>
+                <div class="ctx-meter-bar">
+                  <template x-for="band in ctxMeterBands()" :key="`seg-${band.id}`">
+                    <span class="ctx-meter-seg"
+                          :style="`width: ${ctxMeterSegWidth(band)}; background: ${ctxBandColor(band.id)}`"></span>
+                  </template>
+                </div>
+                <ul class="ctx-legend">
+                  <template x-for="band in ctxMeterBands()" :key="`legend-${band.id}`">
+                    <li>
+                      <span class="ctx-legend-dot" :style="`background: ${ctxBandColor(band.id)}`"></span>
+                      <span class="ctx-legend-label" x-text="band.label"></span>
+                      <span class="ctx-legend-nums"
+                            x-text="`${fmtTokens(band.tokens)} · ${ctxBandShare(band)}`"></span>
+                      <p class="ctx-legend-note" x-text="band.note"></p>
+                    </li>
+                  </template>
+                </ul>
+              </div>
+            </template>
+
             <div class="sent-head">
               <div>
                 <strong x-text="`${sent.total_tokens} tokens`"></strong>

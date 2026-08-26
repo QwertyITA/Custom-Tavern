@@ -716,8 +716,9 @@ class PassScheduler:
         # see images decides how an attached picture is written into the prompt
         # (§19), so the assembler has to be told first.
         provider = provider_for_tier(definition.model_tier, self.settings)
+        fitted = await self._fitted(provider, definition)
         assembled = assembly.build_reply_context(
-            self.db, ctx.chat, ctx.character, await self._fitted(provider, definition),
+            self.db, ctx.chat, ctx.character, fitted,
             toggle_injections=injections,
             sees_images=provider.sees_images,
         )
@@ -747,7 +748,8 @@ class PassScheduler:
         # (§15). Recorded before the stream rather than after: a reply that
         # fails or is stopped is exactly the one someone wants to look at.
         repo.save_prompt_record(
-            self.db, run_id, ctx.chat_id, _itemised(assembled, contract)
+            self.db, run_id, ctx.chat_id, _itemised(assembled, contract),
+            budget=fitted.token_budget,
         )
         yield {
             "type": "assembly",
@@ -1530,11 +1532,12 @@ class PassScheduler:
         definition = registry.get_pass(self.db, "basic") or registry.CANONICAL_PASSES[0]
         injections = registry.active_injections(self.db, ctx.toggle_states, "basic")
         provider = provider_for_tier(definition.model_tier, self.settings)
+        fitted = await self._fitted(provider, definition)
         assembled = assembly.build_reply_context(
             self.db,
             chat,
             character,
-            await self._fitted(provider, definition),
+            fitted,
             toggle_injections=injections,
             exclude_message_id=message_id,
             sees_images=provider.sees_images,
@@ -1555,7 +1558,9 @@ class PassScheduler:
         # A re-roll is its own prompt, assembled after whatever the last attempt
         # changed, so it gets its own record rather than sharing the first
         # attempt's (§9).
-        repo.save_prompt_record(self.db, run_id, chat["id"], assembled.parts)
+        repo.save_prompt_record(
+            self.db, run_id, chat["id"], assembled.parts, budget=fitted.token_budget
+        )
 
         sink = GenResult()
         suffix = SuffixStreamFilter()

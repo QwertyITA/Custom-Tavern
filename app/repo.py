@@ -602,9 +602,19 @@ def set_meta(db: Database, key: str, value: str) -> None:
 PROMPT_HISTORY_TURNS = 20
 
 
-def save_prompt_record(db: Database, run_id: str, chat_id: str, parts: list[dict]) -> None:
-    """Store the itemisation for one run, then prune the old ones."""
-    payload = json.dumps(parts, ensure_ascii=False)
+def save_prompt_record(
+    db: Database, run_id: str, chat_id: str, parts: list[dict], budget: int | None = None
+) -> None:
+    """Store the itemisation for one run, then prune the old ones.
+
+    `budget` is the fitted prompt ceiling assembly aimed for this run (§ §7.1
+    fit_token_budget) — what "What was sent" needs to draw usage against a
+    context meter rather than just listing sections with nothing to measure
+    them against. Optional and stored alongside the parts rather than as a
+    second column: a record with no budget (an older row, or a backend that
+    could not report one) still reads fine, just without the meter.
+    """
+    payload = json.dumps({"parts": parts, "budget": budget}, ensure_ascii=False)
 
     def _write(conn) -> None:
         conn.execute("UPDATE pass_runs SET prompt=? WHERE id=?", (payload, run_id))
@@ -669,11 +679,19 @@ def prompt_record(db: Database, message_id: str) -> dict | None:
     if row is None or not row["prompt"]:
         return None
     try:
-        parts = json.loads(row["prompt"])
+        stored = json.loads(row["prompt"])
     except json.JSONDecodeError:
         return None
+    # Two shapes on disk: a bare list is a record saved before the budget was
+    # tracked at all, still fully readable, just with nothing to draw a meter
+    # against; the dict shape is everything written since.
+    if isinstance(stored, list):
+        parts, budget = stored, None
+    else:
+        parts, budget = stored.get("parts", []), stored.get("budget")
     return {
         "parts": parts,
+        "budget": budget,
         "model": row["model"],
         "tier": row["tier"],
         "tokens_in": row["tokens_in"],

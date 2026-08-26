@@ -8,6 +8,8 @@ in front of stable text (§7.1).
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from app import assembly, prompt_layout, repo
@@ -556,6 +558,38 @@ def test_the_rows_add_up_to_the_total_shown(client):
     # And that total is the same prompt the backend was charged for, give or
     # take our per-section rounding.
     assert abs(body["total_tokens"] - body["tokens_in"]) <= 0.02 * body["tokens_in"]
+
+
+def test_the_record_carries_the_fitted_budget(client):
+    """The context meter needs a ceiling to measure usage against — the same
+    fitted budget assembly targeted this turn (§ assembly.fit_token_budget),
+    not the raw configured one, and not the raw parts total."""
+    _, chat_id = a_chat(client)
+    send(client, chat_id, "Hello there.")
+    body = client.get(f"/api/messages/{last_reply(client, chat_id)['id']}/prompt").json()
+    assert isinstance(body["budget"], int) and body["budget"] > 0
+
+
+def test_an_older_record_with_no_budget_still_reads(client, db):
+    """Before the context meter, a prompt record on disk was a bare list of
+    parts. Reading one back should not break just because there is nothing
+    to draw a meter against — it should just draw no meter."""
+    _, chat_id = a_chat(client)
+    send(client, chat_id, "Hello there.")
+    reply = last_reply(client, chat_id)
+    current = repo.prompt_record(db, reply["id"])
+    run_id = db.query_one(
+        "SELECT id FROM pass_runs WHERE chat_id=? AND prompt IS NOT NULL "
+        "ORDER BY started_at DESC LIMIT 1",
+        (chat_id,),
+    )["id"]
+    db.write_sync(lambda conn: conn.execute(
+        "UPDATE pass_runs SET prompt=? WHERE id=?",
+        (json.dumps(current["parts"]), run_id),
+    ))
+    record = repo.prompt_record(db, reply["id"])
+    assert record["budget"] is None
+    assert record["parts"] == current["parts"]
 
 
 def test_the_state_contract_is_accounted_for(client):

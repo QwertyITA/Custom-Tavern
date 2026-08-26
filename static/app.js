@@ -1613,7 +1613,11 @@ function tavern() {
       }
     },
 
-    // Rows are grouped under their band, in the order they were sent.
+    // Rows are grouped under their band, in the order they were sent. `note`
+    // rides along from settings.prompt_bands even though the per-part rows
+    // below don't show it — the context meter's legend does, and pulling it
+    // from here rather than a second lookup keeps the two views unable to
+    // name a band differently.
     sentBands() {
       if (!this.sent) return [];
       const known = this.settings.prompt_bands || [];
@@ -1623,10 +1627,74 @@ function tavern() {
         if (last && last.id === part.band) last.parts.push(part);
         else {
           const band = known.find((b) => b.id === part.band);
-          out.push({ id: part.band, label: band ? band.label : part.band, parts: [part] });
+          out.push({
+            id: part.band,
+            label: band ? band.label : part.band,
+            note: band ? band.note : "",
+            parts: [part],
+          });
         }
       }
       return out;
+    },
+
+    // ---- context meter (§15) ----
+    //
+    // The summary bar at the top of "What was sent": how much of the fitted
+    // budget this turn actually used, broken down by the same three bands
+    // the rows below are already sorted into. Only drawn when the record
+    // carries a budget — an older record (saved before this existed, or one
+    // whose backend never got fitted at all) has nothing to measure against
+    // and is still shown in full below, just without the meter.
+
+    // A token count as the eye reads it rather than as the estimator
+    // produced it: bare below a thousand (812), one decimal up to ten
+    // thousand (7.8k), a round number above that (78k). Also used by
+    // hordePresetSummary() for its own target-size tagline, so the two
+    // never draw a token count in two different shapes.
+    fmtTokens(n) {
+      n = Math.round(n || 0);
+      if (n < 1000) return String(n);
+      return n < 10000 ? `${(n / 1000).toFixed(1)}k` : `${Math.round(n / 1000)}k`;
+    },
+
+    ctxBandColors: { prefix: "var(--band-prefix)", middle: "var(--band-middle)", volatile: "var(--band-volatile)" },
+
+    ctxBandColor(id) {
+      return this.ctxBandColors[id] || "var(--muted)";
+    },
+
+    // Same grouping sentBands() already computed, collapsed to one token
+    // count per band — so the meter and the accordion can never disagree
+    // about which parts a band counted.
+    ctxMeterBands() {
+      return this.sentBands().map((band) => ({
+        ...band,
+        tokens: band.parts.reduce((sum, p) => sum + p.tokens, 0),
+      }));
+    },
+
+    ctxMeterPct() {
+      const budget = this.sent && this.sent.budget;
+      if (!budget) return 0;
+      return Math.round(((this.sent.total_tokens || 0) / budget) * 100);
+    },
+
+    // A band's own share of the *budget*, not of the total used — so each
+    // segment's width means the same thing turn to turn, and the bar's
+    // overall filled width already equals how full the window actually is,
+    // rather than always summing to a fixed bar regardless of usage.
+    ctxMeterSegWidth(band) {
+      const budget = this.sent && this.sent.budget;
+      if (!budget) return "0%";
+      return `${Math.max(0, (band.tokens / budget) * 100)}%`;
+    },
+
+    // A band's share of what was actually sent, for the legend row — same
+    // denominator and rounding as partShare() below, just grouped.
+    ctxBandShare(band) {
+      const total = (this.sent && this.sent.total_tokens) || 1;
+      return `${Math.round((band.tokens / total) * 100)}%`;
     },
 
     // A share of the whole prompt, for the bar next to each row. Against the
@@ -3249,6 +3317,7 @@ function tavern() {
             "--accent": "#8f7fd4", "--user-bubble": "#2a2733", "--ai-bubble": "#1e2026",
             "--c-default": "#e6e4ea", "--c-dialogue": "#e0a3bd", "--c-action": "#a99ae0",
             "--c-strong": "#d8b06a",
+            "--band-prefix": "#c2547d", "--band-middle": "#8877d9", "--band-volatile": "#bd8129",
           },
         },
       ];
@@ -5854,12 +5923,12 @@ function tavern() {
         // backend.context and settings.token_budget are both held at
         // Horde's own ceiling on every tier now, so neither would read
         // differently between the three cards or tell you anything about
-        // what actually differs. /1000 rather than /1024: the number as
-        // anyone shopping for "a 32k model" already thinks of it. One
+        // what actually differs. fmtTokens rather than /1024: the number as
+        // anyone shopping for "a 32k model" already thinks of it, with one
         // decimal below 10k — these tiers sit at 1.5/2.5/4.5, and rounding
         // to a bare integer would show Mini's 1536 as a misleadingly-round
         // "2k".
-        `~${preset.prompt_budget < 10000 ? (preset.prompt_budget / 1000).toFixed(1) : Math.round(preset.prompt_budget / 1000)}k card+rules prefix`,
+        `~${this.fmtTokens(preset.prompt_budget)} card+rules prefix`,
       ].join(" · ");
     },
 

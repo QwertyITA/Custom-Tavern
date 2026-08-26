@@ -420,6 +420,29 @@ never seems to remember anything:
   (word-boundary safe) rather than emitting it in full — `scan`'s total-budget
   accounting always assumed that cap was real; it was the one thing that made it true.
 
+### 7.7 The context meter ("What was sent")
+
+The itemised prompt record (`repo.save_prompt_record`/`prompt_record`) now carries a
+`budget` alongside its `parts`: the same fitted ceiling `PassScheduler._fitted` computed
+for that turn via `assembly.fit_token_budget` — not the raw configured
+`settings.token_budget`, and not a re-derivation, since the record is a record of what
+actually happened, not a live re-assembly (the same reasoning §7.6 gives for why a
+card's own headroom check reuses this arithmetic rather than inventing a second copy of
+it). "What was sent" draws a stacked meter from it: total used vs. that budget, split
+into the three §7.1 bands (`prefix`/`middle`/`volatile`) by summing the same per-part
+rows the accordion below it already groups by band — one grouping function
+(`sentBands()`) feeds both, so the meter and the row-by-row breakdown can never
+disagree about which parts a band counted or what its label means. Stored as
+`{"parts": [...], "budget": N}` rather than the bare list it used to be; a record
+written before this shipped still parses (`budget: null`) and the meter is simply
+omitted for it — every other row keeps working exactly as before. The three band
+colours (`--band-prefix`/`--band-middle`/`--band-volatile`) are a dedicated triplet
+rather than a reuse of the existing `--c-dialogue`/`--c-action`/`--c-strong` markup
+colours: those already carry a different, adjacent-in-the-same-app meaning, and —
+checked against `validate_palette.js`, not assumed — fail the CVD normal-vision floor
+in every shipped theme. Only the Night preset needs its own dark-stepped values;
+the other four share the light set.
+
 ---
 
 ## 8. Message rendering & inline markup

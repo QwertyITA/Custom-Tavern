@@ -51,6 +51,19 @@
   --c-action: #6f5aa8;
   --c-strong: #9a6828;
 
+  /* The context meter's three bands (§15, .ctx-meter) — who they are /
+     what has happened / right now, same grouping as prompt_layout.BANDS.
+     A dedicated triplet rather than reusing --c-dialogue/--c-action/--c-strong:
+     those already carry a different meaning two taps away in the same app
+     (markup colour in the transcript itself), and — checked, not assumed —
+     validate_palette.js fails all three of those on the normal-vision CVD
+     floor in every theme. This triplet was picked to clear it: worst
+     adjacent ΔE 19.5 (light) / 16.9 (night, its own dark-stepped set below).
+     Only Night needs its own steps; the other four presets share these. */
+  --band-prefix: #b83a63;
+  --band-middle: #5b4b9e;
+  --band-volatile: #a86a12;
+
   --user-bubble: #fbeef3;
   --ai-bubble: #ffffff;
   --error: #c0405e;
@@ -3139,6 +3152,82 @@ input.mono {
 }
 .p-add:hover, .p-add:focus-visible { color: var(--accent); border-color: var(--accent); }
 .p-add .icon { width: 15px; height: 15px; }
+
+/* ---- context meter (§15) -------------------------------------------------
+   The summary at the top of "What was sent": one stacked bar showing how
+   much of the fitted budget this turn actually used, broken down by band
+   (prefix/middle/volatile — same three groups the rows below are already
+   sorted into, so the meter and the accordion never disagree about what a
+   colour means). The unfilled remainder of the track is headroom, drawn in
+   the track's own colour rather than a fourth segment — it is not a
+   category, it is the absence of one. */
+.ctx-meter { margin-bottom: 18px; }
+.ctx-meter-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.ctx-meter-label { font-size: 13px; font-weight: 600; }
+.ctx-meter-nums {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+/* The stack itself: one flex row, each band a segment sized to its own share
+   of the budget (not of the total used — so the bar's filled portion is
+   itself proportional to usage), a 2px surface gap between touching
+   segments so neighbours read as distinct without a border, and whatever
+   width is left over is the track's own colour showing through. */
+.ctx-meter-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+.ctx-meter-seg {
+  height: 100%;
+  transform-origin: left center;
+  animation: sent-fill 420ms var(--ease-out) both;
+}
+.ctx-meter-seg + .ctx-meter-seg { margin-left: 2px; }
+.ctx-legend {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ctx-legend li {
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  align-items: baseline;
+  column-gap: 8px;
+  row-gap: 2px;
+}
+.ctx-legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  align-self: center;
+}
+.ctx-legend-label { font-size: 12.5px; }
+.ctx-legend-nums {
+  color: var(--muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ctx-legend-note {
+  grid-column: 2 / -1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
 
 /* ---- what was sent (§15) ------------------------------------------------
    One row per prompt section, with a bar for its share. The bar is measured

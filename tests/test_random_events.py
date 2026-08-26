@@ -183,7 +183,7 @@ def test_the_event_was_actually_in_that_reply_s_prompt(sched, chat, character, n
         (chat["id"],),
     )
     assert rows, "a reply recorded its prompt"
-    parts = json.loads(rows[-1]["prompt"])
+    parts = json.loads(rows[-1]["prompt"])["parts"]
     event = next((p for p in parts if p["id"] == "event"), None)
     assert event is not None, [p["id"] for p in parts]
     assert "shutter bangs" in event["text"]
