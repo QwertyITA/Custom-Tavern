@@ -251,6 +251,26 @@ x-model="b.model">`) was checked and is not affected — `modelOptions()`
 already guarantees a matching `<option>` synchronously via its own
 current-value fallback, so it has nothing to race.
 
+Fixed on 2026-08-26 — moving `state_auditor`/`expression` onto the
+background tier (§ post_process taking over foreground, replacing the
+Refiner group) had a side effect on the Standard Horde preset nobody
+decided on purpose: Standard turns background on but leaves foreground off,
+and those two passes used to live on foreground specifically — which was
+the one thing that made Max distinct from Standard, "reads the reply back
+and corrects it" versus not. Once they moved, Standard picked them up for
+free just for sharing a tier with scene/summary/memory, since a whole-tier
+switch can't tell one background pass from another. Confirmed live: a
+single turn under Standard's exact settings fired `state_auditor`, `scene`
+and `expression` concurrently, which also made Standard's own tagline wrong
+— it promises "the secondary-info pass is its own queued Horde request"
+(singular), not three. Fixed with a second axis alongside `tiers_off`'s
+whole-tier switch: `HORDE_AUDIT_PASSES` + each preset's own `auditsState`
+flag (`static/app.js`) sets `state_auditor`/`expression`'s own `enabled`
+directly through `PUT /api/passes/{id}` — the same per-pass toggle the
+Brain panel's own switches use — independent of whatever else is happening
+on background. `false` for Mini and Standard, `true` for Max, restoring the
+exact three-way split the tier move had erased.
+
 ---
 
 ## Medium

@@ -245,7 +245,7 @@ const HORDE_PRESETS = [
       + "single token — trim the card or move up a tier if replies seem to "
       + "have no memory of what was just said.",
     prompt_budget: 1536,
-    foreground: false, background: false,
+    foreground: false, background: false, auditsState: false,
     writing: HORDE_WRITING_MINI,
     structural: HORDE_STRUCTURAL_MINI,
   },
@@ -256,7 +256,7 @@ const HORDE_PRESETS = [
       + "prefix. Slower than Mini — the secondary-info pass is its own "
       + "queued Horde request — but more consistent.",
     prompt_budget: 2560,
-    foreground: false, background: true,
+    foreground: false, background: true, auditsState: false,
     writing: HORDE_WRITING_STANDARD,
     structural: HORDE_STRUCTURAL_STANDARD,
   },
@@ -270,11 +270,24 @@ const HORDE_PRESETS = [
       + "separate queued Horde requests — pick this only when you want the "
       + "best Horde can give and don't mind the wait.",
     prompt_budget: 4608,
-    foreground: true, background: true,
+    foreground: true, background: true, auditsState: true,
     writing: HORDE_WRITING_MAX,
     structural: HORDE_STRUCTURAL_MAX,
   },
 ];
+
+// state_auditor and expression moved onto the background tier when
+// post_process took over foreground (§ KNOWN-ISSUES.md) — which used to be
+// the one thing that made Max distinct from Standard ("reads the reply back
+// and corrects it" vs. not) is now just two more passes background already
+// runs. Background on its own can no longer tell the two apart, so a
+// preset's own auditsState flag does what the tier split used to: which of
+// these two passes it wants, independent of whether the rest of background
+// (scene/summary/memory/backdrop/events) is on. Applied by id rather than
+// folded into HORDE_WRITING_SCALING/HORDE_STRUCTURAL_SCALING above — those
+// two sets are prompt-prefix content on the blocking tier; this is which
+// background *passes* run at all, a different axis entirely.
+const HORDE_AUDIT_PASSES = ["state_auditor", "expression"];
 
 // Hold-to-open action wheel.
 const HOLD_MS = 380;          // press this long and the wheel opens
@@ -5992,6 +6005,24 @@ function tavern() {
       if (!preset.foreground) off.push("foreground");
       if (!preset.background) off.push("background");
       this.settings.tiers_off = off;
+
+      // state_auditor/expression, specifically — not a tier switch (§
+      // HORDE_AUDIT_PASSES above). Requires this.passes to already be
+      // loaded, which it is by the time the Presets tab can be reached at
+      // all (§ openPanel("brain") loads both together). Saved immediately
+      // rather than held for the pinned Save bar: these two live in the
+      // separate pass_defs table, not in `settings`, so nothing else on
+      // this screen is what would save them.
+      for (const passId of HORDE_AUDIT_PASSES) {
+        const pass = (this.passes || []).find((p) => p.id === passId);
+        if (!pass || pass.enabled === preset.auditsState) continue;
+        pass.enabled = preset.auditsState;
+        try {
+          await api.put(`/api/passes/${pass.id}`, pass);
+        } catch (e) {
+          this.error = errorText(e);
+        }
+      }
 
       const wanted = new Set(preset.writing);
       const wantedStructural = new Set(preset.structural);
