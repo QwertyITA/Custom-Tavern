@@ -253,12 +253,40 @@ def test_the_cheap_passes_stay_cheap_under_a_big_ceiling():
     assert provider.cap(Sampling(max_tokens=60)) == 60
 
 
-def test_a_configured_window_is_believed_over_the_backend():
-    """For the backends that cannot be asked, and the ones that answer wrong."""
+def test_a_smaller_configured_window_still_wins():
+    """Asking for less than a backend could give is a choice, not a mistake —
+    the one half of "configured beats asked" that still holds."""
     def handler(request):
-        raise AssertionError("nothing should be asked when it is configured")
+        if request.url.path == "/api/ps":
+            return httpx.Response(200, json={"models": [
+                {"name": "glm4:latest", "context_length": 32768}
+            ]})
+        return httpx.Response(404, json={})
 
     provider = wired(handler, context=8192)
+    assert sync(provider.context_limit()) == 8192
+
+
+def test_a_larger_configured_window_is_clamped_to_what_the_backend_reports():
+    """The other half changed: a real, working answer from the backend now
+    wins over a bigger configured number too, rather than never being asked
+    at all — a stale "32k" left over from switching models is exactly how a
+    silent, out-of-sight truncation used to happen unnoticed."""
+    def handler(request):
+        if request.url.path == "/api/ps":
+            return httpx.Response(200, json={"models": [
+                {"name": "glm4:latest", "context_length": 8192}
+            ]})
+        return httpx.Response(404, json={})
+
+    provider = wired(handler, context=32768)
+    assert sync(provider.context_limit()) == 8192
+
+
+def test_a_configured_window_is_believed_when_the_backend_cannot_say():
+    """For the backends that cannot be asked, and the ones that answer wrong —
+    the case `_probe_context` returning nothing at all stands in for."""
+    provider = wired(lambda r: httpx.Response(404, json={}), context=8192)
     assert sync(provider.context_limit()) == 8192
 
 

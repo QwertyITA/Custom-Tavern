@@ -63,6 +63,38 @@ EVICTION_PRESSURE = 0.85
 # a token being close rather than exact.
 BUDGET_SLACK = 320
 
+# How much of a backend's own window to leave unclaimed once a reply's own
+# cap is subtracted from it — the suffix contract, and slack for the token
+# estimator being an estimator (~4 chars/token, never exact).
+CONTEXT_SAFETY = 256
+# The floor a fitted budget is never cut below: a window smaller than a
+# single reply is still worth a short prompt and a short answer, rather than
+# refusing the turn outright.
+MIN_CONTEXT = 512
+
+
+def fit_token_budget(settings: Settings, limit: int | None, reply_cost: int) -> int:
+    """`settings.token_budget`, tightened to what a backend actually holds.
+
+    Prompt and reply share one window, so a reply's own cost has to come off
+    the top before the rest is offered to the prompt. Shared by
+    `PassScheduler._fitted` (behind a live turn, §5) and the character
+    roster's "is this card too big for what I've got configured" check
+    (§ main.py) — same arithmetic either way, so a warning shown before
+    anyone has sent a message means what a real turn would actually find out.
+
+    Only ever tightens: a backend with more room than the configured budget
+    already asks for is not this function's business to raise — see
+    `Provider.context_limit`'s own reasoning for why the configured number
+    can still be the smaller, deliberate one.
+    """
+    if not limit:
+        return settings.token_budget
+    room = limit - reply_cost - CONTEXT_SAFETY
+    if room >= settings.token_budget:
+        return settings.token_budget
+    return max(MIN_CONTEXT, room)
+
 
 @dataclass
 class Assembled:
@@ -205,6 +237,123 @@ def scene_line(db: Database, chat_id: str) -> str:
     return " · ".join(parts)
 
 
+def _prefix_parts(
+    character: Character,
+    expand,
+    default_instruction: str,
+    persona: dict | None,
+    cast: str,
+) -> dict[str, str]:
+    """The STRUCTURAL prefix slots a card fills, keyed by section id (§14).
+
+    No `db`/`chat` dependency — everything it needs is already resolved by
+    the caller — which is what lets `prefix_cost` below build the same text
+    `build_reply_context` would, without a chat to build it inside.
+    """
+    constant_lore = [e for e in character.lorebook if e.constant and e.enabled]
+    return {
+        "instruction": expand(character.system_prompt).strip()
+        if character.system_prompt
+        else default_instruction,
+        "character": f"## {character.name}\n{expand(character.persona).strip()}"
+        if character.persona
+        else "",
+        "scenario": f"## Scenario\n{expand(character.scenario).strip()}"
+        if character.scenario
+        else "",
+        "user_persona": f"## {persona['name']}\n{expand(persona['description']).strip()}"
+        if persona and (persona.get("description") or "").strip()
+        else "",
+        "world": "## World\n" + expand(render_lore(constant_lore)) if constant_lore else "",
+        "examples": f"## Example dialogue\n{expand(character.example_dialogue).strip()}"
+        if character.example_dialogue
+        else "",
+        "cast": cast,
+    }
+
+
+# The two volatile blocks that need nothing from a live chat to compute:
+# craft:format and craft:length are switched on for essentially every card
+# and cost real tokens on every single turn regardless of how the
+# conversation is going, so a size estimate that ignored them would
+# understate what a card actually costs. `state`/`setting`/`event`/`search`/
+# `toggles`/`final` all depend on chat state that does not exist yet — left
+# out, the same way a fresh chat would leave them empty on turn one.
+_MANDATORY_VOLATILE_IDS = frozenset({"craft:format", "craft:length"})
+
+
+def mandatory_cost(character: Character, settings: Settings) -> int:
+    """The token floor under any chat with this card, on any backend: this
+    card's own never-trimmed prefix (§7.1) plus the volatile blocks that run
+    regardless of what the conversation has done — with no conversation in
+    it at all.
+
+    §7.2's rule is that the *middle* (the conversation) is what eviction
+    trims, and the prefix is never touched automatically. A card whose own
+    floor already swallows most of a small backend's window is not a chat
+    that is going to remember much of what was just said, however that
+    backend's budget is tuned — which is what the character roster's size
+    warning (§ main.py) uses this for, and what a card-compression tool
+    (§ card_compression.py) is trying to lower.
+
+    No persona and no cast: a solo, personaless estimate, the same as what a
+    brand new chat with nothing configured yet would actually send — good
+    enough for "is this card too big", which only ever needs to be roughly
+    right, not turn-exact.
+    """
+    macro_ctx = macros.context_from(character, None, seed=character.id)
+
+    def expand(text: str) -> str:
+        return macros.substitute(text, macro_ctx)
+
+    default_instruction = (
+        f"You are {character.name}. Stay in character and reply only as "
+        f"{character.name}, in prose."
+    )
+    layout = prompt_layout.normalise(settings.prompt_sections)
+
+    def block_text(section: dict) -> str:
+        body = expand(section.get("text") or "").strip()
+        return f"## {section['label']}\n{body}" if body else ""
+
+    parts = _prefix_parts(character, expand, default_instruction, None, "")
+    prefix = [
+        block_text(s) if prompt_layout.has_text(s) else parts.get(s["id"], "")
+        for s in prompt_layout.order_for(layout, "prefix")
+    ]
+    volatile = [
+        block_text(s)
+        for s in prompt_layout.order_for(layout, "volatile")
+        if s["id"] in _MANDATORY_VOLATILE_IDS
+    ]
+    return estimate_tokens("\n\n".join(p for p in prefix + volatile if p))
+
+
+# Below this much headroom, eviction has nothing real left to work with: a
+# card whose own floor leaves less than this is trading away enough of its
+# own memory to be worth a warning before it is picked, not after. ~400
+# tokens is roughly two or three exchanges the size the real chat
+# KNOWN-ISSUES.md measured (median 69 words) — not exact, but the right
+# order of magnitude for "basically no conversation is going to survive
+# here", which is the only question this threshold has to answer.
+MIN_CONVERSATION_HEADROOM = 400
+
+
+def conversation_headroom(character: Character, settings: Settings, effective_budget: int) -> int:
+    """How much of `effective_budget` is left for the conversation once this
+    card's own floor (§ mandatory_cost) and the slack assembly always keeps
+    (§ BUDGET_SLACK) are taken out. Can be negative — the card's floor alone
+    is already over budget, before a single message is sent."""
+    return effective_budget - mandatory_cost(character, settings) - BUDGET_SLACK
+
+
+def card_too_big(character: Character, settings: Settings, effective_budget: int) -> bool:
+    """Whether this card's own floor leaves so little of `effective_budget`
+    that real conversation memory is not realistically going to survive —
+    the character roster's warning badge (§ main.py)."""
+    return conversation_headroom(character, settings, effective_budget) < MIN_CONVERSATION_HEADROOM
+
+
 def build_reply_context(
     db: Database,
     chat: dict,
@@ -258,30 +407,11 @@ def build_reply_context(
     # about as often as the character does — switching persona mid-chat costs
     # one cache rebuild, which is the right price for a rare deliberate act.
     persona = repo.active_persona(db, chat)
-    constant_lore = [e for e in character.lorebook if e.constant and e.enabled]
     # Everyone else in the room (roadmap 8). Empty for a solo chat, so the
     # prompt is byte-identical to what it was before groups existed.
     cast = groups.cast_note(groups.members(db, chat["id"]), character.id)
 
-    prefix_parts: dict[str, str] = {
-        "instruction": expand(character.system_prompt).strip()
-        if character.system_prompt
-        else default_instruction,
-        "character": f"## {character.name}\n{expand(character.persona).strip()}"
-        if character.persona
-        else "",
-        "scenario": f"## Scenario\n{expand(character.scenario).strip()}"
-        if character.scenario
-        else "",
-        "user_persona": f"## {persona['name']}\n{expand(persona['description']).strip()}"
-        if persona and (persona.get("description") or "").strip()
-        else "",
-        "world": "## World\n" + expand(render_lore(constant_lore)) if constant_lore else "",
-        "examples": f"## Example dialogue\n{expand(character.example_dialogue).strip()}"
-        if character.example_dialogue
-        else "",
-        "cast": cast,
-    }
+    prefix_parts = _prefix_parts(character, expand, default_instruction, persona, cast)
 
     prefix = [
         _part(

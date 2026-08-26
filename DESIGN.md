@@ -356,6 +356,55 @@ not port, for reasons that are structural rather than editorial:
 - **Refusal bypasses.** Not shipped as a default. The card's own system prompt and a
   custom block are both there.
 
+### 7.6 Card size and compression
+
+§7.1's rule — only the *middle* is ever trimmed, never the prefix a card supplies —
+means a card whose own identity content is simply larger than a backend's budget is
+not something assembly can fix at request time. Two things exist to make that
+visible and, where it can be, fixable, instead of surfacing only as a character who
+never seems to remember anything:
+
+- **`Provider.context_limit()` clamps, it does not merely fall back.** A backend that
+  can genuinely be asked what it holds — Ollama and llama.cpp probe the live server
+  (`/api/ps`, `/api/show`, `/props`); Horde reports its own hardcoded API ceiling, not
+  a specific worker's real capacity, since which worker a job lands on is not known in
+  advance — now has that answer win over a *larger* configured number, not only stand
+  in for a missing one. A configured number still wins when it is the *smaller* of the
+  two: asking for less than a backend could give is a choice, not a mistake to correct.
+  `assembly.fit_token_budget` is the shared arithmetic (`settings.token_budget`
+  tightened to what a backend actually holds, reply cost and safety margin already
+  spent) — used both by a live turn (`PassScheduler._fitted`) and by the two checks
+  below, so a warning shown before anyone has sent a message means what a real turn
+  would actually find out.
+- **`assembly.mandatory_cost`** is a card's own floor — prefix plus the two volatile
+  writing blocks that need no chat state (`craft:format`, `craft:length`) — computed
+  with no conversation in it at all and no `db`/`chat` dependency, so it can be asked
+  about any card at any time. `assembly.card_too_big` compares that floor against a
+  live, fitted budget and flags a card once less than `MIN_CONVERSATION_HEADROOM`
+  (§ assembly.py, ~400 tokens — roughly two or three ordinary exchanges) would be left
+  for the conversation. `GET /api/characters/budget` runs this for the whole roster
+  against whatever the Messages/blocking tier is actually configured to right now; the
+  roster draws a warning badge on any character it flags.
+- **Compression previews a shorter card, it does not rewrite one.** `POST
+  /api/characters/{id}/compress` (`app/card_compression.py`) asks the Messages-tier
+  backend to shorten `persona`, `scenario`, `example_dialogue` and `system_prompt` —
+  the same four fields `update_character` can already save, chosen specifically so
+  applying a result never needs new machinery to write it back — by roughly however
+  far under `MIN_CONVERSATION_HEADROOM` the card currently sits, split across fields
+  in proportion to their own size and never asking a field below a third of itself.
+  A field whose "compressed" answer comes back empty or no shorter than the original
+  keeps the original untouched — this never makes a card bigger. Nothing is saved by
+  the preview itself: the editor's own pinned Save is what commits whatever a person
+  reviewing the result decides to keep, the same "generate, then the ordinary Save
+  path" shape `character_reactions.py` already uses for anything else an AI writes
+  onto a card. Lorebook entries are not offered here — they already have their own
+  mechanical backstop that runs on every turn with no review step at all (below) and
+  there is nowhere in the editor yet to save a rewritten entry back to.
+- **A lorebook entry's own `token_budget` is an actual cap, not just an accounting
+  figure.** `lorebook.render` cuts an entry's rendered content to `token_budget`
+  (word-boundary safe) rather than emitting it in full — `scan`'s total-budget
+  accounting always assumed that cap was real; it was the one thing that made it true.
+
 ---
 
 ## 8. Message rendering & inline markup

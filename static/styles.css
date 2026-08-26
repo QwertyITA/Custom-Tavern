@@ -1730,6 +1730,22 @@ body {
   padding: 2px 7px;
 }
 
+/* This card's own content leaves too little room for real conversation
+   memory under the current backend (§ assembly.card_too_big). A tinted
+   chip rather than the solid --error fill a destructive control gets — this
+   is a heads-up, not an alarm, and it sits right beside .char-current-badge
+   in the same row. */
+.char-warn-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 14%, transparent);
+  border-radius: 999px;
+  padding: 2px;
+}
+.char-warn-badge .icon-sm { width: 13px; height: 13px; }
+
 /* The two things a row exists to do, said in words — management now lives
    in the head itself (§ .char-head-tools), so this row is only ever these
    two. */

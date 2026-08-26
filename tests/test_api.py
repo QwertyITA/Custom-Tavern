@@ -415,6 +415,60 @@ def test_the_backdrop_is_actually_served(client):
 # ------------------------------------------------- characters & manual passes
 
 
+def test_budget_flags_a_card_too_big_for_a_tiny_configured_budget(client, isolated_settings):
+    created = client.post("/api/characters", json={"name": "Verbose"})
+    character_id = created.json()["id"]
+    client.put(f"/api/characters/{character_id}", json={
+        "persona": "A very long persona. " * 300,
+        "scenario": "A very long scenario. " * 300,
+    })
+
+    backend = {"backends": [{"name": "echo", "kind": "echo", "model": "echo-1"}],
+               "tiers": {"blocking": "echo", "foreground": "echo", "background": "echo"}}
+
+    tiny = client.put("/api/settings", json={**backend, "token_budget": 200}).json()
+    assert tiny["settings"]["token_budget"] == 200
+    flags = client.get("/api/characters/budget").json()
+    assert flags[character_id]["too_big"] is True
+    assert flags[character_id]["headroom"] < 0
+
+    roomy = client.put("/api/settings", json={**backend, "token_budget": 32768}).json()
+    assert roomy["settings"]["token_budget"] == 32768
+    flags = client.get("/api/characters/budget").json()
+    assert flags[character_id]["too_big"] is False
+
+
+def test_compress_reports_needed_false_for_a_card_that_already_fits(client):
+    character_id = client.get("/api/characters").json()[0]["id"]
+    body = client.post(f"/api/characters/{character_id}/compress").json()
+    assert body["needed"] is False
+    assert body["changed"] is False
+
+
+def test_compress_previews_without_saving_anything(client, isolated_settings):
+    created = client.post("/api/characters", json={"name": "Verbose"})
+    character_id = created.json()["id"]
+    client.put(f"/api/characters/{character_id}", json={
+        "persona": "A very long persona. " * 300,
+        "scenario": "A very long scenario. " * 300,
+    })
+    before = client.get(f"/api/characters/{character_id}").json()
+
+    backend = {"backends": [{"name": "echo", "kind": "echo", "model": "echo-1"}],
+               "tiers": {"blocking": "echo", "foreground": "echo", "background": "echo"},
+               "token_budget": 200}
+    client.put("/api/settings", json=backend)
+
+    body = client.post(f"/api/characters/{character_id}/compress").json()
+    assert body["needed"] is True
+    assert "persona" in body["fields"]
+
+    # Nothing was written back — the editor's own Save is what commits it.
+    after = client.get(f"/api/characters/{character_id}").json()
+    assert after["persona"] == before["persona"]
+    assert after["scenario"] == before["scenario"]
+
+
 def test_a_character_can_be_written_from_scratch(client):
     created = client.post("/api/characters", json={"name": "Tomas"})
     assert created.status_code == 200

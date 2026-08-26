@@ -613,6 +613,12 @@ function tavern() {
   return {
     // ---- state ----
     characters: [],
+    // { [characterId]: {mandatory_cost, headroom, too_big} } — the roster's
+    // "this card may be too big" warning (§ loadCardBudget). A separate
+    // fetch from `characters` itself, and best-effort: it needs a live probe
+    // of the Messages backend (§ /api/characters/budget), which the roster
+    // must still draw as a plain list while unable to answer.
+    cardBudget: {},
     chats: [],
     characterId: "",
     chatId: "",
@@ -801,6 +807,22 @@ function tavern() {
     // modal actually opens.
     memoriesOpen: false,
     characterMemories: [],
+
+    // §main.py's /api/characters/{id}/compress — a preview only, same
+    // "generate, review, then the ordinary Save path" shape as Reactions
+    // above. Nothing here writes to the character until compressPanelApply
+    // copies the reviewed text into draftCharacter, and even then only the
+    // real Save button (§ saveCharacter) commits it.
+    compressionOpen: false,
+    compressing: false,
+    compressionError: "",
+    compressionResult: null,
+    // Matches app/card_compression.py's FIELDS labels — the compression
+    // sheet's own copy since the preview response only carries field ids.
+    fieldLabels: {
+      persona: "Persona", scenario: "Scenario",
+      example_dialogue: "Example dialogue", system_prompt: "System prompt",
+    },
     loadingMemories: false,
     memoryError: "",
     newMemoryText: "",
@@ -2534,6 +2556,59 @@ function tavern() {
       }
     },
 
+    // Runs the preview and opens the sheet — or, when the card already fits
+    // the current budget, says so instead of opening an empty modal. Reads
+    // from the *saved* character (§ main.py's compress route), so a new,
+    // never-saved draft has nothing to compress yet.
+    async runCompression() {
+      if (!this.draftCharacter.id || this.compressing) return;
+      this.compressing = true;
+      this.compressionError = "";
+      try {
+        const result = await api.post(`/api/characters/${this.draftCharacter.id}/compress`, {});
+        if (!result.needed) {
+          this.flashHint("This card already fits your current prompt budget.");
+          return;
+        }
+        this.compressionResult = result;
+        this.compressionOpen = true;
+      } catch (e) {
+        this.compressionError = errorText(e);
+        this.compressionOpen = true;
+      } finally {
+        this.compressing = false;
+      }
+    },
+
+    // Fields worth showing at all — a field compression left untouched
+    // (nothing to gain, or the backend's attempt came back no shorter, see
+    // card_compression.compress_field) is not something to ask anyone to
+    // review.
+    compressedFields() {
+      if (!this.compressionResult) return [];
+      return Object.entries(this.compressionResult.fields)
+        .filter(([, field]) => field.changed)
+        .map(([id, field]) => ({ id, ...field }));
+    },
+
+    // Copies every changed field's compressed text into the draft — not
+    // saved yet. The character editor's own pinned Save bar is what commits
+    // it, same as typing the words in by hand would be; closing this sheet
+    // without saving afterward discards it exactly like any other edit.
+    applyCompression() {
+      for (const field of this.compressedFields()) {
+        this.draftCharacter[field.id] = field.after;
+      }
+      this.closeCompression();
+      this.flashHint("Compressed text applied — review and Save");
+    },
+
+    closeCompression() {
+      this.compressionOpen = false;
+      this.compressionResult = null;
+      this.compressionError = "";
+    },
+
     // draftCharacter, the character behind the open chat, and this
     // character's own row in the roster are three separate objects — a
     // regenerated line has to reach all three it appears in, or a bubble
@@ -3288,6 +3363,39 @@ function tavern() {
     // on every load rather than trusting the wire order.
     async loadCharacters() {
       this.characters = (await api.get("/api/characters")).sort((a, b) => this.compareCharacters(a, b));
+      this.loadCardBudget();
+    },
+
+    // Fire-and-forget, deliberately not awaited by loadCharacters: it needs
+    // a live round trip to whichever backend the Messages tier points at
+    // (§ /api/characters/budget), and the roster itself has nothing to do
+    // with that answer beyond drawing a badge once it lands. A failure here
+    // — no backend configured, one that cannot be reached — just means no
+    // badges this load, not a roster that refuses to appear.
+    async loadCardBudget() {
+      try {
+        this.cardBudget = await api.get("/api/characters/budget");
+      } catch (_) {
+        this.cardBudget = {};
+      }
+    },
+
+    // Whether c's own card content leaves too little room for real
+    // conversation under the Messages backend as currently configured
+    // (§ assembly.card_too_big). Unknown (no answer yet, or the check
+    // failed) reads as false — a badge that cannot back up its own claim is
+    // worse than one that is occasionally a turn late to appear.
+    cardTooBig(c) {
+      return !!(this.cardBudget[c.id] && this.cardBudget[c.id].too_big);
+    },
+
+    cardBudgetTitle(c) {
+      const info = this.cardBudget[c.id];
+      if (!info) return "";
+      const room = Math.max(0, info.headroom);
+      return `This card's own description, scenario and writing rules use most of the current `
+        + `prompt budget — as little as ~${room} tokens may be left for the conversation itself `
+        + `on your current backend. Move to a bigger tier, or compress the card, from its editor.`;
     },
 
     // Moves whichever character is now open to the top of an already-loaded

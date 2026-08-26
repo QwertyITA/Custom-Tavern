@@ -238,6 +238,14 @@
       <circle cx="12" cy="13.2" r="5"/>
       <path d="M12 8.2V6M9 9.6 7 7.6M15 9.6l2-2M7 13.2H4M20 13.2h-3M8.2 17.2l-2 2M15.8 17.2l2 2"/>
     </g>
+    <!-- A card's own size warning (§ characters.budget, the roster badge):
+         a plain triangle rather than the round "i-stop"/"i-close" family,
+         so it reads as caution rather than as another destructive control. -->
+    <g id="i-warn">
+      <path d="M12 4.4 21 19.6H3z"/>
+      <path d="M12 10v4.4"/>
+      <path d="M12 17.6h.01" stroke-width="2.6"/>
+    </g>
     <g id="i-globe">
       <circle cx="12" cy="12" r="8.4"/>
       <path d="M3.6 12h16.8"/>
@@ -2442,6 +2450,13 @@
                        else who has a reason to be there (§ pinCurrentCharacter)
                        — "first" no longer meant "open". -->
                   <span class="char-current-badge" x-show="c.id === characterId" x-cloak>Open</span>
+                  <!-- §main.py's /api/characters/budget, refreshed with the
+                       roster (§ loadCardBudget). Sized and coloured like the
+                       other inline badges rather than dropped in as an
+                       emoji — see CLAUDE.md's icon convention. -->
+                  <span class="char-warn-badge" x-show="cardTooBig(c)" x-cloak :title="cardBudgetTitle(c)">
+                    <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-warn"/></svg>
+                  </span>
                 </span>
                 <span class="char-meta" x-text="`${c.chats} chat${c.chats === 1 ? '' : 's'}`"></span>
               </div>
@@ -2711,6 +2726,17 @@
         <label class="col-field"><span class="row-label wide-label">Example dialogue</span>
           <textarea x-model="draftCharacter.example_dialogue" rows="4"
                     placeholder="A short exchange showing their voice."></textarea></label>
+
+        <!-- §main.py's /api/characters/{id}/compress — a preview only,
+             same "generate, review, then Save" shape as Reactions below.
+             Shown once there is something saved to compress; the roster's
+             own warning badge (§ cardTooBig) is what actually tells someone
+             this is worth opening in the first place. -->
+        <button class="wide" @click="runCompression()"
+                x-show="draftCharacter.id" :disabled="compressing">
+          <svg class="icon" :class="{ spinning: compressing }" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-refresh"/></svg>
+          <span x-text="compressing ? 'Checking…' : 'Compress this card'"></span>
+        </button>
 
         <!-- Three lines the story never asks for but the app needs — written
              once by whichever backend runs Messages (§ character_reactions.py)
@@ -2985,6 +3011,45 @@
         </div>
         <div class="btn-row crop-actions">
           <button class="wide primary" @click="closeReactions()">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card compression preview (§ runCompression) — same sheet-modal shape
+         as Reactions above. Read-only before/after per field; Apply copies
+         the reviewed text into the draft, and the editor's own pinned Save
+         bar is still what actually commits it. -->
+    <div class="sheet-modal" x-show="compressionOpen" x-cloak
+         @click="closeCompression()" @keydown.escape.window="closeCompression()"
+         x-transition:enter="sheet-modal-enter" x-transition:enter-start="sheet-modal-from"
+         x-transition:enter-end="sheet-modal-to"
+         x-transition:leave="sheet-modal-leave" x-transition:leave-start="sheet-modal-to"
+         x-transition:leave-end="sheet-modal-from">
+      <div class="sheet-modal-card" @click.stop>
+        <div class="crop-head">
+          <span class="sheet-modal-title">Compress this card</span>
+        </div>
+        <div class="sheet-modal-body">
+          <span class="save-msg bad" x-show="compressionError" x-text="compressionError"></span>
+          <p class="note" x-show="!compressionError && !compressedFields().length">
+            Nothing came back shorter than what is already there — a backend
+            with more room to work with, or trimming a field by hand, are
+            the ways left to shrink this card.
+          </p>
+          <template x-for="field in compressedFields()" :key="field.id">
+            <div class="col-field compress-field">
+              <span class="row-label wide-label" x-text="fieldLabels[field.id] || field.id"></span>
+              <span class="kind-note"
+                    x-text="`${field.before_tokens} → ${field.after_tokens} tokens`"></span>
+              <textarea :value="field.after" rows="4"
+                        @input="field.after = $event.target.value"></textarea>
+            </div>
+          </template>
+        </div>
+        <div class="btn-row crop-actions">
+          <button class="wide" @click="closeCompression()">Discard</button>
+          <button class="wide primary" @click="applyCompression()"
+                  x-show="compressedFields().length">Apply to editor</button>
         </div>
       </div>
     </div>

@@ -604,3 +604,67 @@ def test_a_smaller_budget_sends_fewer_messages(db, chat, character):
         )
         counts.append(len([m for m in assembled.messages if m["role"] == "user"]))
     assert counts == sorted(counts) and counts[0] < counts[-1]
+
+
+# -------------------------------------------------------------- mandatory_cost
+
+
+def test_mandatory_cost_matches_a_real_turns_prefix_plus_format_and_length(db, chat, character):
+    """No db/chat dependency, but the same number a fresh chat with nothing
+    said yet would actually spend on its prefix and the two volatile blocks
+    that do not need chat state (craft:format, craft:length)."""
+    settings = Settings()
+    assembled = assembly.build_reply_context(db, chat, character, settings)
+    always_on = {"craft:format", "craft:length"}
+    volatile_floor = sum(
+        p["tokens"] for p in assembled.parts if p["id"] in always_on
+    )
+    # Within a couple of tokens rather than exact: `mandatory_cost` estimates
+    # its joined prefix+volatile text in one `estimate_tokens` call, while
+    # this sums two independently-rounded per-section estimates instead —
+    # the same real text, just rounded in a different order.
+    assert (
+        abs(assembly.mandatory_cost(character, settings) - (assembled.sections["prefix"] + volatile_floor))
+        <= 2
+    )
+
+
+def test_mandatory_cost_rises_with_a_bigger_card(db):
+    from app.models import Character
+
+    small = Character(id="small", name="Ren", persona="Quiet.", first_mes="Hi.")
+    big = Character(
+        id="big", name="Ren",
+        persona="Quiet. " * 200, first_mes="Hi.",
+        example_dialogue="An example. " * 200,
+    )
+    settings = Settings()
+    assert assembly.mandatory_cost(big, settings) > assembly.mandatory_cost(small, settings)
+
+
+def test_mandatory_cost_reflects_the_writing_library_being_switched_off(db, character):
+    from app import prompt_layout
+
+    on = Settings()
+    layout = prompt_layout.normalise(on.prompt_sections)
+    for section in layout:
+        if section["id"].startswith("craft:") and section["id"] not in ("craft:format", "craft:length"):
+            section["enabled"] = False
+    off = Settings(prompt_sections=prompt_layout.to_storage(layout))
+    assert assembly.mandatory_cost(character, off) < assembly.mandatory_cost(character, on)
+
+
+# ---------------------------------------------------------- card_too_big
+
+
+def test_card_too_big_is_true_once_headroom_drops_below_the_floor(db, character):
+    cost = assembly.mandatory_cost(character, Settings())
+    tight_budget = cost + assembly.BUDGET_SLACK + assembly.MIN_CONVERSATION_HEADROOM - 1
+    roomy_budget = cost + assembly.BUDGET_SLACK + assembly.MIN_CONVERSATION_HEADROOM + 1000
+    assert assembly.card_too_big(character, Settings(), tight_budget)
+    assert not assembly.card_too_big(character, Settings(), roomy_budget)
+
+
+def test_conversation_headroom_can_go_negative(db, character):
+    headroom = assembly.conversation_headroom(character, Settings(), effective_budget=1)
+    assert headroom < 0

@@ -155,12 +155,13 @@ class TurnContext:
         return self.chat["id"]
 
 
-# Left over the top of a fitted budget: the state contract goes in after the
-# prompt is assembled, and four characters to a token is close but never exact.
-CONTEXT_SAFETY = 256
-# However small the backend's window is, a prompt below this is not a
-# conversation — better a truncated one than an empty one.
-MIN_CONTEXT = 512
+# Moved to assembly.py (§ fit_token_budget) so the character roster's
+# "is this card too big" check can share the exact same arithmetic without
+# importing the whole scheduler. Re-exported under their old names here —
+# nothing outside this module needs to change which module it imports them
+# from.
+CONTEXT_SAFETY = assembly.CONTEXT_SAFETY
+MIN_CONTEXT = assembly.MIN_CONTEXT
 
 
 class PassScheduler:
@@ -1769,22 +1770,13 @@ class PassScheduler:
             limit = await provider.context_limit()
         except Exception:  # a backend that cannot answer must not fail a turn
             limit = None
-        if not limit:
-            return settings
         # What this backend will actually be asked for, not what the pass
         # would like: a 512-token Horde worker and a 5000-token Ollama need
         # different amounts of the window left over.
         reply = provider.cap(definition.sampling) if hasattr(provider, "cap") else 0
         reply = reply or definition.sampling.max_tokens or 0
-        # A little back for the suffix contract and for the estimator being an
-        # estimator: four characters to a token is close, never exact.
-        room = limit - reply - CONTEXT_SAFETY
-        if room >= settings.token_budget:
-            return settings
-        # A window smaller than the reply is asking for still gets a prompt:
-        # the provider cuts the reply to fit, and a turn with a short prompt
-        # and a short answer beats one with neither.
-        return replace(settings, token_budget=max(MIN_CONTEXT, room))
+        fitted = assembly.fit_token_budget(settings, limit, reply)
+        return settings if fitted == settings.token_budget else replace(settings, token_budget=fitted)
 
     async def _one_more_go(self, provider, request, definition) -> str:
         """A second attempt at a reply that came back with nothing usable.

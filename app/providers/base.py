@@ -162,17 +162,26 @@ class Provider:
 
     async def context_limit(self) -> int | None:
         """How many tokens this backend can hold at once, prompt and reply
-        together — or None when it has no way to say.
+        together — or None when neither side has a way to say.
 
-        Configured beats asked: the number set on the backend is there for the
-        backends that cannot be asked, and for the ones whose answer is wrong.
-        Otherwise it is a property of the model loaded right now, and the one
-        place it is known for certain is the backend serving it. A budget
-        larger than this is not ambitious, it is silently truncated somewhere
-        out of sight.
+        The smaller of the two, when both are known. A number typed in is
+        still what a backend with no way to answer, or one whose answer is
+        wrong, is served by — that half of "configured beats asked" hasn't
+        changed. What has: a real, working answer from the backend itself
+        now wins over a *larger* configured number too, rather than being
+        skipped outright the moment anything was typed in — asking for more
+        than a backend actually holds is not ambitious, it is silently
+        truncated somewhere out of sight, and a stale "32k" left over from
+        switching models is exactly how that happens unnoticed. Configured
+        still wins when it is the *smaller* of the two: someone deliberately
+        asking for less than a backend could give them is a choice, not a
+        mistake to correct.
         """
         configured = int(getattr(self.config, "context", 0) or 0)
-        return configured or await self._probe_context()
+        probed = await self._probe_context()
+        if configured and probed:
+            return min(configured, probed)
+        return configured or probed
 
     async def _probe_context(self) -> int | None:
         """Ask the backend itself. Overridden by the kinds that can be asked."""

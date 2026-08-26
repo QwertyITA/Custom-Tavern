@@ -17,7 +17,7 @@ from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import assembly, attachments, avatar_video, cards, chat_files, character_reactions, config, groups, macros
+from . import assembly, attachments, avatar_video, card_compression, cards, chat_files, character_reactions, config, groups, macros
 from . import memory as memory_store
 from . import prompt_layout
 from . import providers, regex_rules, repo, state as state_mod
@@ -347,6 +347,97 @@ async def reload_config() -> dict:
 @app.get("/api/characters")
 async def list_characters() -> list[dict]:
     return repo.list_characters(get_db())
+
+
+async def _effective_blocking_budget(db, settings: config.Settings) -> int | None:
+    """`settings.token_budget`, fitted to what the live Messages/blocking-tier
+    backend actually reports (§ assembly.fit_token_budget) — the same
+    arithmetic a real turn's `PassScheduler._fitted` runs, shared by the
+    roster's size check and the compression preview below so both agree
+    with what a real turn would actually find out. `None` when no backend
+    is configured for that tier at all — the one case neither caller can do
+    anything with a number for.
+    """
+    try:
+        provider = providers.provider_for_tier("blocking", settings)
+    except Exception:  # noqa: BLE001 — no backend configured is not an error here
+        return None
+    try:
+        limit = await provider.context_limit()
+    except Exception:  # noqa: BLE001 — a backend that cannot answer fits nothing
+        limit = None
+    finally:
+        await provider.aclose()
+    reply_pass = registry.get_pass(db, "basic")
+    reply_cost = 0
+    if reply_pass is not None:
+        reply_cost = provider.cap(reply_pass.sampling) if hasattr(provider, "cap") else 0
+        reply_cost = reply_cost or reply_pass.sampling.max_tokens or 0
+    return assembly.fit_token_budget(settings, limit, reply_cost)
+
+
+@app.get("/api/characters/budget")
+async def characters_budget() -> dict:
+    """Per-character "is this card too big" flags for the roster's warning
+    badge (§ assembly.card_too_big) — a separate call from `/api/characters`
+    rather than a field folded into it, so a Messages backend that cannot be
+    reached costs the roster nothing beyond this one call returning empty
+    rather than failing to load at all.
+
+    Computed against the *live* Messages/blocking-tier backend, same as a
+    real turn would be — a configured 32k that a probed backend only
+    actually holds 8k of shows the same 8k here, not the number that was
+    typed in and never checked.
+    """
+    settings = config.SETTINGS
+    db = get_db()
+    effective = await _effective_blocking_budget(db, settings)
+    if effective is None:
+        return {}
+
+    out: dict[str, dict] = {}
+    for row in repo.list_characters(db):
+        character = repo.get_character(db, row["id"])
+        if character is None:
+            continue
+        out[row["id"]] = {
+            "mandatory_cost": assembly.mandatory_cost(character, settings),
+            "headroom": assembly.conversation_headroom(character, settings, effective),
+            "too_big": assembly.card_too_big(character, settings, effective),
+        }
+    return out
+
+
+@app.post("/api/characters/{character_id}/compress")
+async def compress_character(character_id: str) -> dict:
+    """A preview of a shorter persona/scenario/example-dialogue/system-prompt
+    for this card (§ card_compression.py) — never saved on its own. The
+    editor's own `Save` (§ update_character) is what actually commits
+    whatever the person reviewing this decides to keep, same as anything
+    else typed into that form.
+
+    The reduction target is the same shortfall the roster's warning badge is
+    computed from (§ assembly.conversation_headroom): how far under
+    `MIN_CONVERSATION_HEADROOM` this card currently leaves the conversation,
+    padded a little so one pass is usually enough. A card that is not
+    actually too big gets every field back unchanged rather than a
+    reduction it does not need.
+    """
+    settings = config.SETTINGS
+    db = get_db()
+    character = repo.get_character(db, character_id)
+    if character is None:
+        raise HTTPException(404, "character not found")
+
+    effective = await _effective_blocking_budget(db, settings)
+    reduce_by = 0
+    if effective is not None:
+        headroom = assembly.conversation_headroom(character, settings, effective)
+        reduce_by = max(0, assembly.MIN_CONVERSATION_HEADROOM - headroom)
+
+    result = await card_compression.preview(settings, character, reduce_by=reduce_by)
+    result["needed"] = reduce_by > 0
+    return result
 
 
 @app.get("/api/characters/{character_id}")
