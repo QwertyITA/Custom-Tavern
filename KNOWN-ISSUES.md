@@ -179,6 +179,24 @@ own, still exceed a 1-2k or 2-3k prompt budget. Nothing here changes that —
 see that entry for the full measurement and why the fix is the card, not the
 preset.
 
+**Correction, same day.** The fix above was itself still wrong about which
+number the 1-2k/2-3k/4-5k target actually describes. `settings.token_budget`
+caps the *whole* assembled prompt — prefix, lorebook, memories, summary and
+conversation together (§7.1/§7.2) — not the card-and-writing-rules prefix
+alone, so setting it to 1536/2560/4608 per tier capped the conversation right
+along with the prefix: exactly the "no memory of what was just said" failure
+this was supposed to fix, just moved one layer down. `settings.token_budget`
+now sits at the same ceiling as `backend.context` on every tier, same as
+`backend.context` itself — neither is where Mini/Standard/Max differ. The
+1-2k/2-3k/4-5k figures are what they were always meant to be: a target the
+*writing-library selection* (`HORDE_WRITING_*`/`HORDE_STRUCTURAL_*`,
+`static/app.js`) holds itself to when choosing how much optional prefix
+content each tier turns on — never a number written into a setting. The
+`lorebook_total_budget`/`memory_max_injected` scaling from the fix above is
+also gone: shrinking those was the same mistake in miniature, pre-emptively
+narrowing what the *conversation's own supporting content* could use before
+there was any real pressure on it to justify that.
+
 Fixed on 2026-08-26 — AI Horde's real API rejects a job with no model named
 at all rather than picking one on its own, and the app had no guard for
 that: `HordeProvider.build_payload` quietly omitted the `models` field when

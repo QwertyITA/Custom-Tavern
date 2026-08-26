@@ -136,38 +136,49 @@ const SAMPLING_DEFAULTS = { temp: 0.8, top_p: 0.95, top_k: 40, rep_penalty: 1.1 
 
 // ---- AI Horde quick-setup presets (§ applyHordePreset) ----
 //
-// Two different numbers both called "context" until you look closely, and
-// this preset deliberately pulls them apart:
+// Three different numbers, easy to blur into one "the budget" and each
+// wrong to conflate with either of the others:
 //
 //   backend.context   → HordeProvider's `max_context_length`, told to Horde's
 //                        queue so it knows which workers may even pick the
-//                        job up (§ HordeProvider._probe_context). It is a
-//                        worker-eligibility floor, not something the app
-//                        spends — asking for less does not make the prompt
-//                        smaller, it only shrinks which workers qualify. Held
-//                        at Horde's own ceiling for every tier here, so no
-//                        preset ever asks for a *narrower* pool or a *smaller*
-//                        reply allowance than Horde itself allows — that is
-//                        not this preset's lever to pull.
-//   settings.token_budget → what `assembly.py` actually trims the assembled
-//                        prompt against (§7.1/§7.2), i.e. the number that
-//                        decides how much of the card, the craft library and
-//                        the conversation really gets written into the
-//                        request. *This* is the Mini/Standard/Max budget —
-//                        1-2k / 2-3k / 4-5k tokens of actual prompt content —
-//                        and it is set independently of backend.context.
-//                        PassScheduler._fitted only ever *tightens* a
-//                        configured token_budget to what a backend can hold,
-//                        never loosens it, so a generous backend.context
-//                        alongside a small token_budget is exactly "give me
-//                        the run of Horde's queue, but only ever write this
-//                        much prompt" — not a contradiction between the two.
+//                        job up (§ HordeProvider._probe_context). A worker-
+//                        eligibility floor, not something the app spends —
+//                        asking for less does not make the prompt smaller, it
+//                        only shrinks which workers qualify. Held at Horde's
+//                        own ceiling for every tier, so no preset ever asks
+//                        for a narrower pool than Horde itself allows.
+//   settings.token_budget → the ceiling `assembly.py` trims the *whole*
+//                        assembled prompt against — prefix, lorebook,
+//                        memories, summary and conversation together
+//                        (§7.1/§7.2), not the card/craft prefix alone. Held
+//                        at the same ceiling as backend.context for every
+//                        tier, for the same reason: capping this is capping
+//                        the conversation and everything else in the middle
+//                        band right along with the prefix, which is not what
+//                        a "smaller prompt" tier is supposed to buy. What
+//                        actually limits a real turn is PassScheduler._fitted
+//                        tightening this down to whatever the *selected
+//                        model* genuinely holds (§ HordeProvider._probe_
+//                        context) — a real ceiling, discovered per model,
+//                        rather than a guess typed in here per tier.
+//   prompt_budget (below) → not a setting at all, a *target* this file holds
+//                        itself to when choosing which optional prefix
+//                        content (the writing library, example dialogue —
+//                        §HORDE_WRITING_*/HORDE_STRUCTURAL_* below) each tier
+//                        turns on. This is where "Mini keeps its own prompt
+//                        under 1.5k" actually happens: by asking for less
+//                        prefix content, not by capping the request. A card
+//                        whose own persona/scenario is already bigger than
+//                        the target is a limit those selections cannot
+//                        reach around — see the roster's own size warning
+//                        (§ assembly.mandatory_cost) for that case.
 //
 // A tier's speed comes from what it asks a worker to *do*, not from who is
-// allowed to pick the job up: less prompt to read and less reply to write is
-// a faster generation once any worker takes it, and Mini also runs no
-// foreground/background passes at all, so it is the only tier making a
-// single Horde request per turn instead of several queued one after another.
+// allowed to pick the job up or how much of the window is spent on things
+// that are not the card: less prefix to read is a faster generation once
+// any worker takes it, and Mini also runs no foreground/background passes at
+// all, so it is the only tier making a single Horde request per turn instead
+// of several queued one after another.
 const HORDE_CONTEXT_CEILING = 32000;  // Horde's own max_context_length ceiling (LIMITS)
 const HORDE_REPLY_CEILING = 512;      // Horde's own max_length ceiling (LIMITS)
 //
@@ -222,47 +233,45 @@ const HORDE_STRUCTURAL_SCALING = new Set(HORDE_STRUCTURAL_MAX);
 const HORDE_PRESETS = [
   {
     id: "mini", label: "AI Horde — Mini",
-    tagline: "Lightest and fastest: the smallest prompt of the three tiers "
-      + "and only the two rules that prevent broken replies (never speaking "
-      + "for you, never knowing what it hasn't witnessed) run — plus it's "
-      + "the only tier making one Horde request a turn instead of several. "
-      + "Horde itself is still asked for its full window and reply "
-      + "allowance, same as every tier; a long, detailed character card can "
-      + "still eat this whole prompt budget on its own description before "
-      + "the conversation gets a single token — trim the card or move up a "
-      + "tier if replies seem to have no memory of what was just said.",
+    tagline: "Lightest and fastest: the smallest card-and-writing-rules "
+      + "prefix of the three tiers, so the conversation itself — history, "
+      + "memories, summary — gets the rest of whatever your selected model "
+      + "actually holds, rather than sharing a small slice with the prefix. "
+      + "Only the two rules that prevent broken replies (never speaking for "
+      + "you, never knowing what it hasn't witnessed) run, and it's the "
+      + "only tier making one Horde request a turn instead of several. A "
+      + "long, detailed character card can still eat this whole prefix "
+      + "target on its own description before the conversation gets a "
+      + "single token — trim the card or move up a tier if replies seem to "
+      + "have no memory of what was just said.",
     prompt_budget: 1536,
     foreground: false, background: false,
     writing: HORDE_WRITING_MINI,
     structural: HORDE_STRUCTURAL_MINI,
-    lorebook_budget: 200, memory_max: 2,
   },
   {
     id: "standard", label: "AI Horde — Standard",
     tagline: "A balanced middle ground: place, weather and memories stay on "
-      + "and more writing rules apply, at a moderate prompt size. Slower "
-      + "than Mini — the secondary-info pass is its own queued Horde "
-      + "request — but more consistent.",
+      + "and more writing rules apply, at a moderate card-and-writing-rules "
+      + "prefix. Slower than Mini — the secondary-info pass is its own "
+      + "queued Horde request — but more consistent.",
     prompt_budget: 2560,
     foreground: false, background: true,
     writing: HORDE_WRITING_STANDARD,
     structural: HORDE_STRUCTURAL_STANDARD,
-    lorebook_budget: 400, memory_max: 4,
   },
   {
     id: "max", label: "AI Horde — Max",
     tagline: "Everything on: the Refiner double-checks each reply, every "
       + "writing rule and the card's own example dialogue apply, at the "
-      + "largest prompt of the three tiers. Slowest and heaviest — every "
-      + "turn is now three separate queued Horde requests — pick this only "
-      + "when you want the best Horde can give and don't mind the wait.",
+      + "largest card-and-writing-rules prefix of the three tiers. Slowest "
+      + "and heaviest — every turn is now three separate queued Horde "
+      + "requests — pick this only when you want the best Horde can give "
+      + "and don't mind the wait.",
     prompt_budget: 4608,
     foreground: true, background: true,
     writing: HORDE_WRITING_MAX,
     structural: HORDE_STRUCTURAL_MAX,
-    // The app's own stock defaults (§config.Settings) — Max has room enough
-    // that a Horde-specific opinion on top of them buys nothing.
-    lorebook_budget: 600, memory_max: 6,
   },
 ];
 
@@ -5840,15 +5849,17 @@ function tavern() {
         `Secondary info ${preset.background ? "on" : "off"}`,
         `${preset.writing.length} writing rule${preset.writing.length === 1 ? "" : "s"}`,
         `examples ${preset.structural.includes("examples") ? "on" : "off"}`,
-        // The prompt budget, not backend.context — that part is held at
-        // Horde's own ceiling on every tier now (§ HORDE_CONTEXT_CEILING),
-        // so it would read the same on all three cards and tell you nothing
-        // about what actually differs between them. /1000 rather than /1024:
-        // the number as anyone shopping for "a 32k model" already thinks of
-        // it. One decimal below 10k — these tiers sit at 1.5/2.5/4.5, and
-        // rounding to a bare integer would show Mini's 1536 as a
-        // misleadingly-round "2k".
-        `~${preset.prompt_budget < 10000 ? (preset.prompt_budget / 1000).toFixed(1) : Math.round(preset.prompt_budget / 1000)}k prompt`,
+        // preset.prompt_budget is a target this file holds its own writing-
+        // library choices to (§ the module comment above), not a setting —
+        // backend.context and settings.token_budget are both held at
+        // Horde's own ceiling on every tier now, so neither would read
+        // differently between the three cards or tell you anything about
+        // what actually differs. /1000 rather than /1024: the number as
+        // anyone shopping for "a 32k model" already thinks of it. One
+        // decimal below 10k — these tiers sit at 1.5/2.5/4.5, and rounding
+        // to a bare integer would show Mini's 1536 as a misleadingly-round
+        // "2k".
+        `~${preset.prompt_budget < 10000 ? (preset.prompt_budget / 1000).toFixed(1) : Math.round(preset.prompt_budget / 1000)}k card+rules prefix`,
       ].join(" · ");
     },
 
@@ -5880,8 +5891,8 @@ function tavern() {
       // person has already put their own key into must not quietly erase it.
       if (isNew) backend.api_key = defaults.api_key ?? "0000000000";
       // Horde's own ceilings, uniformly, on every tier — not this preset's
-      // lever (§ HORDE_CONTEXT_CEILING above). What actually distinguishes
-      // the tiers is settings.token_budget, set below.
+      // lever (§ the module comment above). What actually distinguishes the
+      // tiers is which optional prefix content they turn on, set below.
       backend.context = HORDE_CONTEXT_CEILING;
       backend.max_tokens = HORDE_REPLY_CEILING;
       backend.models = backend.models || [];
@@ -5904,19 +5915,18 @@ function tavern() {
         else if (HORDE_STRUCTURAL_SCALING.has(section.id)) section.enabled = wantedStructural.has(section.id);
       }
 
-      // The actual Mini/Standard/Max number: how much prompt assembly.py may
-      // write before it starts trimming the conversation (§7.1/§7.2). Global
-      // rather than per-backend, same as the writing-library edit above —
-      // and, same as that edit, exactly what "review and Save" is for if a
-      // non-Horde tier is also configured and should keep its own number.
-      this.settings.token_budget = preset.prompt_budget;
-
-      // The other two levers on what the *middle* band spends its share of
-      // that budget on — lorebook hits and recalled memories — scaled the
-      // same "less at Mini, more room by Max" way as the writing library
-      // above, straight off the preset (§ lorebook_budget/memory_max there).
-      this.settings.lorebook_total_budget = preset.lorebook_budget;
-      this.settings.memory_max_injected = preset.memory_max;
+      // Held at the same ceiling as backend.context, on every tier — this is
+      // *not* where Mini/Standard/Max differ (§ the module comment above).
+      // settings.token_budget caps the whole assembled prompt — prefix,
+      // lorebook, memories, summary and conversation together — so capping
+      // it per tier was capping the conversation right along with the
+      // prefix, leaving the *middle* band nothing to work with regardless
+      // of how lean the writing-library selection below made the prefix
+      // itself. A real, per-model ceiling still applies at generation time
+      // (PassScheduler._fitted, tightened to what the selected model
+      // actually holds) — this just stops a preset from asking for less
+      // than that model already gives.
+      this.settings.token_budget = HORDE_CONTEXT_CEILING;
 
       // Opened regardless of isNew, not only for a fresh backend: AI Horde
       // is the one kind that cannot be saved with no model chosen at all
