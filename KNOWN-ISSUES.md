@@ -90,6 +90,29 @@ each step, and screenshots for the cropper's UI); `run.sh` at a shell,
 against all three host/port precedence cases (settings only, env override,
 neither).
 
+Fixed on 2026-08-26 — the AI Horde quick-setup presets (Mini/Standard/Max,
+`static/app.js`) set a `context` far above what they were meant to: 4096 /
+8192 / 32000, against a stated design of roughly 1-2k / 2-3k / 4-5k. Measured
+with the app's own assembly code against two real, moderately detailed
+character cards and a 20-exchange conversation: on the *old* numbers Mini
+still sent 25 of 41 messages (Nyami) or 33 of 41 (Kutra) — workable, but
+already trimming meaningfully more than a 4k-context tier should need to, and
+the two larger tiers weren't trimming anything, which is a second problem —
+see below. Presets now set 1536 / 2560 / 4608, and the two "not a matter of
+tier" blocks (`craft:format`, `craft:length`) aside, the writing-library
+selection was retuned around correctness over polish at the tighter budgets
+(Mini: only `craft:autonomy` + `craft:knowledge`, the two rules whose absence
+reads as broken rather than merely plain), the card's own example dialogue
+— often the single most expensive optional prefix section — now switches
+off below Max, and `lorebook_total_budget`/`memory_max_injected` scale down
+with the tier the same way. All within the existing mechanism (a one-shot
+settings edit under the Save bar), nothing auto-truncated.
+
+That surfaced a second, unfixed thing, recorded below under Not a defect: a
+verbose card's own identity content can, on its own, exceed even the fixed
+budgets. Nothing here changes that — see that entry for the measurement and
+why the fix is the card, not the preset.
+
 ---
 
 ## Medium
@@ -130,6 +153,31 @@ conversation (Kutra → Kuta, Kstra, Kruta …) under a q4 model. This is the
 backend, not the app — nothing server-side rewrites names — and keeping the
 scenario in the prompt (this session's context-window fix) should reduce how
 often it happens without being able to prevent it outright.
+
+### A large card can still eat an entire Horde budget on its own
+
+Measured directly against two real cards (Nyami, Kutra) with the fixed
+presets above and a 20-exchange conversation: on Mini both sent only the
+pinned opening message — none of the actual back-and-forth — and so did
+Standard, and so did Max. The card's own mandatory identity (system prompt +
+persona + scenario, before a single writing rule or example is added) is
+already ~1360-2100 tokens for these two; Nyami's alone, with every optional
+section switched off, still runs to ~1620 tokens against Mini's ~980-token
+effective budget once the reply and safety margin are taken out. This is not
+something a preset can tune away: §7.1's rule is that only the *middle*
+(the conversation) is ever trimmed, never the prefix a card supplies — doing
+that automatically would mean silently rewriting someone's character, which
+is a worse failure than a short-lived amnesia the person can see and correct
+for. A character that reads as having no memory of the last several
+messages on Mini or Standard, with a card this size, is that rule working
+as designed, not a bug in it. The two available fixes both live outside the
+app: trim the card itself (Nyami's `system_prompt` and `mes_example`, or
+Kutra's lorebook — 38 entries totalling ~22.5k tokens, of which the app
+already budget-caps what any one turn can inject, but a smaller book still
+leaves more of that cap for the entries that actually matter), or run a
+detailed card like this on Standard/Max with a non-Horde backend instead,
+where the context is large enough that identity and conversation are not
+competing for the same few hundred tokens.
 
 ### The pre-pass ("would the character say yes") is not built
 

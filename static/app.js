@@ -136,55 +136,104 @@ const SAMPLING_DEFAULTS = { temp: 0.8, top_p: 0.95, top_k: 40, rep_penalty: 1.1 
 
 // ---- AI Horde quick-setup presets (§ applyHordePreset) ----
 //
-// Which of the eleven "writing" library blocks each tier turns on — the
-// other four (craft:format, craft:length, craft:combat, craft:adult) are
-// never touched by a preset, see applyHordePreset's own comment for why.
-// Each tier builds on the one below it rather than being listed from
-// scratch, so the progression (bare coherence rules -> +voice/agency/polish
-// -> +the two priciest descriptive blocks) is visible here as a list, not
-// something you have to diff three separate arrays to see.
-const HORDE_WRITING_MINI = ["craft:sim", "craft:pov", "craft:autonomy", "craft:knowledge"];
+// Context sizes are picked to sit in the middle of the tier's own budget —
+// Mini 1-2k, Standard 2-3k, Max 4-5k tokens *of context*, prompt and reply
+// together — not Horde's own 32000 ceiling. That ceiling is a queue-worker
+// filter (§ HordeProvider._probe_context), not a target: the smaller the
+// number asked for, the more (and more available) workers qualify, which is
+// the actual lever behind "a smaller context answers faster." A large
+// number here does not buy a better reply, only a longer wait for one of the
+// few workers holding that much window.
+//
+// Which of the eleven "writing" library blocks each tier turns on, and
+// whether example dialogue runs — four blocks a preset never touches at all:
+// craft:format (the markup convention the renderer depends on) and
+// craft:length (what the reply-length stepper edits) are not a matter of
+// tier, they are always-on regardless of backend; craft:combat and
+// craft:adult are opt-in content choices, not a budget question, so a preset
+// has no opinion on them either way. Each tier builds on the one below it
+// rather than being listed from scratch, so the progression is visible here
+// as a list, not something you have to diff three separate arrays to see.
+//
+// The selection itself is deliberately front-loaded towards *correctness*
+// rather than *polish* now that the budgets are this tight: autonomy (never
+// speak or act for {{user}}) and knowledge (no mind-reading, no knowing what
+// was not witnessed) are the two rules whose absence reads as broken rather
+// than merely plain, so Mini keeps only those. Voice, agency and simulation
+// craft join at Standard once there is room to spend on them; the two most
+// expensive blocks (first-look description, prose discipline) and the
+// smaller polish ones wait for Max. This is the same "fewer, higher-leverage
+// instructions beat many overlapping ones on a small model" finding
+// KNOWN-ISSUES.md already recorded about the library generally — it matters
+// more here, not less, because Horde workers skew towards smaller/quantised
+// models and the context left for them to hold onto is an order of
+// magnitude tighter than a local Ollama profile ever is.
+const HORDE_WRITING_MINI = ["craft:autonomy", "craft:knowledge"];
 const HORDE_WRITING_STANDARD = [
   ...HORDE_WRITING_MINI,
-  "craft:voice", "craft:bold", "craft:banned", "craft:hours",
+  "craft:sim", "craft:pov", "craft:voice", "craft:bold",
 ];
 const HORDE_WRITING_MAX = [
   ...HORDE_WRITING_STANDARD,
-  "craft:first_look", "craft:prose", "craft:drives",
+  "craft:banned", "craft:hours", "craft:first_look", "craft:prose", "craft:drives",
 ];
 // The full set a preset is allowed to have an opinion on — used to clear
 // anything *not* in a preset's own list back off, so applying Mini after Max
 // actually turns blocks back off instead of only ever adding more.
 const HORDE_WRITING_SCALING = new Set(HORDE_WRITING_MAX);
 
+// Example dialogue (§ STRUCTURAL "examples") is the single most expensive
+// *optional* prefix section on most cards — often bigger than every writing
+// block combined — and, unlike the craft library, is not something the app
+// ships text for: it is exactly as long as the card's own `mes_example`.
+// Worth its cost once Standard's context leaves room to spare; not at Mini,
+// where every token of it is a token the actual conversation cannot have.
+const HORDE_STRUCTURAL_MINI = [];
+const HORDE_STRUCTURAL_STANDARD = [];
+const HORDE_STRUCTURAL_MAX = ["examples"];
+const HORDE_STRUCTURAL_SCALING = new Set(HORDE_STRUCTURAL_MAX);
+
 const HORDE_PRESETS = [
   {
     id: "mini", label: "AI Horde — Mini",
     tagline: "Lightest and fastest: a small context keeps you nearer the "
-      + "front of Horde's queue, and only the essential writing rules run. "
-      + "Good for a quick back-and-forth or an older phone.",
-    context: 4096, max_tokens: 350,
+      + "front of Horde's queue, and only the two rules that prevent broken "
+      + "replies (never speaking for you, never knowing what it hasn't "
+      + "witnessed) run. A long, detailed character card can still eat this "
+      + "whole budget on its own description before the conversation gets a "
+      + "single token — trim the card or move up a tier if replies seem to "
+      + "have no memory of what was just said.",
+    context: 1536, max_tokens: 300,
     foreground: false, background: false,
     writing: HORDE_WRITING_MINI,
+    structural: HORDE_STRUCTURAL_MINI,
+    lorebook_budget: 200, memory_max: 2,
   },
   {
     id: "standard", label: "AI Horde — Standard",
     tagline: "A balanced middle ground: place, weather and memories stay on "
       + "and more writing rules apply, at a moderate context size. Slower "
       + "than Mini, more consistent.",
-    context: 8192, max_tokens: 512,
+    context: 2560, max_tokens: 400,
     foreground: false, background: true,
     writing: HORDE_WRITING_STANDARD,
+    structural: HORDE_STRUCTURAL_STANDARD,
+    lorebook_budget: 400, memory_max: 4,
   },
   {
     id: "max", label: "AI Horde — Max",
-    tagline: "Everything on: the Refiner double-checks each reply, all "
-      + "writing rules apply, and the context is as large as Horde allows. "
-      + "Slowest and heaviest — pick this only when you want the best Horde "
-      + "can give and don't mind the wait.",
-    context: 32000, max_tokens: 512,
+    tagline: "Everything on: the Refiner double-checks each reply, every "
+      + "writing rule and the card's own example dialogue apply, at the "
+      + "most context worth asking Horde's queue for. Slowest and heaviest "
+      + "— pick this only when you want the best Horde can give and don't "
+      + "mind the wait.",
+    context: 4608, max_tokens: 500,
     foreground: true, background: true,
     writing: HORDE_WRITING_MAX,
+    structural: HORDE_STRUCTURAL_MAX,
+    // The app's own stock defaults (§config.Settings) — Max has room enough
+    // that a Horde-specific opinion on top of them buys nothing.
+    lorebook_budget: 600, memory_max: 6,
   },
 ];
 
@@ -5636,11 +5685,12 @@ function tavern() {
         `Refiner ${preset.foreground ? "on" : "off"}`,
         `Secondary info ${preset.background ? "on" : "off"}`,
         `${preset.writing.length} writing rule${preset.writing.length === 1 ? "" : "s"}`,
+        `examples ${preset.structural.includes("examples") ? "on" : "off"}`,
         // /1000 rather than /1024: this is the number as anyone shopping for
-        // "a 32k model" already thinks of it, and 32000/1024 rounds to a
-        // slightly-off-looking "31k" that the tagline's own "as large as
-        // Horde allows" then has to live down.
-        `~${Math.round(preset.context / 1000)}k context`,
+        // "a 32k model" already thinks of it. One decimal below 10k — these
+        // tiers sit at 1.5/2.5/4.5, and rounding to a bare integer would show
+        // Mini's 1536 as a misleadingly-round "2k".
+        `~${preset.context < 10000 ? (preset.context / 1000).toFixed(1) : Math.round(preset.context / 1000)}k context`,
       ].join(" · ");
     },
 
@@ -5687,9 +5737,18 @@ function tavern() {
       this.settings.tiers_off = off;
 
       const wanted = new Set(preset.writing);
+      const wantedStructural = new Set(preset.structural);
       for (const section of this.settings.prompt_sections || []) {
         if (HORDE_WRITING_SCALING.has(section.id)) section.enabled = wanted.has(section.id);
+        else if (HORDE_STRUCTURAL_SCALING.has(section.id)) section.enabled = wantedStructural.has(section.id);
       }
+
+      // The other two levers on what the *middle* band spends its share of
+      // a tight budget on — lorebook hits and recalled memories — scaled the
+      // same "less at Mini, more room by Max" way as the writing library
+      // above, straight off the preset (§ lorebook_budget/memory_max there).
+      this.settings.lorebook_total_budget = preset.lorebook_budget;
+      this.settings.memory_max_injected = preset.memory_max;
 
       if (isNew) this.openBackend = this.settings.backends.length - 1;
       this.flashHint(`${preset.label} applied — review and Save`);
