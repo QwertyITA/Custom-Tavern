@@ -222,6 +222,35 @@ that endpoint's documented schema is name/count/performance/queued/eta, not
 a context field, so this is a bonus when a deployment's response carries
 one anyway, not a promise) before falling back to Horde's flat ceiling.
 
+Fixed on 2026-08-26 — the Brain > Passes "which backend does each group's
+work" `<select>` never actually displayed the tier's real backend, for any
+tier, whether it was set by hand or by a quick-setup preset. Reported
+against a preset (picking Mini after every tier pointed at a manually
+configured "PC" backend appeared to leave the assignment on "PC"), but
+verified with Playwright to be unrelated to presets at all: with no preset
+involved, freshly loading a settings file that already had every tier
+saved to "PC," the select's rendered `.value` still showed the *first*
+backend in the list at every delay checked (100ms out to 2.5s) — the
+underlying `settings.tiers` data was correct the whole time, only the
+`<select>` never caught up. Root cause is an Alpine.js DOM-walk-order race:
+Alpine applies an element's own directives (`x-model` here) while walking
+*down* to that element, before it descends into a child `<template
+x-for>` to actually create that element's `<option>`s — so the select's
+initial value-sync runs with no matching `<option>` yet to select, the
+browser silently falls back to the first one, and because Alpine only
+re-fires a binding when the *bound value itself* changes again (not when a
+sibling options list changes), that wrong display then persists
+indefinitely. Confirmed a bare `x-effect` doing the same assignment hits
+the identical race on its own first run — the fix needed is deferring past
+Alpine's current DOM update, not just switching directives: `x-effect="…
+&& $nextTick(() => $el.value = settings.tiers[g.tier])"` on the same
+`<select>`, so the assignment lands after the `x-for` below it has
+actually run, and re-applies whenever the backend list or the assignment
+changes again afterwards. The per-backend model picker (`<select
+x-model="b.model">`) was checked and is not affected — `modelOptions()`
+already guarantees a matching `<option>` synchronously via its own
+current-value fallback, so it has nothing to race.
+
 ---
 
 ## Medium

@@ -1467,7 +1467,25 @@
         <p class="note">Which backend does each group's work.</p>
         <template x-for="g in settings.tier_groups || []" :key="`assign-${g.tier}`">
           <label class="row"><span class="row-label" x-text="g.label"></span>
-            <select x-model="settings.tiers[g.tier]">
+            <!-- x-model alone loses a DOM-order race against the options
+                 below, not just a data-timing one: Alpine applies a
+                 directive on this element while walking *down* to it, before
+                 it has descended into the x-for template underneath to
+                 actually create any <option>s — so the value this sets has
+                 nothing to match yet and the browser falls back to the first
+                 option, whatever settings.backends already holds by then.
+                 Confirmed live, with settings already fully loaded: it
+                 stayed on the wrong backend indefinitely, not just for one
+                 frame — an x-effect run the same way (§ its own first pass)
+                 hits the identical race and does not help. $nextTick defers
+                 past Alpine's current DOM update, by which point the x-for
+                 below has actually run, so this is the one point the
+                 assignment can land against real <option>s — and being
+                 inside a reactive x-effect, it also re-applies later if the
+                 option list changes again (a backend added, e.g. by a Horde
+                 preset) or the assignment itself does. -->
+            <select x-model="settings.tiers[g.tier]"
+                    x-effect="settings.backends.length && $nextTick(() => $el.value = settings.tiers[g.tier])">
               <template x-for="b in settings.backends" :key="b.name">
                 <option :value="b.name" x-text="b.name"></option>
               </template>
