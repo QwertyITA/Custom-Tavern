@@ -262,12 +262,13 @@ const HORDE_PRESETS = [
   },
   {
     id: "max", label: "AI Horde — Max",
-    tagline: "Everything on: the Refiner double-checks each reply, every "
-      + "writing rule and the card's own example dialogue apply, at the "
-      + "largest card-and-writing-rules prefix of the three tiers. Slowest "
-      + "and heaviest — every turn is now three separate queued Horde "
-      + "requests — pick this only when you want the best Horde can give "
-      + "and don't mind the wait.",
+    tagline: "Everything on: post_process copy-edits each reply before it's "
+      + "shown — worth knowing, since the reply stays hidden a beat longer "
+      + "while that runs — every writing rule and the card's own example "
+      + "dialogue apply, at the largest card-and-writing-rules prefix of the "
+      + "three tiers. Slowest and heaviest — every turn is now three "
+      + "separate queued Horde requests — pick this only when you want the "
+      + "best Horde can give and don't mind the wait.",
     prompt_budget: 4608,
     foreground: true, background: true,
     writing: HORDE_WRITING_MAX,
@@ -5031,6 +5032,21 @@ function tavern() {
       }
     },
 
+    // post_process's own undo (§ app/reply_polish.py) — the model's own
+    // first draft, before the copy-edit. Independent of has_full_text
+    // above: a reply post_process rewrote and the length backstop then also
+    // cut carries both, and each button only ever undoes its own step.
+    async restoreDraft(message) {
+      try {
+        const updated = await api.post(`/api/messages/${message.id}/restore-draft`);
+        message.text = updated.text;
+        message.has_draft_text = false;
+        this.flashHint("Restored to the original draft");
+      } catch (e) {
+        this.error = errorText(e);
+      }
+    },
+
     // Hidden messages stay on screen and leave the prompt. Not a `stage`: the
     // eviction ladder owns that and would promote it back.
     async toggleHidden(message) {
@@ -5914,7 +5930,7 @@ function tavern() {
     // actually does to your settings.
     hordePresetSummary(preset) {
       return [
-        `Refiner ${preset.foreground ? "on" : "off"}`,
+        `Post-process ${preset.foreground ? "on" : "off"}`,
         `Secondary info ${preset.background ? "on" : "off"}`,
         `${preset.writing.length} writing rule${preset.writing.length === 1 ? "" : "s"}`,
         `examples ${preset.structural.includes("examples") ? "on" : "off"}`,
@@ -5967,7 +5983,7 @@ function tavern() {
       backend.models = backend.models || [];
 
       // Committed to Horde for every tier regardless of which are switched
-      // on below — so flipping Refiner back on by hand later finds it
+      // on below — so flipping Post-process back on by hand later finds it
       // already pointed here instead of at whatever backend it last was.
       this.settings.tiers.blocking = backend.name;
       this.settings.tiers.foreground = backend.name;

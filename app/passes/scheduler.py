@@ -43,6 +43,7 @@ from ..events import BUS
 from ..markup import to_plain
 from ..models import Character, PassDef, Sampling, VariableSchema
 from ..postprocess import ThinkStreamFilter, clean_reply, split_thinking
+from .. import reply_polish
 from .. import worldline
 from ..providers import (
     GenRequest,
@@ -722,6 +723,13 @@ class PassScheduler:
             toggle_injections=injections,
             sees_images=provider.sees_images,
         )
+        # Decided now, before a single token streams: whether post_process is
+        # going to run this turn is what decides whether the raw draft is
+        # shown live or held back (§ the "delta" yields below), and that
+        # cannot be changed once the first one has already reached the
+        # client.
+        polish_definition = self._polish_pass()
+        hold_for_polish = self._polish_enabled(polish_definition)
 
         ctx.prompt_tokens = assembled.total_tokens
         ctx.window_from = assembled.window_from
@@ -784,7 +792,12 @@ class PassScheduler:
                 visible = suffix.feed(shown) if shown else ""
                 if visible:
                     collected.append(visible)
-                    yield {"type": "delta", "text": visible}
+                    # Held back rather than shown live: post_process gets the
+                    # only look anyone has at this draft before it is either
+                    # rewritten or shown untouched (§ below, once the reply is
+                    # fully in hand).
+                    if not hold_for_polish:
+                        yield {"type": "delta", "text": visible}
         except asyncio.CancelledError:
             # The reader hung up — the user pressed stop. Whatever arrived is
             # what the character said, so it is kept: throwing away a reply
@@ -836,11 +849,13 @@ class PassScheduler:
             visible = suffix.feed(held)
             if visible:
                 collected.append(visible)
-                yield {"type": "delta", "text": visible}
+                if not hold_for_polish:
+                    yield {"type": "delta", "text": visible}
         tail, payload = suffix.finish()
         if tail:
             collected.append(tail)
-            yield {"type": "delta", "text": tail}
+            if not hold_for_polish:
+                yield {"type": "delta", "text": tail}
 
         raw_reply = "".join(collected)
         body, thinking = split_thinking(raw_reply)
@@ -894,7 +909,8 @@ class PassScheduler:
                 )
                 if payload is None:
                     reply, payload = split_state_suffix(reply)
-                yield {"type": "delta", "text": reply}
+                if not hold_for_polish:
+                    yield {"type": "delta", "text": reply}
 
         if not reply.strip():
             reason = _why_empty(
@@ -909,6 +925,39 @@ class PassScheduler:
             yield {"type": "error", "error": reason, "pass_id": "basic"}
             return
 
+        # The copy-edit, when the tier wants one (§ app/reply_polish.py) —
+        # before the length backstop below, so the backstop judges what
+        # post_process actually produced rather than second-guessing a draft
+        # it is about to replace.
+        draft_text = ""
+        if hold_for_polish:
+            try:
+                reply, draft_text = await self._polish_reply(
+                    ctx, polish_definition, reply, assembled
+                )
+            except asyncio.CancelledError:
+                # Stopped while post_process was still working. Nothing was
+                # ever shown live (§ hold_for_polish above), so the draft it
+                # was given is what "the character said" means here — kept
+                # exactly as generated, the same as stopping during the raw
+                # stream itself keeps whatever had arrived by then, rather
+                # than losing the turn to an exception with nothing stored.
+                kept = repo.add_message(
+                    self.db, ctx.chat_id, "assistant", reply, turn=ctx.turn,
+                    provider=sink.provider or provider.name,
+                    model=sink.model or provider.model,
+                    speaker_id=ctx.character.id,
+                    thinking=thinking,
+                )
+                ctx.message_id = kept["id"]
+                ctx.variant_id = kept["variant_id"]
+                self._record_run(
+                    ctx, definition, "stopped", run_id=run_id,
+                    tokens_in=sink.tokens_in or assembled.total_tokens,
+                    tokens_out=sink.tokens_out, finished_at=time.time(), attempts=1,
+                )
+                raise
+
         # A hard backstop for craft:length, when the toggle wants one (§
         # reply_length.py) — after the empty-reply retry above, so it never
         # cuts against a reply that is about to be thrown away, and before
@@ -916,6 +965,13 @@ class PassScheduler:
         # reply the person is actually going to see rather than the tail end
         # nobody will.
         reply, full_text = reply_length.cut(reply, self.settings)
+
+        # Nothing was shown while post_process ran, so this is the reply's
+        # first appearance on screen — one delta rather than none, so the
+        # client's own pacer (§ static/app.js makePacer) still animates it in
+        # rather than the bubble simply materialising with text already in it.
+        if hold_for_polish:
+            yield {"type": "delta", "text": reply}
 
         message = repo.add_message(
             self.db,
@@ -932,6 +988,7 @@ class PassScheduler:
             # reasoning model raises on every single turn.
             thinking=thinking,
             full_text=full_text,
+            draft_text=draft_text,
         )
         ctx.message_id = message["id"]
         ctx.variant_id = message["variant_id"]
@@ -1542,6 +1599,11 @@ class PassScheduler:
             exclude_message_id=message_id,
             sees_images=provider.sees_images,
         )
+        # Same decision as the first attempt, made the same way and this
+        # early for the same reason (§ _run_reply above).
+        polish_definition = self._polish_pass()
+        hold_for_polish = self._polish_enabled(polish_definition)
+
         ctx.prompt_tokens = assembled.total_tokens
         ctx.window_from = assembled.window_from
         contract = _suffix_instructions(ctx)
@@ -1579,7 +1641,8 @@ class PassScheduler:
                 visible = suffix.feed(shown) if shown else ""
                 if visible:
                     collected.append(visible)
-                    yield {"type": "delta", "text": visible}
+                    if not hold_for_polish:
+                        yield {"type": "delta", "text": visible}
         except (ProviderError, asyncio.TimeoutError, OSError) as exc:
             self._record_run(
                 ctx, definition, "failed", run_id=run_id, error=str(exc), finished_at=time.time()
@@ -1592,11 +1655,13 @@ class PassScheduler:
             visible = suffix.feed(held)
             if visible:
                 collected.append(visible)
-                yield {"type": "delta", "text": visible}
+                if not hold_for_polish:
+                    yield {"type": "delta", "text": visible}
         tail, payload = suffix.finish()
         if tail:
             collected.append(tail)
-            yield {"type": "delta", "text": tail}
+            if not hold_for_polish:
+                yield {"type": "delta", "text": tail}
 
         body, thinking = split_thinking("".join(collected))
         thinking = thinking or watch.text or sink.thinking
@@ -1618,7 +1683,8 @@ class PassScheduler:
                 )
                 if payload is None:
                     reply, payload = split_state_suffix(reply)
-                yield {"type": "delta", "text": reply}
+                if not hold_for_polish:
+                    yield {"type": "delta", "text": reply}
 
         if not reply.strip():
             reason = _why_empty(
@@ -1635,9 +1701,40 @@ class PassScheduler:
             yield {"type": "error", "error": reason, "pass_id": "basic"}
             return
 
+        # Same copy-edit as the first attempt, before the same backstop below
+        # (§ _run_reply above).
+        draft_text = ""
+        if hold_for_polish:
+            try:
+                reply, draft_text = await self._polish_reply(
+                    ctx, polish_definition, reply, assembled
+                )
+            except asyncio.CancelledError:
+                # Same reasoning as the reply pass's own version of this (§
+                # _run_reply above) — a variant, not a message, since a swipe
+                # that produced nothing must leave the one being read in
+                # place rather than replace it with a blank.
+                variant = repo.add_variant(
+                    self.db, message_id, reply,
+                    provider=provider.name, model=sink.model or provider.model,
+                    thinking=thinking,
+                )
+                ctx.variant_id = variant["id"]
+                self._record_run(
+                    ctx, definition, "stopped", run_id=run_id,
+                    tokens_in=sink.tokens_in or assembled.total_tokens,
+                    tokens_out=sink.tokens_out, finished_at=time.time(),
+                )
+                raise
+
         # Same hard backstop as the initial reply (§ reply_length.py) — a
         # swipe is judged and stored exactly the same way a first attempt is.
         reply, full_text = reply_length.cut(reply, self.settings)
+
+        # Same single reveal as the first attempt (§ _run_reply above) —
+        # nothing was shown live while post_process ran.
+        if hold_for_polish:
+            yield {"type": "delta", "text": reply}
 
         variant = repo.add_variant(
             self.db,
@@ -1647,6 +1744,7 @@ class PassScheduler:
             model=sink.model or provider.model,
             thinking=thinking,
             full_text=full_text,
+            draft_text=draft_text,
         )
         ctx.variant_id = variant["id"]
         self._record_run(
@@ -1782,6 +1880,58 @@ class PassScheduler:
         reply = reply or definition.sampling.max_tokens or 0
         fitted = assembly.fit_token_budget(settings, limit, reply)
         return settings if fitted == settings.token_budget else replace(settings, token_budget=fitted)
+
+    # ------------------------------------------------------- post_process
+
+    def _polish_pass(self) -> PassDef:
+        return registry.get_pass(self.db, "post_process") or next(
+            p for p in registry.CANONICAL_PASSES if p.id == "post_process"
+        )
+
+    def _polish_enabled(self, definition: PassDef) -> bool:
+        """Whether post_process should run this turn — checked once, before
+        the reply even starts streaming, because the answer decides whether
+        the raw text is shown live or held back (§ _run_reply/_run_swipe).
+        Not signal-gated the way state_auditor/expression are: it is the only
+        thing left on the foreground tier, and its job is consistency across
+        every reply rather than a response to something unusual happening.
+        """
+        return definition.enabled and "foreground" not in (self.settings.tiers_off or [])
+
+    async def _polish_reply(
+        self, ctx: TurnContext, definition: PassDef, reply: str, assembled
+    ) -> tuple[str, str]:
+        """Runs post_process on a finished, cleaned reply.
+
+        Returns `(final, draft)` — `draft` is `""` when nothing changed
+        (post_process decided the draft needed nothing, or it failed and fell
+        back), which is also what the caller stores as `draft_text`, so
+        "Restore original draft" only ever shows for a message that is
+        actually different from what the model first wrote.
+        """
+        provider = provider_for_tier(definition.model_tier, self.settings)
+        run_id = self._record_run(
+            ctx, definition, "running", model=provider.model, started_at=time.time()
+        )
+        try:
+            edited = await reply_polish.run(
+                provider, definition, reply, ctx.character.name, assembled.parts,
+                self.settings.pass_timeout,
+            )
+        except asyncio.CancelledError:
+            # The reader hung up while this was still working. Its own run
+            # would otherwise sit at "running" forever — nothing ever marks a
+            # pass done once its coroutine stops being awaited — so this is
+            # marked before the cancellation is let through to the caller,
+            # which has its own cleanup to do for the reply itself (§ the
+            # try/except around this call in _run_reply/_run_swipe).
+            self._record_run(ctx, definition, "stopped", run_id=run_id, finished_at=time.time())
+            raise
+        self._record_run(
+            ctx, definition, "done", run_id=run_id,
+            model=provider.model, finished_at=time.time(),
+        )
+        return (edited, reply) if edited != reply else (reply, "")
 
     async def _one_more_go(self, provider, request, definition) -> str:
         """A second attempt at a reply that came back with nothing usable.

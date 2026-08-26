@@ -42,14 +42,64 @@ CANONICAL_PASSES: list[PassDef] = [
         prompt="",  # assembled per turn (§7.1)
     ),
     PassDef(
+        id="post_process",
+        kind="canonical",
+        label="Post-process",
+        # Blocking like "basic" — the user is not shown a reply until this has
+        # had its turn — but it is not run through the generic blocking-passes
+        # loop the way §4 step 3 describes; there has only ever been one thing
+        # in that loop ("basic"), and this makes two, so both are still
+        # invoked by hand from _run_reply/_run_swipe rather than through a
+        # loop built for a list of one.
+        blocking=True,
+        # Takes over the tier the Refiner group used to own (§7.7's ancestor,
+        # now retired — see KNOWN-ISSUES.md). Same reasoning as before: an
+        # on-device model answers this fast enough to sit in the critical path
+        # without the user waiting on the slow/paid tier twice.
+        model_tier="foreground",
+        # Never fires through the generic eligible() loop (§ trigger_fires) —
+        # excluded there by id, the same way "basic" is. This is the shape
+        # PassDef expects a pass nothing schedules generically to declare
+        # itself as; it also means it never appears in the "run every N
+        # turns" spacing UI (§ static/app.js spacedPasses), which would be a
+        # control this pass cannot actually honour.
+        trigger=Trigger(type="manual"),
+        sampling=Sampling(temp=0.2, top_p=0.9, rep_penalty=1.05, max_tokens=1200),
+        output=PassOutput(type="reply"),
+        animation="cogs",
+        expects_json=False,
+        prompt=(
+            "You are a copy editor for one character's turn in a piece of "
+            "roleplay fiction, written by another model. Fix only mechanical "
+            "problems and leave the content, the events and the character's "
+            "own voice alone:\n"
+            "- Grammar, spelling and punctuation.\n"
+            "- Names: a misspelled or wrong character name, corrected to the "
+            "name actually in use.\n"
+            "- Markup: speech in \"double quotes\", action in *single "
+            "asterisks*, every marker that opens closes in the same "
+            "paragraph.\n"
+            "- Point of view and paragraph length, against the targets given "
+            "below, if any are given.\n"
+            "Nothing else changes: not word choice, not pacing, not what "
+            "happens. If the reply already has none of these problems, "
+            "return it completely unchanged.\n"
+            "Reply with the corrected text and nothing else — no preamble, "
+            "no explanation, no quotation marks around the whole thing."
+        ),
+    ),
+    PassDef(
         id="state_auditor",
         kind="canonical",
         label="State auditor",
         blocking=False,
-        # The Refiner group (§3): it reads the reply back and corrects what the
-        # reply guessed about state and narrative drive. Mid-latency rather
-        # than background, because its answer changes the *next* prompt.
-        model_tier="foreground",
+        # Moved to the background tier along with "expression" below when
+        # post_process took over "foreground" — its answer used to change the
+        # *next* prompt quickly enough to be worth a mid-latency tier of its
+        # own; background is slower to land but the correction still arrives
+        # before the turn after next, which is the only place a stale one
+        # would actually show.
+        model_tier="background",
         # Only worth paying for when pass 1 says something actually moved.
         trigger=Trigger(type="on_signal", signal="emotional_shift", op=">=", threshold="minor"),
         sampling=Sampling(temp=0.2, top_p=0.9, rep_penalty=1.05, max_tokens=300),
@@ -97,9 +147,11 @@ CANONICAL_PASSES: list[PassDef] = [
         kind="canonical",
         label="Expression",
         blocking=False,
-        # Refiner as well: the portrait should change while the reply is still
-        # on screen, not two turns later.
-        model_tier="foreground",
+        # Moved to background with state_auditor above — the portrait now
+        # changes a beat later than the reply that earned it rather than
+        # alongside it, which is the trade for post_process owning the
+        # foreground tier instead.
+        model_tier="background",
         trigger=Trigger(type="on_signal", signal="emotional_shift", op=">=", threshold="minor"),
         sampling=Sampling(temp=0.1, top_p=0.9, max_tokens=60),
         output=PassOutput(type="gui_panel", target="expression"),
@@ -337,9 +389,14 @@ def seed(db: Database) -> None:
 
 # Passes that moved between tiers after they had already been seeded. Seeding
 # never clobbers a stored definition, so without this an install from before
-# the three groups were named keeps its auditor in the background group — and
-# the panel then offers a Refiner with nothing in it.
-REGROUPED = {"state_auditor": "foreground", "expression": "foreground"}
+# a move keeps its passes on the tier they were seeded on — the first time
+# this ran it was background -> foreground, naming the group that became the
+# Refiner; this is the same mechanism moving both back to background now that
+# foreground belongs to post_process instead (§ CANONICAL_PASSES above,
+# KNOWN-ISSUES.md). Unconditional, same as before: an install where someone
+# had hand-assigned either pass to a different tier gets that choice
+# overwritten too, exactly as the original move did.
+REGROUPED = {"state_auditor": "background", "expression": "background"}
 
 # Shipped prompts that have since been replaced, by pass. An install that still
 # holds one of these has never edited that pass, so the new shipped version can

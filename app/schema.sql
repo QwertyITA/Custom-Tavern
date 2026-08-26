@@ -58,6 +58,12 @@ CREATE TABLE IF NOT EXISTS message_variants (
     -- one message can be restored to what the model actually wrote. Empty
     -- means this variant was never cut.
     full_text  TEXT NOT NULL DEFAULT '',
+    -- What post_process (§ app/reply_polish.py) rewrote away, kept so one
+    -- message can be restored to the model's own first draft. Independent of
+    -- full_text above — a reply can be edited by post_process, then still cut
+    -- by the length backstop, and each has its own undo. Empty means
+    -- post_process never changed this variant.
+    draft_text TEXT NOT NULL DEFAULT '',
     created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_variants_message ON message_variants(message_id, idx);

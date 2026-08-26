@@ -682,6 +682,16 @@
                       title="Restore full length" aria-label="Restore full length">
                 <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-expand"/></svg>
               </button>
+              <!-- Only when post_process (Brain -> Passes, the Post-process
+                   group) actually changed something — has_draft_text means
+                   there is a first draft to go back to. Independent of the
+                   button above: a reply can carry both a cut and an edit,
+                   and this only ever undoes the edit. -->
+              <button class="glyph-btn" x-show="m.role === 'assistant' && m.has_draft_text"
+                      @click="restoreDraft(m)"
+                      title="Restore original draft" aria-label="Restore original draft">
+                <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-refresh"/></svg>
+              </button>
               <!-- Only on the newest reply, and there even at 1/1: the right
                    arrow past the last variant is what generates another, so
                    hiding these until a second variant exists would leave a
@@ -1812,7 +1822,11 @@
                           trimmed down to it after the fact, right at a
                           paragraph break. Nothing is thrown away: the message
                           action row gets a "Restore full length" button on
-                          any reply this actually shortened.
+                          any reply this actually shortened. If Post-process
+                          (Brain → Passes) is on, it gets the first attempt at
+                          the range above — by rewriting, which can shorten or
+                          lengthen — and this is the guarantee underneath it
+                          for whatever it doesn't manage to fix.
                         </p>
                       </div>
                       <label class="col-field tight">

@@ -75,8 +75,12 @@ model with the screen off.
 3. BLOCKING passes run in data-dependency order:
      Pass 1 "basic" streams the marked-up reply, then emits a <<<state>>> suffix
      block (§5.6) carrying rough deltas + signals (§5.2, rubric-based).
-4. Reply renders live (inline markup parsed at display, §8). Suffix stripped +
-     parsed. Provisional state committed. "typing…" → done.
+     If post_process (§5.7) is on, nothing from this step reaches the client —
+     it runs next, on the finished text, before step 4.
+4. Reply renders live (inline markup parsed at display, §8) — or, with
+     post_process on, renders once post_process is done, at whatever pace
+     it actually arrived. Suffix stripped + parsed. Provisional state
+     committed. "typing…" → done.
 5. NON-BLOCKING passes evaluated against triggers + signals. Eligible ones queue
      and run in parallel across tiers; each writes its own slice / panel on arrival.
 6. On next send: any still-running blocking-relevant pass awaited briefly; else
@@ -190,8 +194,56 @@ streams clean prose and structure rides in a suffix.
   request. Where the backend has a switch for it, it is per-backend and **off by
   default** (§13).
 
----
+### 5.7 Post-process
 
+`post_process` is the sole occupant of the foreground tier — the Refiner group
+(state_auditor + expression correcting a reply *after* it was shown) has moved
+both of those onto background instead, and foreground's job changed from
+auditing to editing. Where they run is the only thing that changed for either
+pass; what they do is untouched.
+
+Runs once, after the reply pass has finished, been cleaned and had its
+output-scope rules applied (§16) — the same text a person would read without
+this on — and before it is shown or stored. It is handed that text, the
+character's name, and whatever `craft:pov`/`craft:length` already told the
+reply pass (pulled straight out of the already-assembled prompt parts, not
+re-read from settings, so it can never quote a different target than the one
+the draft was actually written against), and asked to fix what is mechanical:
+grammar and spelling, a misspelled name, paragraph-count adherence, point of
+view. Content, events and voice are meant to stay untouched.
+
+**The reply is hidden for as long as this takes.** Nothing streams live while
+post_process is enabled — every `delta` yield in `_run_reply`/`_run_swipe` is
+gated on whether it is (`PassScheduler._polish_enabled`, checked once before a
+single token streams, since that decision cannot change once the first delta
+has already reached the client). The raw draft accumulates in `collected` the
+same as always; it is simply never yielded. Once post_process has run — and
+after the length backstop below, which still gets the final say — the whole
+result is yielded as one `delta`. No frontend change was needed for this: the
+client's own pacer (`makePacer`, `static/app.js`) already reveals whatever
+arrives, in one chunk or many, at a capped rate rather than instantaneously,
+and the regen pill / composing cue already stay up until the first delta
+lands regardless of why it was late.
+
+**Best-effort, never load-bearing.** `app/reply_polish.py`'s `run()` swallows
+a provider failure or timeout and returns the draft unchanged; it also
+rejects a response so much shorter or longer than the draft that it reads as
+a refusal or a rewrite rather than an edit (bounds generous enough that a
+real edit — cutting to a configured ceiling, or padding a too-short reply up
+to a floor — still passes). A cancellation reaching mid-polish (the user hit
+stop while it was still working) is the one case that is not swallowed — it
+is let through after storing the draft it was given, the same guarantee
+stopping mid-stream already makes for the raw reply, and after marking the
+pass's own run "stopped" rather than leaving it stuck at "running" forever.
+
+**Order relative to the existing hard backstop.** `reply_length.cut`
+(`Settings.cut_excess_paragraphs`) still runs, after post_process rather than
+instead of it: post_process's own attempt at the configured range is a model
+call and not guaranteed, so the mechanical cutter remains the guarantee
+underneath it. Independent undo buttons on the stored message reflect this —
+`draft_text` (post_process's own edit) and `full_text` (the cutter's own cut)
+are separate columns, restored separately, because a reply can carry both and
+each button should only ever speak for its own step.
 ## 6. State & variable model
 
 **Static — in the character card.** Variable schemas + behavioral rules, defined once:

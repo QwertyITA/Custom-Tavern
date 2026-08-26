@@ -172,7 +172,7 @@ class Database:
             self._writer_thread.join(timeout=5)
 
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 def _run_migration_step(conn: sqlite3.Connection, step: str) -> None:
     """Apply one migration statement, tolerating one that has already landed.
@@ -284,6 +284,12 @@ MIGRATIONS: dict[int, list[str]] = {
     # and thinking above — a column that predates this holds nothing to
     # restore, which is exactly right rather than something to backfill.
     12: ["ALTER TABLE message_variants ADD COLUMN full_text TEXT NOT NULL DEFAULT ''"],
+    # Post-process's own undo (§ app/reply_polish.py), on the same convention
+    # as full_text above but a distinct column: the two transformations are
+    # independent (post_process can rewrite a reply that the length cutter
+    # then also trims), so one restore button cannot speak for both without
+    # losing whichever one it doesn't hold.
+    13: ["ALTER TABLE message_variants ADD COLUMN draft_text TEXT NOT NULL DEFAULT ''"],
 }
 
 

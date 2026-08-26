@@ -478,12 +478,15 @@ backend, its own switch and its own settings inside it:
 - **Messages** — writes the reply. The model you hear, and the only one the
   story cannot do without, so its switch says so rather than being hidden.
   What reaches the model — the context budget and the rest — lives here.
-- **Refiner** — secondary, and not mandatory. It reads each reply back and
-  corrects what the reply only guessed at: how far things actually moved,
-  whether the story has drive or is idling, which expression to show. Off, the
-  replies still work and the state behind them drifts.
+- **Post-process** — secondary, and not mandatory. Reads the finished reply
+  back before anyone sees it and fixes what's mechanical: grammar and
+  spelling, a misspelled name, whether it kept to the configured paragraph
+  length, whether it slipped out of point of view. The reply stays hidden
+  while this runs, so it costs a real pause before the message appears. Off,
+  the reply shows the moment the model finishes writing it.
 - **Secondary info generator** — place, weather and hour, the rolling summary,
-  the memories, the backdrop, and the world interrupting now and then. Also
+  the memories, the backdrop, the portrait expression, an audit of how far
+  state actually moved, and the world interrupting now and then. Also
   optional. Worth having on with a second backend or a strong one; on a metered
   plan it is several extra calls a turn for things nobody is waiting on.
 

@@ -1354,6 +1354,22 @@ async def restore_message(message_id: str) -> dict:
     return repo.get_message(db, message_id)
 
 
+@app.post("/api/messages/{message_id}/restore-draft")
+async def restore_draft(message_id: str) -> dict:
+    """Undo post_process's own edit on this message's active variant
+    (§ app/reply_polish.py) — back to the model's first draft, before the
+    copy-edit. Independent of /restore above: a reply post_process rewrote
+    and the length backstop then also cut carries both, and this only ever
+    undoes the post_process step."""
+    db = get_db()
+    message = repo.get_message(db, message_id)
+    if message is None:
+        raise HTTPException(404, "message not found")
+    if repo.restore_draft_text(db, message["variant_id"]) is None:
+        raise HTTPException(400, "this message was not touched by post-process")
+    return repo.get_message(db, message_id)
+
+
 @app.delete("/api/messages/{message_id}")
 async def delete_message(message_id: str) -> dict:
     db = get_db()

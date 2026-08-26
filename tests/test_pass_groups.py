@@ -2,9 +2,9 @@
 
 "Blocking / foreground / background" says *when* a pass runs, which is not the
 question someone opening the panel has. Grouped and named for what they are
-for — Messages, Refiner, Secondary info generator — each group owns a backend,
-a switch and its own settings, and the two that are not the reply can be
-switched off or slowed down.
+for — Messages, Post-process, Secondary info generator — each group owns a
+backend, a switch and its own settings, and the two that are not the reply
+can be switched off or slowed down.
 """
 
 from __future__ import annotations
@@ -46,31 +46,38 @@ def test_only_the_reply_group_is_compulsory():
     assert required == ["blocking"]
 
 
-def test_the_refiner_group_has_passes_in_it(db):
-    """It is named after work it does, so it has to do some. The auditor and
-    the expression pass moved onto it — both read the reply back."""
+def test_the_post_process_group_has_a_pass_in_it(db):
+    """It is named after work it does, so it has to do some."""
     tiers = {p.id: p.model_tier for p in all_passes(db)}
-    assert tiers["state_auditor"] == "foreground"
-    assert tiers["expression"] == "foreground"
+    assert tiers["post_process"] == "foreground"
     assert tiers["basic"] == "blocking"
     assert tiers["summary"] == "background"
 
 
+def test_the_state_auditor_and_expression_moved_to_background(db):
+    """They used to be the whole reason the foreground group existed; now
+    post_process owns it alone and both read-the-reply-back passes settled
+    where the rest of the non-urgent work already lives."""
+    tiers = {p.id: p.model_tier for p in all_passes(db)}
+    assert tiers["state_auditor"] == "background"
+    assert tiers["expression"] == "background"
+
+
 def test_a_pass_that_moved_tier_is_moved_in_an_existing_database(db):
     """Seeding never clobbers a stored definition, so without the regroup an
-    install from before the groups were named keeps its auditor in the wrong
-    one — and the panel offers a Refiner with nothing in it."""
+    install from before this move keeps its auditor on the tier post_process
+    now owns — and the two groups fight over the same backend."""
     from app.passes import registry
 
     row = db.query_one("SELECT data FROM pass_defs WHERE id='state_auditor'")
-    stale = row["data"].replace('"model_tier":"foreground"', '"model_tier":"background"')
+    stale = row["data"].replace('"model_tier":"background"', '"model_tier":"foreground"')
     db.write_sync(lambda conn: conn.execute(
         "UPDATE pass_defs SET data=? WHERE id='state_auditor'", (stale,)
     ))
 
     registry.seed(db)
     tiers = {p.id: p.model_tier for p in all_passes(db)}
-    assert tiers["state_auditor"] == "foreground"
+    assert tiers["state_auditor"] == "background"
 
 
 # ----------------------------------------------------------- switching off

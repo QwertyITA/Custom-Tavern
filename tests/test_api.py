@@ -1125,6 +1125,8 @@ class _Slow:
 
 async def _stop_after_a_few_tokens(db, chat_id: str, text: str) -> list[dict]:
     """Start a turn, let some of it arrive, then hang up like an aborted fetch."""
+    import dataclasses
+
     import app.passes.scheduler as scheduler_module
     from app.config import SETTINGS
     from app.passes.scheduler import PassScheduler
@@ -1132,7 +1134,14 @@ async def _stop_after_a_few_tokens(db, chat_id: str, text: str) -> list[dict]:
     real = scheduler_module.provider_for_tier
     scheduler_module.provider_for_tier = lambda tier, settings: _Slow(real(tier, settings))
     try:
-        scheduler = PassScheduler(db, SETTINGS)
+        # post_process holds every delta back until it has run (§ hold_for_
+        # polish), so with it on there is nothing for this test's "wait for a
+        # few deltas, then hang up" mechanism to land in the middle of — the
+        # foreground tier is off here so this exercises the raw stream's own
+        # stop handling, not post_process's (that has its own coverage, §
+        # test_reply_polish.py).
+        settings = dataclasses.replace(SETTINGS, tiers_off=["foreground"])
+        scheduler = PassScheduler(db, settings)
         seen: list[dict] = []
 
         async def consume():

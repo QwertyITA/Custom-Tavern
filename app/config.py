@@ -48,25 +48,30 @@ TIER_GROUPS: tuple[dict[str, Any], ...] = (
     },
     {
         "tier": "foreground",
-        "label": "Refiner",
+        "label": "Post-process",
         "required": False,
-        "note": "Secondary, and not mandatory. It reads each reply back and "
-                "corrects what the reply only guessed at — how far things "
-                "actually moved, whether the story has drive or is idling, "
-                "which expression to show. Switch it off and replies still "
-                "work; the state behind them just drifts.",
+        "note": "Secondary, and not mandatory. Reads the finished reply back "
+                "before anyone sees it and fixes what's mechanical — grammar "
+                "and spelling, a misspelled name, whether it kept to the "
+                "configured paragraph length, whether it slipped out of "
+                "point of view — never the content or the voice. The reply "
+                "stays hidden while this runs, so it costs a real pause "
+                "before the message appears. Switch it off and the reply "
+                "shows the moment the model finishes writing it, exactly as "
+                "it came out.",
     },
     {
         "tier": "background",
         "label": "Secondary info generator",
         "required": False,
         "note": "Sets the place, the weather and the hour, keeps the rolling "
-                "summary and the memories, swaps the backdrop and lets the "
-                "world interrupt now and then. Not mandatory. Worth having on "
-                "with a second backend or a strong one — on a metered plan it "
-                "is several extra calls a turn for things nobody is waiting "
-                "on, and the frequencies below are there to make it cheaper "
-                "rather than off.",
+                "summary and the memories, swaps the backdrop, picks the "
+                "portrait expression, audits how far state actually moved, "
+                "and lets the world interrupt now and then. Not mandatory. "
+                "Worth having on with a second backend or a strong one — on "
+                "a metered plan it is several extra calls a turn for things "
+                "nobody is waiting on, and the frequencies below are there "
+                "to make it cheaper rather than off.",
     },
 )
 
