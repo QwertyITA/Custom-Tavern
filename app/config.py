@@ -496,6 +496,17 @@ class Settings:
     glass: bool = False
     glass_amount: int = 60
 
+    # Character vault (§ app/vault.py) — a PIN gate over which cards the
+    # roster shows. `vault_pin_hash`/`vault_pin_salt` are empty until someone
+    # sets a PIN; `to_dict()` never sends either to the browser, the same
+    # masking discipline as a backend's api_key. `vault_unlocked` is written
+    # to disk on purpose (§ app/vault.py's docstring) — the vault does not
+    # close itself, not even across a restart, so this is the one flag on
+    # this dataclass whose whole job is to survive one.
+    vault_pin_hash: str = ""
+    vault_pin_salt: str = ""
+    vault_unlocked: bool = False
+
     @property
     def data_dir(self) -> Path:
         return DATA_DIR
@@ -524,6 +535,12 @@ class Settings:
             d["search_key"] = MASK
         if d.get("avatar_key"):
             d["avatar_key"] = MASK
+        # Never sent at all, masked or otherwise — there is nothing a client
+        # does with a PIN hash except try to crack it offline. What the
+        # panel actually needs is just whether a PIN exists.
+        d.pop("vault_pin_hash", None)
+        d.pop("vault_pin_salt", None)
+        d["vault_configured"] = bool(self.vault_pin_hash)
         return d
 
 
@@ -844,6 +861,15 @@ def build_settings(payload: dict[str, Any], current: Settings) -> Settings:
     settings.avatar_self_url = str(
         payload.get("avatar_self_url", current.avatar_self_url) or ""
     ).strip()[:500]
+    # Never taken from this payload — dedicated /api/vault/* routes own
+    # setting, checking and clearing the PIN, so a wrong guess can be
+    # throttled and a right one can require the PIN it claims to be. Carried
+    # over unconditionally, or an unrelated save from Theme or Brain would
+    # silently reset it to the Settings() default above and lock the vault
+    # out from under whoever had it open.
+    settings.vault_pin_hash = current.vault_pin_hash
+    settings.vault_pin_salt = current.vault_pin_salt
+    settings.vault_unlocked = current.vault_unlocked
     return settings
 
 

@@ -434,6 +434,19 @@ rather than only auditing it afterwards. Not started. Two open questions
 before it can be: which model tier it runs on, and how its output is worded
 so the actor plays the finding rather than narrating it.
 
+### The vault only gates discovery routes, not every route a card's id reaches
+
+`_vault_locked()` (§DESIGN.md §21) is checked by the roster, a character's
+own detail route, the chats list, and creating a new chat — the paths
+someone would actually walk through browsing the app. It is not checked by
+a chat already open by its own id, or by any other sub-resource (messages,
+memories, export, …) reachable only by already knowing that id. Deliberate:
+the feature's own stated threat model is a nosy person browsing the normal
+UI, not one with a guessed or bookmarked id, and locking down every route a
+character or chat id could appear in buys nothing against that threat for a
+meaningful amount of added surface. Revisit if the threat model ever
+widens — e.g. a chat link shared outside the app.
+
 ---
 
 ## Documented elsewhere, not tracked here

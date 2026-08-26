@@ -631,7 +631,7 @@ Character   : id, name, version, pfp_set{emotion→img}, pfp_shape(portrait|squa
               pfp_effect(hue, saturate, brightness, contrast, sepia, grayscale),
               reactions(starred, unstarred, killed),
               avatar_video(enabled, idle_video, voice, prep_status) (§20),
-              backgrounds[{img, metadata}],
+              backgrounds[{img, metadata}], vaulted(bool) (§21),
               persona, state_schema, lorebook_ref, default_toggles[]
 Chat        : id, character_id, version, created_at, settings(colours, toggle overrides)
 Message     : id, chat_id, turn, role, text(raw markup), variants[], active_variant, edited
@@ -882,3 +882,54 @@ never re-fetches or replays anything. This is a phone-performance decision
 as much as a design one — at most one decode/playback is ever live, which
 matters for exactly the reasons `.msg`'s `content-visibility` scroll
 optimisation does (§12's GUI note on the message list).
+
+---
+
+## 21. Character vault (app/vault.py)
+
+A PIN gate over which cards the roster (and its chats) show at all. The
+threat model is stated up front rather than inferred: someone glancing at,
+or poking around, the phone's own screen without knowing the PIN — not the
+filesystem underneath it. `data/tavern.db`/`settings.json` hold everything
+in the clear either way, same as the rest of this app (§2 — no auth layer,
+reached only from the phone itself). This is a display filter, not
+encryption, and it doesn't pretend otherwise.
+
+**What's gated, and what isn't.** `Character.vaulted` (§11) marks a card;
+`Settings.vault_pin_hash`/`vault_pin_salt`/`vault_unlocked` (§ app/config.py)
+hold the PIN's salted hash and whether the vault is currently open, the
+same masking discipline as a backend's `api_key` — `to_dict()` never sends
+the hash or salt to the browser, only a derived `vault_configured` bool.
+`_vault_locked()` in app/main.py — a PIN is set and hasn't been unlocked
+since — decides everything: `GET /api/characters` drops a vaulted row
+outright, `GET /api/characters/{id}` and `POST .../vault` 404 the same as a
+nonexistent character, `GET /api/chats` drops any chat whose character is
+hidden, and `POST /api/chats` (new chat) refuses one too. Deliberately not
+extended past that — a chat already open by its own id, or any other
+sub-resource reachable only by already knowing a specific id, stays
+reachable. The stated threat is a nosy person browsing the ordinary UI, not
+someone with a guessed or bookmarked id, and locking down every route a
+card's id could theoretically appear in buys nothing against that threat
+for a lot of surface area.
+
+**No PIN means nothing is hidden**, regardless of how many cards are
+marked `vaulted` — `_vault_locked()` is false whenever `vault_pin_hash` is
+empty. That's what lets vaulting happen before a PIN ever exists (inert
+until one does) and what `/api/vault/remove` relies on: it clears the hash
+and salt but leaves every card's own `vaulted` flag untouched, so setting a
+new PIN later resumes hiding the same set without re-picking them one by
+one.
+
+**Unlocking doesn't expire, on purpose** — `vault_unlocked` is a real field
+on `Settings`, written to disk on every change, not an in-memory flag.
+Locking is the one action here with no PIN check at all (closing a safe
+never needs the combination); everything that opens it, or looks at a PIN
+already stored (unlock, change, remove), does.
+
+**Throttling is deliberately the cheap kind.** `app/vault.py` keeps a wrong-
+guess counter and a cooldown as bare module globals — five wrong PINs in a
+row lock further attempts out for 30 seconds — and neither survives a
+restart. That asymmetry is intentional, not an oversight to match
+`vault_unlocked`'s persistence: there is exactly one vault and one person
+guessing at it in any one sitting, and "pretty secure if you don't know the
+PIN" (the feature's own bar) doesn't call for more than that.

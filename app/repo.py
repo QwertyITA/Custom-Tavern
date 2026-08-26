@@ -95,6 +95,7 @@ def list_characters(db: Database) -> list[dict]:
                 "reactions": card.get("reactions") if isinstance(card.get("reactions"), dict) else {},
                 "chats": counts.get(row["id"], 0),
                 "favourite": bool(row["favourite"]),
+                "vaulted": bool(card.get("vaulted")),
             }
         )
     return out

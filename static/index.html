@@ -274,6 +274,18 @@
     <g id="i-heart">
       <path d="M12 20s-7.5-4.6-9.6-9A5 5 0 0 1 12 6.5 5 5 0 0 1 21.6 11c-2.1 4.4-9.6 9-9.6 9z"/>
     </g>
+    <!-- Vault, locked: the shackle sits square over the body. -->
+    <g id="i-lock">
+      <rect x="5.5" y="10.6" width="13" height="9.4" rx="2.2"/>
+      <path d="M8.4 10.6V8a3.6 3.6 0 0 1 7.2 0v2.6"/>
+    </g>
+    <!-- Vault, unlocked: same body, the shackle's free end lifted clear of it
+         rather than mirrored — a lock reads as open by the gap, not by
+         flipping which side the hinge is on. -->
+    <g id="i-lock-open">
+      <rect x="5.5" y="10.6" width="13" height="9.4" rx="2.2"/>
+      <path d="M8.4 10.6V8a3.6 3.6 0 0 1 6.9-1.4"/>
+    </g>
   </defs>
 </svg>
 
@@ -1075,6 +1087,22 @@
       <svg class="icon" viewBox="0 0 24 24"><use href="#i-back"/></svg>
     </button>
     <h2 x-text="panelTitle()"></h2>
+    <!-- Only on the roster itself, not its character/persona sub-panels
+         (§ backToRoster above shows the same restraint for the back arrow)
+         — vaulting is a property of which cards this list shows, and that
+         question doesn't follow you into editing one of them. -->
+    <button class="icon-btn" x-show="panel === 'chats' && settings.vault_unlocked"
+            @click="openVaultSettings()" aria-label="Vault settings" title="Vault settings">
+      <svg class="icon" viewBox="0 0 24 24"><use href="#i-gear"/></svg>
+    </button>
+    <button class="icon-btn" x-show="panel === 'chats'"
+            @click="openVaultHeaderAction()"
+            :aria-label="settings.vault_unlocked ? 'Lock vault' : 'Unlock vault'"
+            :title="settings.vault_unlocked ? 'Lock vault' : (settings.vault_configured ? 'Unlock vault' : 'Set up a vault PIN')">
+      <svg class="icon" viewBox="0 0 24 24">
+        <use :href="settings.vault_unlocked ? '#i-lock-open' : '#i-lock'"/>
+      </svg>
+    </button>
     <button class="icon-btn" @click="closePanel()" aria-label="Close">✕</button>
   </header>
 
@@ -2532,6 +2560,12 @@
                   <span class="char-warn-badge" x-show="cardTooBig(c)" x-cloak :title="cardBudgetTitle(c)">
                     <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-warn"/></svg>
                   </span>
+                  <!-- Only ever drawn while the vault is open — a vaulted
+                       card while it's locked never reaches this template at
+                       all (§ /api/characters, _vault_locked). -->
+                  <span class="char-warn-badge vault" x-show="c.vaulted" x-cloak title="In the vault">
+                    <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-lock"/></svg>
+                  </span>
                 </span>
                 <span class="char-meta" x-text="`${c.chats} chat${c.chats === 1 ? '' : 's'}`"></span>
               </div>
@@ -2550,6 +2584,23 @@
                   <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-star"/></svg>
                 </button>
                 <div class="char-head-secondary">
+                  <!-- Only once a PIN exists — a toggle that visibly does
+                       nothing until then is worse than no toggle
+                       (§ CLAUDE.md, same reasoning as State's own disabled
+                       note). Vaulting is always reachable from here since a
+                       row this button is drawn on is, by definition, showing
+                       — either it isn't vaulted yet, or it is and the vault
+                       is open; un-vaulting the second case is the one this
+                       button is for. -->
+                  <button class="glyph-btn vault" x-show="settings.vault_configured"
+                          :class="{ on: c.vaulted }"
+                          @click.stop="toggleVaulted(c)"
+                          :title="c.vaulted ? 'Take out of the vault' : 'Put in the vault'"
+                          :aria-pressed="c.vaulted" aria-label="Vault this character">
+                    <svg class="icon-btn-glyph" viewBox="0 0 24 24">
+                      <use :href="c.vaulted ? '#i-lock-open' : '#i-lock'"/>
+                    </svg>
+                  </button>
                   <button class="glyph-btn" @click.stop="editCharacter(c.id)"
                           title="Edit character" aria-label="Edit character">
                     <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-edit"/></svg>
@@ -3371,6 +3422,77 @@
     <div class="btn-row crop-actions">
       <button class="wide" @click="cancelDiscard()">Keep editing</button>
       <button class="wide primary danger" @click="discardAndProceed()">Discard</button>
+    </div>
+  </div>
+</div>
+
+<!-- The vault PIN keypad — one modal, several modes (§ vaultModalMode in
+     app.js): choosing a PIN, confirming it, unlocking, or proving the
+     current one before changing or removing it. A number pad rather than a
+     text field — this is meant to work the same whether the phone has a
+     keyboard docked or not, and six tapped digits read back at a glance in
+     a way a masked text cursor doesn't. -->
+<div class="sheet-modal" x-show="vaultModalOpen" x-cloak
+     @click="closeVaultModal()" @keydown.escape.window="closeVaultModal()"
+     x-transition:enter="sheet-modal-enter" x-transition:enter-start="sheet-modal-from"
+     x-transition:enter-end="sheet-modal-to"
+     x-transition:leave="sheet-modal-leave" x-transition:leave-start="sheet-modal-to"
+     x-transition:leave-end="sheet-modal-from">
+  <div class="sheet-modal-card vault-card" @click.stop>
+    <div class="crop-head">
+      <span class="sheet-modal-title" x-text="vaultModalTitle()"></span>
+    </div>
+    <div class="sheet-modal-body vault-modal-body">
+      <div class="vault-dots" :class="{ shake: vaultShake }">
+        <template x-for="i in 6" :key="i">
+          <span class="vault-dot" :class="{ filled: i <= vaultPinDigits.length }"></span>
+        </template>
+      </div>
+      <span class="save-msg bad" x-show="vaultError" x-text="vaultError"></span>
+      <div class="vault-keypad">
+        <template x-for="d in [1,2,3,4,5,6,7,8,9]" :key="d">
+          <button class="vault-key" @click="vaultKeyTap(d)" :disabled="vaultBusy" x-text="d"></button>
+        </template>
+        <span class="vault-key vault-key-spacer" aria-hidden="true"></span>
+        <button class="vault-key" @click="vaultKeyTap(0)" :disabled="vaultBusy">0</button>
+        <button class="vault-key vault-key-back" @click="vaultBackspace()"
+                :disabled="vaultBusy || !vaultPinDigits.length" aria-label="Backspace">
+          <svg class="icon" viewBox="0 0 24 24"><use href="#i-back"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Vault settings — reachable only while it's open (§ header gear icon,
+     x-show="settings.vault_unlocked") — change the PIN or remove the vault
+     outright. Both still ask for the current PIN through the same keypad
+     rather than trusting "already unlocked" alone: the unlocked state can
+     sit open on the phone for weeks, and changing or removing the PIN is
+     exactly the moment it's worth checking again. -->
+<div class="sheet-modal" x-show="vaultSettingsOpen" x-cloak
+     @click="vaultSettingsOpen = false" @keydown.escape.window="vaultSettingsOpen = false"
+     x-transition:enter="sheet-modal-enter" x-transition:enter-start="sheet-modal-from"
+     x-transition:enter-end="sheet-modal-to"
+     x-transition:leave="sheet-modal-leave" x-transition:leave-start="sheet-modal-to"
+     x-transition:leave-end="sheet-modal-from">
+  <div class="sheet-modal-card" @click.stop>
+    <div class="crop-head">
+      <span class="sheet-modal-title">Vault settings</span>
+    </div>
+    <div class="sheet-modal-body">
+      <button class="wide" @click="vaultSettingsOpen = false; openVaultModal('change-current')">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-lock"/></svg>
+        <span>Change PIN</span>
+      </button>
+      <button class="wide primary danger" @click="vaultSettingsOpen = false; openVaultModal('remove')">
+        <span>Remove vault</span>
+      </button>
+      <p class="kind-note">
+        Removing the vault clears the PIN — every card currently in it goes
+        back to showing up normally. Which cards were vaulted isn't
+        forgotten: set a new PIN later and the same ones hide again.
+      </p>
     </div>
   </div>
 </div>

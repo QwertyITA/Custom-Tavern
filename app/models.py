@@ -289,6 +289,13 @@ class Character(BaseModel):
     lorebook: list[LorebookEntry] = Field(default_factory=list)
     default_toggles: list[str] = Field(default_factory=list)
     colours: dict[str, str] = Field(default_factory=dict)
+    # Hidden from the roster (and from anywhere else the vault gate applies,
+    # § app.vault, app.main._vault_locked) whenever the vault is configured
+    # and locked. Not encryption — see app/vault.py — just a flag a nosy
+    # person can't see or flip without the PIN. Untouched by removing the
+    # vault's PIN (§ /api/vault/remove): re-adding one later resumes hiding
+    # the same set of cards without having to re-pick them.
+    vaulted: bool = False
 
 
 # ------------------------------------------------------------------ API I/O

@@ -831,6 +831,23 @@ function tavern() {
     memoriesOpen: false,
     characterMemories: [],
 
+    // Character vault (§ app/vault.py, main.py's /api/vault/*) — one PIN
+    // keypad modal reused across setup/confirm/unlock/change/remove
+    // (§ vaultModalMode/vaultModalTitle), plus the small menu the header's
+    // gear opens while the vault is unlocked. `settings.vault_configured`/
+    // `vault_unlocked` are the source of truth (§ loadSettings) — nothing
+    // vault-shaped is tracked twice here.
+    vaultModalOpen: false,
+    vaultSettingsOpen: false,
+    vaultModalMode: "unlock",
+    vaultPinDigits: "",
+    vaultPinFirst: "",
+    vaultChangeCurrentPin: "",
+    vaultChangeNewPin: "",
+    vaultError: "",
+    vaultShake: false,
+    vaultBusy: false,
+
     // §main.py's /api/characters/{id}/compress — a preview only, same
     // "generate, review, then the ordinary Save path" shape as Reactions
     // above. Nothing here writes to the character until compressPanelApply
@@ -3444,6 +3461,180 @@ function tavern() {
       this._reactionBubbleTimer = setTimeout(() => {
         this.reactionBubbleOpen = false;
       }, REACTION_BUBBLE_MS);
+    },
+
+    // One card in or out of the vault. Reachable on a still-visible row
+    // either way (§ index.html's x-show="settings.vault_configured" on the
+    // button) — vaulting a card that's showing needs nothing from the
+    // server beyond the flag flip, un-vaulting one only ever happens on a
+    // row that's showing because the vault is already open. The one case
+    // that needs local bookkeeping: vaulting a card while the vault
+    // happens to be *closed* hides it immediately, and the server won't
+    // send it back on the next roster load — so it's dropped from
+    // `characters` right here instead of waiting for one.
+    async toggleVaulted(character) {
+      const wanted = !character.vaulted;
+      try {
+        await api.post(`/api/characters/${character.id}/vault`, { vaulted: wanted });
+      } catch (e) {
+        this.error = errorText(e);
+        return;
+      }
+      const nowHidden = wanted && this.settings.vault_configured && !this.settings.vault_unlocked;
+      if (nowHidden) {
+        this.characters = this.characters.filter((c) => c.id !== character.id);
+      } else {
+        character.vaulted = wanted;
+      }
+      this.flashHint(wanted ? `${character.name} moved to the vault` : `${character.name} taken out of the vault`);
+    },
+
+    // The header's single vault button: what tapping it does depends on
+    // which of the three states the vault is already in, same idea as
+    // toggleFavourite reading the current flag before deciding. Locking
+    // needs no PIN — closing a safe never does — so that branch acts
+    // immediately instead of opening the keypad.
+    openVaultHeaderAction() {
+      if (!this.settings.vault_configured) return this.openVaultModal("setup");
+      if (!this.settings.vault_unlocked) return this.openVaultModal("unlock");
+      this.lockVault();
+    },
+
+    openVaultSettings() {
+      this.vaultSettingsOpen = true;
+    },
+
+    openVaultModal(mode) {
+      this.vaultModalMode = mode;
+      this.vaultPinDigits = "";
+      this.vaultPinFirst = "";
+      this.vaultChangeCurrentPin = "";
+      this.vaultChangeNewPin = "";
+      this.vaultError = "";
+      this.vaultModalOpen = true;
+    },
+
+    closeVaultModal() {
+      this.vaultModalOpen = false;
+      this.vaultPinDigits = "";
+      this.vaultPinFirst = "";
+      this.vaultChangeCurrentPin = "";
+      this.vaultChangeNewPin = "";
+      this.vaultError = "";
+    },
+
+    vaultModalTitle() {
+      return {
+        setup: "Set a vault PIN",
+        "setup-confirm": "Confirm the PIN",
+        unlock: "Enter the vault PIN",
+        "change-current": "Enter the current PIN",
+        "change-new": "Choose a new PIN",
+        "change-confirm": "Confirm the new PIN",
+        remove: "Enter the PIN to remove the vault",
+      }[this.vaultModalMode] || "";
+    },
+
+    vaultKeyTap(digit) {
+      if (this.vaultBusy || this.vaultPinDigits.length >= 6) return;
+      this.vaultError = "";
+      this.vaultPinDigits += String(digit);
+      if (this.vaultPinDigits.length === 6) this.vaultPinComplete();
+    },
+
+    vaultBackspace() {
+      this.vaultPinDigits = this.vaultPinDigits.slice(0, -1);
+    },
+
+    vaultMismatch(backTo) {
+      this.vaultError = "Didn't match — try again";
+      this.vaultPinDigits = "";
+      this.vaultPinFirst = "";
+      this.triggerVaultShake();
+      this.vaultModalMode = backTo;
+    },
+
+    triggerVaultShake() {
+      this.vaultShake = true;
+      setTimeout(() => { this.vaultShake = false; }, 420);
+    },
+
+    // The one handler for all six modes (§ vaultModalMode) — each mode either
+    // moves on to the next (first entry of a pair that needs confirming, or
+    // the current-PIN step of change/remove) or calls the server and closes.
+    async vaultPinComplete() {
+      const pin = this.vaultPinDigits;
+      const mode = this.vaultModalMode;
+      if (mode === "setup") {
+        this.vaultPinFirst = pin;
+        this.vaultPinDigits = "";
+        this.vaultModalMode = "setup-confirm";
+        return;
+      }
+      if (mode === "setup-confirm") {
+        if (pin !== this.vaultPinFirst) return this.vaultMismatch("setup");
+        return this.vaultSubmit("/api/vault/setup", { pin }, (r) => {
+          this.settings.vault_configured = r.vault_configured;
+          this.settings.vault_unlocked = r.vault_unlocked;
+        }, true);
+      }
+      if (mode === "unlock") {
+        return this.vaultSubmit("/api/vault/unlock", { pin }, (r) => {
+          this.settings.vault_unlocked = r.vault_unlocked;
+        }, true);
+      }
+      if (mode === "change-current") {
+        this.vaultChangeCurrentPin = pin;
+        this.vaultPinDigits = "";
+        this.vaultModalMode = "change-new";
+        return;
+      }
+      if (mode === "change-new") {
+        this.vaultChangeNewPin = pin;
+        this.vaultPinDigits = "";
+        this.vaultModalMode = "change-confirm";
+        return;
+      }
+      if (mode === "change-confirm") {
+        if (pin !== this.vaultChangeNewPin) return this.vaultMismatch("change-new");
+        return this.vaultSubmit("/api/vault/change", {
+          current_pin: this.vaultChangeCurrentPin, new_pin: this.vaultChangeNewPin,
+        }, () => this.flashHint("Vault PIN changed"));
+      }
+      if (mode === "remove") {
+        return this.vaultSubmit("/api/vault/remove", { current_pin: pin }, () => {
+          this.settings.vault_configured = false;
+          this.settings.vault_unlocked = false;
+          this.flashHint("Vault removed");
+        }, true);
+      }
+    },
+
+    async vaultSubmit(path, body, onOk, refreshRoster) {
+      this.vaultBusy = true;
+      try {
+        const r = await api.post(path, body);
+        onOk(r);
+        this.closeVaultModal();
+        if (refreshRoster) await this.loadCharacters();
+      } catch (e) {
+        this.vaultError = errorText(e);
+        this.vaultPinDigits = "";
+        this.triggerVaultShake();
+      } finally {
+        this.vaultBusy = false;
+      }
+    },
+
+    async lockVault() {
+      try {
+        await api.post("/api/vault/lock", {});
+      } catch (e) {
+        this.error = errorText(e);
+        return;
+      }
+      this.settings.vault_unlocked = false;
+      await this.loadCharacters();
     },
 
     // The roster's one true order: whoever is open right now first — see

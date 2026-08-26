@@ -963,6 +963,68 @@ body {
 .crop-note { margin: 0; }
 .crop-actions { margin-top: 2px; }
 
+/* The vault PIN keypad (§ vaultModalOpen in app.js). Narrower than the
+   default .sheet-modal-card — a number pad doesn't need the full width a
+   form does, and centring it makes the card read as a dialog rather than
+   another settings page. */
+.vault-card { max-width: 340px; }
+.vault-modal-body { align-items: center; }
+.vault-dots {
+  display: flex;
+  gap: 14px;
+  padding: 10px 0 4px;
+}
+.vault-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line);
+  background: transparent;
+  transition: background var(--dur-fast) var(--ease-spring),
+              border-color var(--dur-fast) var(--ease-spring),
+              transform var(--dur-fast) var(--ease-spring);
+}
+/* Landing, not just appearing — the same reasoning as everywhere else
+   --ease-spring is used: a digit going in is something coming to rest. */
+.vault-dot.filled { background: var(--accent); border-color: var(--accent); transform: scale(1.15); }
+.vault-dots.shake { animation: vault-shake 420ms var(--ease-in-out); }
+@keyframes vault-shake {
+  0%, 100% { transform: translateX(0); }
+  20%      { transform: translateX(-8px); }
+  40%      { transform: translateX(7px); }
+  60%      { transform: translateX(-5px); }
+  80%      { transform: translateX(3px); }
+}
+.vault-keypad {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-top: 6px;
+}
+.vault-key {
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform var(--dur-fast) var(--ease-spring),
+              background var(--dur-fast) var(--ease-out);
+}
+/* .press (§ CLAUDE.md "every interaction answers") — a scale-down for a
+   control this size rather than .lift, the same call every other round
+   button in the app makes. */
+.vault-key:active { transform: scale(.9); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
+.vault-key:disabled { opacity: .4; }
+.vault-key-spacer { visibility: hidden; }
+.vault-key-back { border: none; background: transparent; color: var(--muted); }
+.vault-key-back:active { background: color-mix(in srgb, var(--error) 12%, transparent); }
+
 /* The same bottom-sheet shape as .crop-layer and .pfp-full-layer above, each
    of which grew its own copy before there was a third and fourth use
    (picture effect, reactions) to justify pulling it out into one. */
@@ -1758,6 +1820,10 @@ body {
   padding: 2px;
 }
 .char-warn-badge .icon-sm { width: 13px; height: 13px; }
+/* Sitting in the vault isn't a problem with the card the way a too-big one
+   is, so it doesn't borrow --error — --accent instead, the same "worth
+   knowing, not alarming" tint .char-current-badge uses. */
+.char-warn-badge.vault { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
 
 /* The two things a row exists to do, said in words — management now lives
    in the head itself (§ .char-head-tools), so this row is only ever these
@@ -3453,6 +3519,7 @@ input.mono {
 /* The moment of starring gets a small pop, so the row that is about to move
    acknowledges the tap before it travels. */
 .glyph-btn.star.on .icon-btn-glyph { animation: star-pop 320ms var(--ease-spring) both; }
+.glyph-btn.vault.on { color: var(--accent); }
 @keyframes star-pop {
   from { transform: scale(.6); }
   to   { transform: scale(1); }

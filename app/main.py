@@ -22,6 +22,7 @@ from . import memory as memory_store
 from . import prompt_layout
 from . import providers, regex_rules, repo, state as state_mod
 from . import translation
+from . import vault
 from .config import DATA_DIR, STATIC_DIR, reload_settings
 from .db import get_db
 from .events import BUS
@@ -347,12 +348,108 @@ async def reload_config() -> dict:
     return settings.to_dict()
 
 
+# ------------------------------------------------------------------ vault
+
+
+def _vault_locked() -> bool:
+    """A PIN is set and the vault hasn't been unlocked since. False — nothing
+    hidden — whenever no PIN has ever been set at all, so a card marked
+    `vaulted` before the vault existed just sits inert until it does."""
+    return bool(config.SETTINGS.vault_pin_hash) and not config.SETTINGS.vault_unlocked
+
+
+def _vault_hidden(character: Character) -> bool:
+    return character.vaulted and _vault_locked()
+
+
+@app.post("/api/vault/setup")
+async def vault_setup(payload: dict = Body(...)) -> dict:
+    """The very first PIN. Auto-unlocks: a vault with nothing in it yet has
+    nothing to hide behind, and asking someone to immediately re-enter the
+    PIN they just chose has no purpose."""
+    if config.SETTINGS.vault_pin_hash:
+        raise HTTPException(400, "a vault PIN is already set")
+    pin = str(payload.get("pin") or "")
+    if not vault.valid_pin(pin):
+        raise HTTPException(400, "PIN must be 6 digits")
+    salt = vault.new_salt()
+    config.SETTINGS.vault_pin_salt = salt
+    config.SETTINGS.vault_pin_hash = vault.hash_pin(pin, salt)
+    config.SETTINGS.vault_unlocked = True
+    config.save_settings(config.SETTINGS)
+    return {"ok": True, "vault_configured": True, "vault_unlocked": True}
+
+
+@app.post("/api/vault/unlock")
+async def vault_unlock(payload: dict = Body(...)) -> dict:
+    if not config.SETTINGS.vault_pin_hash:
+        raise HTTPException(400, "no vault PIN set yet")
+    cooldown = vault.cooldown_remaining()
+    if cooldown > 0:
+        raise HTTPException(429, f"too many attempts — try again in {int(cooldown) + 1}s")
+    pin = str(payload.get("pin") or "")
+    if not vault.verify(pin, config.SETTINGS.vault_pin_salt, config.SETTINGS.vault_pin_hash):
+        vault.register_failure()
+        raise HTTPException(401, "wrong PIN")
+    vault.register_success()
+    config.SETTINGS.vault_unlocked = True
+    config.save_settings(config.SETTINGS)
+    return {"ok": True, "vault_unlocked": True}
+
+
+@app.post("/api/vault/lock")
+async def vault_lock() -> dict:
+    """No PIN needed — closing a safe doesn't take the combination, only
+    opening one does."""
+    config.SETTINGS.vault_unlocked = False
+    config.save_settings(config.SETTINGS)
+    return {"ok": True, "vault_unlocked": False}
+
+
+@app.post("/api/vault/change")
+async def vault_change(payload: dict = Body(...)) -> dict:
+    if not config.SETTINGS.vault_pin_hash:
+        raise HTTPException(400, "no vault PIN set yet")
+    current_pin = str(payload.get("current_pin") or "")
+    if not vault.verify(current_pin, config.SETTINGS.vault_pin_salt, config.SETTINGS.vault_pin_hash):
+        raise HTTPException(401, "wrong PIN")
+    new_pin = str(payload.get("new_pin") or "")
+    if not vault.valid_pin(new_pin):
+        raise HTTPException(400, "PIN must be 6 digits")
+    salt = vault.new_salt()
+    config.SETTINGS.vault_pin_salt = salt
+    config.SETTINGS.vault_pin_hash = vault.hash_pin(new_pin, salt)
+    config.save_settings(config.SETTINGS)
+    return {"ok": True}
+
+
+@app.post("/api/vault/remove")
+async def vault_remove(payload: dict = Body(...)) -> dict:
+    """Clears the PIN, which switches the gate off entirely — vaulted cards
+    go back to showing up like any other. Each card's own `vaulted` flag is
+    left untouched (§ Character.vaulted) so setting a new PIN later resumes
+    hiding the same set without having to re-pick them."""
+    if not config.SETTINGS.vault_pin_hash:
+        raise HTTPException(400, "no vault PIN set")
+    current_pin = str(payload.get("current_pin") or "")
+    if not vault.verify(current_pin, config.SETTINGS.vault_pin_salt, config.SETTINGS.vault_pin_hash):
+        raise HTTPException(401, "wrong PIN")
+    config.SETTINGS.vault_pin_hash = ""
+    config.SETTINGS.vault_pin_salt = ""
+    config.SETTINGS.vault_unlocked = False
+    config.save_settings(config.SETTINGS)
+    return {"ok": True}
+
+
 # -------------------------------------------------------------- characters
 
 
 @app.get("/api/characters")
 async def list_characters() -> list[dict]:
-    return repo.list_characters(get_db())
+    rows = repo.list_characters(get_db())
+    if _vault_locked():
+        rows = [r for r in rows if not r.get("vaulted")]
+    return rows
 
 
 async def _effective_blocking_budget(db, settings: config.Settings) -> int | None:
@@ -449,7 +546,7 @@ async def compress_character(character_id: str) -> dict:
 @app.get("/api/characters/{character_id}")
 async def get_character(character_id: str) -> dict:
     character = repo.get_character(get_db(), character_id)
-    if character is None:
+    if character is None or _vault_hidden(character):
         raise HTTPException(404, "character not found")
     return json.loads(character.model_dump_json())
 
@@ -600,6 +697,25 @@ async def set_favourite(character_id: str, payload: dict = Body(...)) -> dict:
     favourite = bool(payload.get("favourite", True))
     repo.set_favourite(db, character_id, favourite)
     return {"ok": True, "favourite": favourite}
+
+
+@app.post("/api/characters/{character_id}/vault")
+async def set_vaulted(character_id: str, payload: dict = Body(...)) -> dict:
+    """Put a card into the vault, or take it out.
+
+    Gated by the same visibility check as reading the card at all: a card
+    already vaulted-and-locked reads as not-found here too, so un-vaulting
+    one through this route needs the vault open the same as seeing it in the
+    roster does. Vaulting a currently-visible card needs nothing beyond that
+    — it is still visible precisely because it is not vaulted yet.
+    """
+    db = get_db()
+    character = repo.get_character(db, character_id)
+    if character is None or _vault_hidden(character):
+        raise HTTPException(404, "character not found")
+    character.vaulted = bool(payload.get("vaulted", True))
+    repo.save_character(db, character)
+    return {"ok": True, "vaulted": character.vaulted}
 
 
 def _reject_oversized(request: Request, max_bytes: int, message: str) -> None:
@@ -862,14 +978,19 @@ async def regenerate_reactions(character_id: str, payload: dict = Body(default={
 
 @app.get("/api/chats")
 async def list_chats(character_id: str | None = None) -> list[dict]:
-    return repo.list_chats(get_db(), character_id)
+    db = get_db()
+    rows = repo.list_chats(db, character_id)
+    if _vault_locked():
+        hidden_ids = {c["id"] for c in repo.list_characters(db) if c.get("vaulted")}
+        rows = [r for r in rows if r["character_id"] not in hidden_ids]
+    return rows
 
 
 @app.post("/api/chats")
 async def create_chat(payload: CreateChatRequest) -> dict:
     db = get_db()
     character = repo.get_character(db, payload.character_id)
-    if character is None:
+    if character is None or _vault_hidden(character):
         raise HTTPException(404, "character not found")
     chat = repo.create_chat(db, payload.character_id, payload.title or character.name)
     # The greeting loads at chat start (§7.4) and is a real message, so it takes
