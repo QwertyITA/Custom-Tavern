@@ -52,22 +52,41 @@ def test_log_tail_missing_file_says_so(db, monkeypatch, tmp_path):
 # ------------------------------------------------------------ _stuck_runs
 
 
-def test_flags_a_run_stuck_well_past_the_threshold(db):
+def test_flags_a_run_stuck_well_past_the_threshold_in_this_process(db, monkeypatch):
+    # This process has to have been up long enough for the row to be "this
+    # process's", not an orphan from one before it.
+    monkeypatch.setattr(debug_export, "STARTED_AT", time.time() - 10_000)
     old = time.time() - debug_export.STUCK_AFTER_SECONDS - 30
     insert_run(db, status="running", started_at=old)
-    stuck = debug_export._stuck_runs(db)
-    assert len(stuck) == 1
-    assert stuck[0]["running_for_seconds"] >= debug_export.STUCK_AFTER_SECONDS
+    live, orphaned = debug_export._stuck_runs(db)
+    assert len(live) == 1
+    assert orphaned == []
+    assert live[0]["running_for_seconds"] >= debug_export.STUCK_AFTER_SECONDS
 
 
-def test_does_not_flag_a_run_still_within_the_threshold(db):
+def test_does_not_flag_a_run_still_within_the_threshold(db, monkeypatch):
+    monkeypatch.setattr(debug_export, "STARTED_AT", time.time() - 10_000)
     insert_run(db, status="running", started_at=time.time() - 5)
-    assert debug_export._stuck_runs(db) == []
+    assert debug_export._stuck_runs(db) == ([], [])
 
 
-def test_does_not_flag_a_finished_run(db):
+def test_does_not_flag_a_finished_run(db, monkeypatch):
+    monkeypatch.setattr(debug_export, "STARTED_AT", time.time() - 10_000)
     insert_run(db, status="done", started_at=time.time() - 999)
-    assert debug_export._stuck_runs(db) == []
+    assert debug_export._stuck_runs(db) == ([], [])
+
+
+def test_a_run_older_than_this_process_is_orphaned_not_live(db, monkeypatch):
+    """The field case this split was written for: a real export once
+    reported 15 "stuck" rows, every one of them from a process that no
+    longer existed by the time the export was taken."""
+    monkeypatch.setattr(debug_export, "STARTED_AT", time.time() - 60)
+    ancient = time.time() - 800_000  # long before this process ever started
+    insert_run(db, status="running", started_at=ancient)
+    live, orphaned = debug_export._stuck_runs(db)
+    assert live == []
+    assert len(orphaned) == 1
+    assert orphaned[0]["running_for_seconds"] > 700_000
 
 
 # -------------------------------------------------------- _recent_failures
@@ -117,8 +136,8 @@ def test_settings_snapshot_excludes_the_writing_library(db):
 def test_build_includes_every_section(db, sched):
     text = debug_export.build(db, sched)
     for heading in (
-        "process health", "settings (masked)", "still 'running'",
-        "failed pass runs", "server log",
+        "process health", "settings (masked)", "stuck 'running' in THIS process",
+        "orphaned by an earlier crash/restart", "failed pass runs", "server log",
     ):
         assert heading in text
 

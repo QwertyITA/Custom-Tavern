@@ -961,6 +961,8 @@ function tavern() {
     importError: "",
     hud: false,
     debugLogBusy: false,
+    // § brokenPfp/markPfpBroken below — which portrait URLs have 404'd.
+    brokenPfps: {},
     error: "",
 
     streaming: false,
@@ -1285,6 +1287,26 @@ function tavern() {
         this.pfpFull = { src: "", shape: "portrait", effect: null };
         this.pfpFullLeaving = false;
       }, PANEL_LEAVE_MS());
+    },
+
+    // A portrait `<img>` that has 404'd, keyed by its own src (§ brokenPfps
+    // in the data object). The fix for a real crash: every portrait `<img>`
+    // is the sole child of an x-if, and used to answer its own onerror with
+    // `$el.remove()` — reaching past Alpine to yank out the exact element
+    // its x-if was tracking. The next time that x-if's condition changed,
+    // Alpine tried to reconcile against a node that no longer existed and
+    // threw ("Cannot read properties of undefined (reading 'after')",
+    // caught by a debug export — ISSUES-TRIAGE.md, freeze/crash follow-up).
+    // Routing the failure through this reactive flag instead lets the x-if
+    // itself go false through Alpine's own machinery, which is what removes
+    // the element correctly. A URL stays marked broken for the rest of this
+    // page load — right for a 404 off this app's own server, which was
+    // never going to start working without a reload anyway.
+    brokenPfp(url) {
+      return !!url && !!this.brokenPfps[url];
+    },
+    markPfpBroken(url) {
+      if (url) this.brokenPfps[url] = true;
     },
 
     // The face for one message. In a solo chat that is the character, with

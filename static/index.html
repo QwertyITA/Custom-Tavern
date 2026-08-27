@@ -595,8 +595,8 @@
           <span class="pfp pfp-blank" aria-hidden="true">
             <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
           </span>
-          <template x-if="portraitFor(m) && !liveVideoFor(m)">
-            <img class="pfp pfp-over" :src="portraitFor(m)" alt="" @error="$el.remove()">
+          <template x-if="portraitFor(m) && !liveVideoFor(m) && !brokenPfp(portraitFor(m))">
+            <img class="pfp pfp-over" :src="portraitFor(m)" alt="" @error="markPfpBroken(portraitFor(m))">
           </template>
           <!-- The talking clip for this one reply, while it is live
                (AVATAR-VIDEO-CONTRACT.md) — the only place in the app a
@@ -792,8 +792,8 @@
           <span class="pfp pfp-blank" aria-hidden="true">
             <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
           </span>
-          <template x-if="persona && persona.avatar">
-            <img class="pfp pfp-over" :src="`/avatars/${persona.avatar}`" alt="" @error="$el.remove()">
+          <template x-if="persona && persona.avatar && !brokenPfp(`/avatars/${persona.avatar}`)">
+            <img class="pfp pfp-over" :src="`/avatars/${persona.avatar}`" alt="" @error="markPfpBroken(`/avatars/${persona.avatar}`)">
           </template>
         </span>
       </template>
@@ -808,8 +808,8 @@
       <span class="pfp pfp-blank" aria-hidden="true">
         <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
       </span>
-      <template x-if="portrait">
-        <img class="pfp pfp-over" :src="portrait" alt="" @error="$el.remove()">
+      <template x-if="portrait && !brokenPfp(portrait)">
+        <img class="pfp pfp-over" :src="portrait" alt="" @error="markPfpBroken(portrait)">
       </template>
       <template x-if="pfpEffectOn(character && character.pfp_effect)">
         <span class="pfp-glow" :style="pfpEffectStyle(character && character.pfp_effect)" aria-hidden="true"></span>
@@ -2618,8 +2618,8 @@
                      URL, at /static/characters//avatars/… — so the roster was
                      blank for every character whose picture had been chosen
                      here or had come in on a card. -->
-                <template x-if="c.pfp">
-                  <img class="pfp pfp-over" :src="pfpUrl(c.pfp)" alt="" @error="$el.remove()">
+                <template x-if="c.pfp && !brokenPfp(pfpUrl(c.pfp))">
+                  <img class="pfp pfp-over" :src="pfpUrl(c.pfp)" alt="" @error="markPfpBroken(pfpUrl(c.pfp))">
                 </template>
                 <template x-if="pfpEffectOn(c.pfp_effect)">
                   <span class="pfp-glow" :style="pfpEffectStyle(c.pfp_effect)" aria-hidden="true"></span>
@@ -2862,8 +2862,8 @@
             <span class="pfp pfp-large pfp-blank" aria-hidden="true">
               <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
             </span>
-            <template x-if="draftPortrait()">
-              <img class="pfp pfp-large pfp-over" :src="draftPortrait()" alt="" @error="$el.remove()">
+            <template x-if="draftPortrait() && !brokenPfp(draftPortrait())">
+              <img class="pfp pfp-large pfp-over" :src="draftPortrait()" alt="" @error="markPfpBroken(draftPortrait())">
             </template>
             <template x-if="pfpEffectActive()">
               <span class="pfp-glow" :style="pfpEffectStyle(draftCharacter.pfp_effect)" aria-hidden="true"></span>

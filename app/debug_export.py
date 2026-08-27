@@ -61,20 +61,35 @@ def _log_tail() -> str:
     return "\n".join(lines[-LOG_TAIL_LINES:]) or "(empty)"
 
 
-def _stuck_runs(db: Database) -> list[dict[str, Any]]:
-    """Every chat's pass_runs, not one — a hang in one conversation is still
-    worth seeing even if the export was triggered from a different one."""
+def _stuck_runs(db: Database) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """(still running in *this* process, orphaned by an earlier one).
+
+    A row is only still-informative as "possibly hung right now" if the
+    process that started it is the one answering this request — `_record_run`
+    marks a row 'running' before the pass starts and only ever updates it
+    once the pass actually finishes, so a process that died first (crashed,
+    was killed, lost power) leaves its in-flight rows stuck at 'running'
+    forever; nothing sweeps them on the next boot. Measured against a real
+    export: every one of 15 "stuck" rows it produced before this split had a
+    `started_at` from a process that was no longer running by the time the
+    export was taken — the oldest nine days old. Conflating "the server
+    crashed nine days ago mid-pass" with "something is hung right now" is
+    exactly the kind of noise that buries the one row worth acting on.
+    """
     now = time.time()
-    out = []
+    live: list[dict[str, Any]] = []
+    orphaned: list[dict[str, Any]] = []
     for row in db.query(
         "SELECT chat_id, turn, pass_id, tier, model, started_at "
         "FROM pass_runs WHERE status='running' ORDER BY started_at"
     ):
         started = row["started_at"] or 0
-        age = now - started if started else 0
-        if age >= STUCK_AFTER_SECONDS:
-            out.append({**dict(row), "running_for_seconds": round(age)})
-    return out
+        entry = {**dict(row), "running_for_seconds": round(now - started) if started else None}
+        if started and started < STARTED_AT:
+            orphaned.append(entry)
+        elif started and now - started >= STUCK_AFTER_SECONDS:
+            live.append(entry)
+    return live, orphaned
 
 
 def _recent_failures(db: Database, limit: int = 20) -> list[dict[str, Any]]:
@@ -125,7 +140,7 @@ def _kv_blocks(rows: list[dict[str, Any]]) -> str:
 
 
 def build(db: Database, scheduler: Any) -> str:
-    stuck = _stuck_runs(db)
+    live_stuck, orphaned_stuck = _stuck_runs(db)
     failures = _recent_failures(db)
     sections = [
         f"Personal Tavern debug export — {datetime.now(UTC).isoformat(timespec='seconds')}",
@@ -137,8 +152,15 @@ def build(db: Database, scheduler: Any) -> str:
         "-- settings (masked) --",
         _kv(_settings_snapshot()),
         "",
-        f"-- pass runs still 'running' after {STUCK_AFTER_SECONDS}s ({len(stuck)}) --",
-        _kv_blocks(stuck),
+        f"-- pass runs stuck 'running' in THIS process, after {STUCK_AFTER_SECONDS}s ({len(live_stuck)}) --",
+        "The one section that means something is hung right now.",
+        _kv_blocks(live_stuck),
+        "",
+        f"-- 'running' rows orphaned by an earlier crash/restart ({len(orphaned_stuck)}) --",
+        "Not a current hang — the process that owned each of these is already gone, "
+        "which itself means the server has stopped abnormally at least this many times. "
+        "Harmless clutter otherwise; nothing sweeps them, so the count only grows.",
+        _kv_blocks(orphaned_stuck),
         "",
         f"-- last {len(failures)} failed pass runs --",
         _kv_blocks(failures),

@@ -495,6 +495,13 @@ plain-text file with the server's own log tail, any pass still stuck
 mid-flight across every chat, masked backend/tier settings, and this browser
 tab's own record — its JS errors and how long it ever went unresponsive.
 
+Stuck passes are split in two: still running *in the process that answered
+this export* — the one that actually means something is hung right now —
+and rows orphaned by an earlier crash or restart, whose own process is
+already gone and can't finish them. Only the first kind is a live concern;
+the second is a sign the server has stopped abnormally before, not that it
+has right now.
+
 The tab's half is recorded continuously from the moment the page loads, not
 only from the moment the button is tapped — a freeze usually happens *before*
 anyone thinks to export anything, and that half survives a reload (it lives
