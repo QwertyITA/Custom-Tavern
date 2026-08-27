@@ -73,9 +73,20 @@
          the one place here that earns the generic "settings" glyph the rest
          of this sprite otherwise avoids in favour of something that means
          its own destination specifically. -->
+    <!-- A cog: a ring, a hollow centre, and eight square teeth — rather
+         than the asterisk-of-tick-marks this used to be, which read as a
+         sun or a loading spinner before anyone connected it to "settings". -->
     <g id="i-gear">
-      <circle cx="12" cy="12" r="3.2"/>
-      <path d="M12 3.6v2.4M12 18v2.4M20.4 12h-2.4M6 12H3.6M17.6 6.4l-1.7 1.7M8.1 15.9l-1.7 1.7M17.6 17.6l-1.7-1.7M8.1 8.1 6.4 6.4"/>
+      <circle cx="12" cy="12" r="5"/>
+      <circle cx="12" cy="12" r="2.1"/>
+      <rect x="10.7" y="2.4" width="2.6" height="2.4" rx="0.5"/>
+      <rect x="10.7" y="19.2" width="2.6" height="2.4" rx="0.5"/>
+      <rect x="19.2" y="10.7" width="2.4" height="2.6" rx="0.5"/>
+      <rect x="2.4" y="10.7" width="2.4" height="2.6" rx="0.5"/>
+      <rect x="10.7" y="2.4" width="2.6" height="2.4" rx="0.5" transform="rotate(45 12 12)"/>
+      <rect x="10.7" y="2.4" width="2.6" height="2.4" rx="0.5" transform="rotate(135 12 12)"/>
+      <rect x="10.7" y="2.4" width="2.6" height="2.4" rx="0.5" transform="rotate(225 12 12)"/>
+      <rect x="10.7" y="2.4" width="2.6" height="2.4" rx="0.5" transform="rotate(315 12 12)"/>
     </g>
     <g id="i-menu">
       <path d="M4 7h16M4 12h16M4 17h16"/>
@@ -1103,23 +1114,33 @@
       <svg class="icon" viewBox="0 0 24 24"><use href="#i-back"/></svg>
     </button>
     <h2 x-text="panelTitle()"></h2>
-    <!-- Only on the roster itself, not its character/persona sub-panels
-         (§ backToRoster above shows the same restraint for the back arrow)
-         — vaulting is a property of which cards this list shows, and that
-         question doesn't follow you into editing one of them. -->
-    <button class="icon-btn" x-show="panel === 'chats' && settings.vault_unlocked"
-            @click="openVaultSettings()" aria-label="Vault settings" title="Vault settings">
-      <svg class="icon" viewBox="0 0 24 24"><use href="#i-gear"/></svg>
-    </button>
-    <button class="icon-btn" x-show="panel === 'chats'"
-            @click="openVaultHeaderAction()"
-            :aria-label="settings.vault_unlocked ? 'Lock vault' : 'Unlock vault'"
-            :title="settings.vault_unlocked ? 'Lock vault' : (settings.vault_configured ? 'Unlock vault' : 'Set up a vault PIN')">
-      <svg class="icon icon-vault" viewBox="0 0 24 24">
-        <use :href="settings.vault_unlocked ? '#i-vault-open' : '#i-vault'"/>
-      </svg>
-    </button>
-    <button class="icon-btn" @click="closePanel()" aria-label="Close">✕</button>
+    <!-- Everything trailing the title clustered in one flex group, rather
+         than as siblings of it — .sheet-head is space-between, and with
+         more than two direct children that spreads them apart across the
+         whole width instead of clustering next to Close where they belong. -->
+    <div class="sheet-head-actions">
+      <!-- Only on the roster itself, not its character/persona sub-panels
+           (§ backToRoster above shows the same restraint for the back
+           arrow) — vaulting is a property of which cards this list shows,
+           and that question doesn't follow you into editing one of them.
+           Grouped together only while open: locked, there is nothing for
+           the gear to configure yet, so it isn't shown at all rather than
+           sitting there disabled beside a lone vault icon. -->
+      <div class="vault-actions" x-show="panel === 'chats'">
+        <button class="icon-btn" x-show="settings.vault_unlocked"
+                @click="openVaultSettings()" aria-label="Vault settings" title="Vault settings">
+          <svg class="icon" viewBox="0 0 24 24"><use href="#i-gear"/></svg>
+        </button>
+        <button class="icon-btn" @click="openVaultHeaderAction()"
+                :aria-label="settings.vault_unlocked ? 'Lock vault' : 'Unlock vault'"
+                :title="settings.vault_unlocked ? 'Lock vault' : (settings.vault_configured ? 'Unlock vault' : 'Set up a vault PIN')">
+          <svg class="icon icon-vault" viewBox="0 0 24 24">
+            <use :href="settings.vault_unlocked ? '#i-vault-open' : '#i-vault'"/>
+          </svg>
+        </button>
+      </div>
+      <button class="icon-btn" @click="closePanel()" aria-label="Close">✕</button>
+    </div>
   </header>
 
   <div class="sheet-body">
