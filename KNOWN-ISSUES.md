@@ -315,6 +315,49 @@ lost *any* concurrent edit to the card, not just this one.
 
 ## Medium
 
+### craft:length's "even mid-thought" invited literal mid-sentence cutoffs
+
+Reported by the user, reproduced by reading a real chat transcript (the same
+glm-4.7-flash chat the entry below was measured against, later turns): once
+the backend switched to a weak/quantized model mid-conversation, replies
+started trailing off unfinished ("...heavier than before ", no closing
+punctuation) right around the paragraph ceiling. `craft:length` told the
+model to "stop there even mid-thought" once it hit the ceiling — meant to
+stop it from padding a reply to wrap things up, but a strong model reads
+"mid-thought" as license to stop at a reasonable clause boundary, while a
+weak one appears to take it literally and produces a genuinely broken
+fragment. **Fixed**: reworded to keep the same hard-ceiling, anti-padding
+behaviour while explicitly requiring the sentence in progress be finished —
+"stop there even if the scene is not resolved... Never stop mid-sentence:
+finish the clause you are in, then stop" (§app/prompt_layout.py's
+craft:length, kept byte-for-byte in sync with `static/app.js`'s
+`setLengthRange()`, same coupling as before). Not fully provable as the sole
+cause without a controlled re-run against the same weak backend — see the
+model-switch note below, which is the bigger correlate — but the instruction
+was clearly inviting the exact failure shape observed, and the reworded
+version asks for the same anti-padding behaviour without the invitation.
+
+### GLM-4.7-flash (and similarly small/quantized AI Horde workers) produces most of the observed prose defects
+
+Not a code defect — Horde routes each generation to whichever worker in its
+shared queue picks it up, and nothing pins a chat to one model once it
+starts. In one real chat, turns generated against 24B/31B community
+finetunes (Skyfall, Cydonia) read cleanly; every fragment sentence, a
+character-name drift (the card's own name replaced by a similar-sounding one
+partway through a long conversation), and a run of repeated empty/garbled
+swipes needing 7-11 regenerations to land a usable reply all occurred only
+after the queue handed the same chat to `glm-4.7-flash:q4_K_M`. This app
+already has a tested, targeted fix for the *completely empty* case that
+model produces (§tests/test_empty_reply.py, written against a real report
+against this exact backend) — a silent one-shot retry with reasoning turned
+off. It has nothing for a *non-empty but truncated/garbled* reply, which is
+what most of these swipe-storms actually were. Worth a future fix: detect a
+reply that ends mid-word or mid-clause with no closing punctuation and
+retry it the same way the empty case already does. In the meantime, a
+Horde backend's `models` list (Brain → Backends) is an allow-list — removing
+a flash/small-quant model from it stops the queue from ever routing a chat
+to it.
+
 ### The craft library is mostly not being followed
 
 Measured against one real chat (glm-4.7-flash, q4): the shipped writing

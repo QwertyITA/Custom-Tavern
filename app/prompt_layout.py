@@ -378,7 +378,7 @@ tags, no code fences; they arrive on the page as themselves.
         # at 1-2 paragraphs, or an untouched install would show a phantom
         # "edit" the moment to_storage() compared the two.
         "text": """\
-1 to 2 paragraphs, roughly 100 to 200 words. The upper end is a hard ceiling — stop there even mid-thought and leave the rest for the next reply, rather than adding one more paragraph to tie things up. The lower end is not a floor to fill: shorter is always fine.
+1 to 2 paragraphs, roughly 100 to 200 words. The upper end is a hard ceiling — stop there even if the scene is not resolved, and leave the rest for the next reply, rather than adding one more paragraph to tie things up. Never stop mid-sentence: finish the clause you are in, then stop. The lower end is not a floor to fill: shorter is always fine.
 
 Do not take the length of earlier messages in the conversation as the target.
 """,
