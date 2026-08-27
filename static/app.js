@@ -7,6 +7,77 @@
 // Keeping them separate is what lets a background pass update its panel
 // without being tied to the request that started it (§1, §4.5).
 
+// ------------------------------------------------------- freeze/crash log
+//
+// The half of a debug export (\u00a7 downloadDebugLog) the server cannot see:
+// this tab's own JS errors, and how long the page itself ever stopped
+// responding. Recorded from the moment this file loads \u2014 before Alpine
+// exists, deliberately, since a freeze can happen before boot() ever runs \u2014
+// into localStorage rather than a plain variable, so a crash that takes the
+// tab down with it (a real one, not just a stall) still leaves the record
+// behind for the next reload to export. Kept as its own small module-level
+// state rather than folded into the Alpine data object: it has to work
+// whether or not that object has finished constructing.
+const DEBUG_LOG_KEY = "tavern_debug_log";
+const DEBUG_LOG_MAX = 300;
+// Longer than any ordinary GC pause or a big reactive re-render, short
+// enough to still catch a freeze before someone gives up and force-closes
+// the app over it. The heartbeat ticks every 1000ms, so this is "the tab
+// went quiet for two and a half ticks in a row."
+const STALL_THRESHOLD_MS = 2500;
+
+function pushDebugEvent(kind, detail) {
+  try {
+    const raw = localStorage.getItem(DEBUG_LOG_KEY);
+    const log = raw ? JSON.parse(raw) : [];
+    log.push({ t: Date.now(), kind, detail: String(detail).slice(0, 2000) });
+    while (log.length > DEBUG_LOG_MAX) log.shift();
+    localStorage.setItem(DEBUG_LOG_KEY, JSON.stringify(log));
+  } catch (_) {
+    // Storage full, private browsing, whatever \u2014 a logger must never itself
+    // be the thing that throws.
+  }
+}
+
+window.addEventListener("error", (e) => {
+  pushDebugEvent("error", `${e.message} @ ${e.filename}:${e.lineno}:${e.colno}`);
+});
+window.addEventListener("unhandledrejection", (e) => {
+  const reason = e.reason;
+  pushDebugEvent("unhandledrejection", (reason && (reason.stack || reason.message)) || reason);
+});
+
+(() => {
+  let last = performance.now();
+  setInterval(() => {
+    const now = performance.now();
+    const gap = now - last;
+    if (gap > STALL_THRESHOLD_MS) {
+      pushDebugEvent("stall", `unresponsive for about ${Math.round(gap)}ms`);
+    }
+    last = now;
+  }, 1000);
+})();
+
+// The recorded half of a debug export, formatted \u2014 read fresh each time
+// rather than cached, since the whole point is picking up whatever landed
+// since the tab last loaded, including from a session that has since
+// reloaded or crashed and come back.
+function debugLogText() {
+  let log = [];
+  try {
+    log = JSON.parse(localStorage.getItem(DEBUG_LOG_KEY) || "[]");
+  } catch (_) {
+    log = [];
+  }
+  const head = `-- this browser tab (${navigator.userAgent}) --`;
+  if (!log.length) return `${head}\n(nothing recorded \u2014 no errors, no stalls)`;
+  const body = log
+    .map((e) => `  ${new Date(e.t).toISOString()}  ${e.kind}: ${e.detail}`)
+    .join("\n");
+  return `${head}\n${body}`;
+}
+
 const MASK_DISPLAY = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
 
 // Every saved credential comes back from the server as `***`. Show a dot
@@ -889,6 +960,7 @@ function tavern() {
     importMsg: "",
     importError: "",
     hud: false,
+    debugLogBusy: false,
     error: "",
 
     streaming: false,
@@ -6465,6 +6537,31 @@ function tavern() {
         ...this.cost.per_pass.map((r) => (r.tokens_in || 0) + (r.tokens_out || 0))
       );
       return Math.round((((row.tokens_in || 0) + (row.tokens_out || 0)) / max) * 100);
+    },
+
+    // Everything worth handing someone else about a freeze or a crash, as
+    // one plain-text file: the server's own log tail and any pass still
+    // stuck mid-flight (§ /api/debug/export, app/debug_export.py) plus
+    // whatever this browser tab itself recorded (§ debugLogText below) —
+    // built and downloaded entirely client-side rather than through a
+    // route, since combining "what the server has" with "what only this
+    // tab saw" has nowhere to live but here.
+    async downloadDebugLog() {
+      this.debugLogBusy = true;
+      let serverPart;
+      try {
+        serverPart = await (await fetch("/api/debug/export")).text();
+      } catch (e) {
+        serverPart = `(couldn't reach the server for its half: ${errorText(e)})`;
+      }
+      const blob = new Blob([serverPart, "\n\n", debugLogText()], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `tavern-debug-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+      this.debugLogBusy = false;
     },
 
     // ---- misc ----

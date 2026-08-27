@@ -488,6 +488,23 @@ it is already on screen, and storing it once per turn would grow the database
 with the square of the chat. For the same reason only the last 20 turns keep
 their breakdown; older messages say so rather than showing a guess.
 
+### Debug export
+
+**☰ → settings → Debug → Download debug log.** For a freeze or a crash: one
+plain-text file with the server's own log tail, any pass still stuck
+mid-flight across every chat, masked backend/tier settings, and this browser
+tab's own record — its JS errors and how long it ever went unresponsive.
+
+The tab's half is recorded continuously from the moment the page loads, not
+only from the moment the button is tapped — a freeze usually happens *before*
+anyone thinks to export anything, and that half survives a reload (it lives
+in `localStorage`) so it is still there afterward. Reproduce the problem,
+then come back to this button whenever the app is usable enough to tap it —
+even a different session, even after force-closing and reopening.
+
+Nothing here is sent anywhere on its own. It only builds a file and hands it
+to you, to attach or paste wherever you're reporting the problem.
+
 ### Passes
 
 Under ☰ → brain, below the backends. Three groups of work, each with its own

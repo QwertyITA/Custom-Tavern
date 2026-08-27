@@ -2354,6 +2354,22 @@
           <input type="checkbox" x-model="hud">
           <span>Pass HUD and cost</span>
         </label>
+        <!-- For a freeze or a crash (§ downloadDebugLog, app.js): the
+             server's own log tail and any pass stuck mid-flight, plus
+             whatever this browser tab itself recorded. Reproduce it, then
+             come back here — the tab's half is captured continuously from
+             page load, not only from the moment this button is tapped, so
+             it still has something even if the freeze happened first. -->
+        <button class="wide" @click="downloadDebugLog()" :disabled="debugLogBusy">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-export"/></svg>
+          <span x-text="debugLogBusy ? 'Gathering…' : 'Download debug log'"></span>
+        </button>
+        <p class="kind-note">
+          One file to hand over: the server's own log, any pass still stuck
+          mid-flight, and this browser tab's own errors — including how long
+          it ever went unresponsive. Nothing is sent anywhere on its own;
+          this only builds a file and downloads it.
+        </p>
       </div>
     </template>
 

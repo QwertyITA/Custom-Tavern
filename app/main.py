@@ -15,10 +15,10 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Body, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import assembly, attachments, avatar_video, backup, card_compression, cards, chat_files, character_reactions, config, groups, macros
+from . import assembly, attachments, avatar_video, backup, card_compression, cards, chat_files, character_reactions, config, debug_export, groups, macros
 from . import memory as memory_store
 from . import prompt_layout
 from . import lorebook, providers, regex_rules, repo, state as state_mod
@@ -1143,6 +1143,22 @@ async def download_backup(download: bool = False) -> StreamingResponse:
     if download:
         headers["Content-Disposition"] = f'attachment; filename="{backup.filename()}"'
     return StreamingResponse(io.BytesIO(payload), media_type="application/zip", headers=headers)
+
+
+@app.get("/api/debug/export")
+async def download_debug_export(download: bool = False) -> PlainTextResponse:
+    """The server's half of a freeze/crash export — log tail, stuck pass
+    runs, masked settings, process health (app/debug_export.py). The
+    browser's own half (this tab's errors and stalls) is appended
+    client-side (§ static/app.js downloadDebugLog), so this route alone is
+    only ever half the picture — fine for a script or a curl, not what the
+    GUI button actually sends the person.
+    """
+    text = await asyncio.to_thread(debug_export.build, get_db(), scheduler())
+    headers = {}
+    if download:
+        headers["Content-Disposition"] = f'attachment; filename="{debug_export.filename()}"'
+    return PlainTextResponse(text, headers=headers)
 
 
 @app.get("/api/chats/{chat_id}/members")
