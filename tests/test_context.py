@@ -222,6 +222,85 @@ def test_triggered_lore_expands_macros_same_as_constant_lore(db):
     assert "{{user}}" not in middle
 
 
+# ------------------------------------------------- possible_misattributions
+
+
+def test_flags_an_entry_keyed_on_another_name_that_only_ever_says_char(db):
+    """The Kutra shape (KNOWN-ISSUES.md): keyed on someone else's name,
+    describes them entirely through {{char}}, never actually names them."""
+    from app.models import Character
+
+    card = Character(
+        id="c1", name="Kutra", persona="Guarded.", first_mes="Hi.",
+        lorebook=[LorebookEntry(keys=["Wira"],
+                                 content="{{char}} is a shy fox spirit who lives in the eaves.")],
+    )
+    flagged = lorebook.possible_misattributions(card)
+    assert len(flagged) == 1
+    assert flagged[0].keys == ["Wira"]
+
+
+def test_does_not_flag_a_lowercase_trait_key(db):
+    """Conservative on purpose: a key like "wolfboy" is as likely to be a
+    trait word about the card's own character as another character's name,
+    so only name-shaped (Title-Case) keys are ever flagged."""
+    from app.models import Character
+
+    card = Character(
+        id="c2", name="Kutra", persona="Guarded.", first_mes="Hi.",
+        lorebook=[LorebookEntry(keys=["wolfboy"],
+                                 content="{{char}} is secretly a wolfboy who likes {{user}}.")],
+    )
+    assert lorebook.possible_misattributions(card) == []
+
+
+def test_does_not_flag_the_characters_own_name_or_a_nickname(db):
+    from app.models import Character
+
+    card = Character(
+        id="c3", name="Katherine", persona="Guarded.", first_mes="Hi.",
+        lorebook=[LorebookEntry(keys=["Kat"], content="{{char}} hates being called anything else.")],
+    )
+    assert lorebook.possible_misattributions(card) == []
+
+
+def test_does_not_flag_an_entry_that_names_the_other_person_too(db):
+    """A legitimate scene between the two of them: {{char}} refers to the
+    card's own character and the other person is still named in the text,
+    rather than {{char}} silently standing in for them throughout."""
+    from app.models import Character
+
+    card = Character(
+        id="c4", name="Kutra", persona="Guarded.", first_mes="Hi.",
+        lorebook=[LorebookEntry(keys=["Wira"],
+                                 content="{{char}} met Wira at the docks last spring.")],
+    )
+    assert lorebook.possible_misattributions(card) == []
+
+
+def test_does_not_flag_a_constant_entry(db):
+    """Constant entries are the app's own convention for content that is
+    always about the chat's own character (§ README, "the writing blocks")."""
+    from app.models import Character
+
+    card = Character(
+        id="c5", name="Kutra", persona="Guarded.", first_mes="Hi.",
+        lorebook=[LorebookEntry(keys=["Wira"], constant=True,
+                                 content="{{char}} is a shy fox spirit who lives in the eaves.")],
+    )
+    assert lorebook.possible_misattributions(card) == []
+
+
+def test_does_not_flag_an_entry_with_no_char_macro(db):
+    from app.models import Character
+
+    card = Character(
+        id="c6", name="Kutra", persona="Guarded.", first_mes="Hi.",
+        lorebook=[LorebookEntry(keys=["Wira"], content="A fox spirit lives in the eaves.")],
+    )
+    assert lorebook.possible_misattributions(card) == []
+
+
 def test_memories_are_injected_when_enabled_for_the_character(db, chat, character):
     memory_store.store(db, character.id, [{"text": "Mira promised to return the knife.",
                                            "keys": ["knife"]}])

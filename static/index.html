@@ -521,6 +521,10 @@
 </section>
 
 <!-- (2) chat area (§12) -->
+<!-- .chat-wrap exists only so .scroll-down-btn (below, near </main>) has a
+     non-scrolling box to float in — see the comment on .chat-wrap in
+     styles.css for why it can't just live inside .chat itself. -->
+<div class="chat-wrap">
 <main class="chat" x-ref="chat">
 <!-- Everything that can change the chat's height lives in this one box, so a
      single ResizeObserver on it keeps the view pinned to the newest message —
@@ -637,9 +641,24 @@
         <span class="swipe-hint" x-show="swipeHint(m)" x-text="swipeHint(m)" x-cloak></span>
         <!-- Said, but not remembered: it has to be obvious which messages the
              model can no longer see. -->
-        <span class="hidden-mark" x-show="m.hidden" x-cloak title="Not in the prompt">
-          <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-eye-off"/></svg>
-        </span>
+        <!-- Both marks share one corner slot (§ .msg-marks, styles.css) —
+             a message can in principle be both hidden and flagged for an
+             echoed reply, and two independently-positioned marks would sit
+             on top of each other rather than beside one another. -->
+        <div class="msg-marks">
+          <span class="hidden-mark" x-show="m.hidden" x-cloak title="Not in the prompt">
+            <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-eye-off"/></svg>
+          </span>
+          <!-- A reply that repeats a long phrase from the message it's
+               answering, verbatim (§ postprocess.find_echoed_phrase,
+               ISSUES-TRIAGE.md #15). A flag, not a rewrite — sometimes a
+               character legitimately repeats a line back on purpose — so
+               this marks it for a glance rather than changing the reply. -->
+          <span class="hidden-mark" x-show="m.echoes_user" x-cloak
+                :title="`Repeats back: “${m.echoes_user}”`">
+            <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-warn"/></svg>
+          </span>
+        </div>
 
         <!-- Who said it. Only in a group: in a solo chat every reply is from
              the same person and a name on each one is noise. -->
@@ -958,7 +977,25 @@
     <button class="link" @click="error = ''">Dismiss</button>
   </div>
 </div>
+
 </main>
+
+<!-- A sibling of <main class="chat">, both inside .chat-wrap: .chat is what
+     scrolls, .chat-wrap does not, so position:absolute against .chat-wrap
+     (§ styles.css) keeps this fixed in place over the messages instead of
+     travelling with them. Visible only once "stick" has let go
+     (§ initScroll, app.js) — a chat too short to scroll never clears it, so
+     the button never offers a jump to somewhere already on screen
+     (§ ISSUES-TRIAGE.md #4). -->
+<button class="scroll-down-btn" x-show="!stick" x-cloak
+        x-transition:enter="scrolldown-enter" x-transition:enter-start="scrolldown-from"
+        x-transition:enter-end="scrolldown-to"
+        x-transition:leave="scrolldown-leave" x-transition:leave-start="scrolldown-to"
+        x-transition:leave-end="scrolldown-from"
+        @click="scrollDown()" title="Jump to the newest message" aria-label="Jump to the newest message">
+  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-down"/></svg>
+</button>
+</div>
 
 <!-- Hold a message to open this. Two ways to choose, and the wheel does not
      have to guess which one is happening: keep holding and slide onto an
@@ -2595,6 +2632,16 @@
                   <span class="char-warn-badge" x-show="cardTooBig(c)" x-cloak :title="cardBudgetTitle(c)">
                     <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-warn"/></svg>
                   </span>
+                  <!-- §lorebook.possible_misattributions, same route and
+                       refresh as the budget badge above (ISSUES-TRIAGE.md
+                       #6) — a separate badge because the two are unrelated
+                       concerns (this card's own size vs. its lorebook's
+                       content), and a card can trip either, both, or
+                       neither. -->
+                  <span class="char-warn-badge" x-show="cardMisattributed(c)" x-cloak
+                        :title="cardMisattributionTitle(c)">
+                    <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-warn"/></svg>
+                  </span>
                   <!-- Only ever drawn while the vault is open — a vaulted
                        card while it's locked never reaches this template at
                        all (§ /api/characters, _vault_locked). -->
@@ -2724,6 +2771,19 @@
           </label>
         </div>
         <p class="kind-note" :class="{ bad: importError }" x-text="importError || importMsg"></p>
+
+        <!-- Everything, as one file — the per-chat/per-character exports
+             above are each worth having on their own, but nothing else gets
+             every chat, every character, settings and every stored image off
+             the phone in one action (§ ISSUES-TRIAGE.md #1). -->
+        <div class="btn-row">
+          <a class="wide" href="/api/backup?download=true" download
+             title="Chats, characters, settings, portraits, backgrounds and attachments, as one file">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-export"/></svg>
+            <span>Download full backup</span>
+          </a>
+        </div>
+        <p class="kind-note">Restore: see README → Backup. It needs the app stopped first.</p>
 
         <!-- Who you are, below the characters now rather than above them —
              the roster is what this panel is for; who is doing the talking is

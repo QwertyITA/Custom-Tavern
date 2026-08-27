@@ -383,6 +383,14 @@ repeating a phrase on purpose is a real thing that would be caught by the
 same check — the fix risks being worse than the problem, so it is left alone
 rather than guessed at.
 
+**Addressed as a flag, not a fix (ISSUES-TRIAGE.md #15).** The reasoning
+above still holds — the reply is never rewritten — but `postprocess.
+find_echoed_phrase` now detects a 6+ word run repeated verbatim and marks the
+message with it (`message_variants.echoes_user`), shown as a small marker on
+the bubble with the phrase in its tooltip. Deliberately conservative: a
+match needs a long contiguous word run, not fuzzy similarity, so ordinary
+shared phrasing ("I don't know what you mean") never trips it.
+
 ---
 
 ## Not a defect
@@ -468,6 +476,16 @@ character at all" needs reading each entry, which only the person who wrote
 or assembled the book can actually judge. The fix is the book: an entry
 about a character other than the one the chat is about should name that
 character literally, never `{{char}}`.
+
+**A warning now exists (ISSUES-TRIAGE.md #6).** This is still exactly right
+— the fix is the book, and nothing here can safely rewrite one — but
+`lorebook.possible_misattributions()` now flags the specific shape described
+above (a keyed, non-constant entry that writes `{{char}}` and is keyed on a
+name-shaped word that never actually appears in its own body) as a roster
+warning badge, so the entries most likely to be doing this are at least
+visible rather than silent. Deliberately conservative: it does not catch
+species-word keys like "wolfboy" — too likely to also be a legitimate trait
+key for the card's own character — only name-shaped ones like "Wira".
 
 ### The pre-pass ("would the character say yes") is not built
 

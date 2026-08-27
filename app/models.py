@@ -296,6 +296,22 @@ class Character(BaseModel):
     # vault's PIN (§ /api/vault/remove): re-adding one later resumes hiding
     # the same set of cards without having to re-pick them.
     vaulted: bool = False
+    # What the imported card's own top-level `spec`/`spec_version` said
+    # (§ app/cards.py, ISSUES-TRIAGE.md #12) — a character written in this
+    # app rather than imported keeps the v2 default, which is also the only
+    # shape this app ever exports for a card it wrote entirely itself.
+    card_spec: str = "chara_card_v2"
+    card_spec_version: str = "2.0"
+    # Whatever the source card's own top-level fields held that nothing else
+    # on this model represents — tags, creator, creator_notes, a v3 card's
+    # source/nickname/creation_date/group_only_greetings, and the like.
+    # Carried through unread and unedited so a round trip through this app
+    # doesn't quietly drop them, the way exporting always used to (they were
+    # never read on import, so re-export always wrote empty/absent values
+    # for a real card's own tags and creator, even though nothing in this
+    # app ever asked to change either). Never overrides one of this model's
+    # own fields on export — see to_card_json.
+    card_passthrough: dict[str, Any] = Field(default_factory=dict)
 
 
 # ------------------------------------------------------------------ API I/O

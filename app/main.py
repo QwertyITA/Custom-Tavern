@@ -7,6 +7,7 @@ Runs on the phone at localhost:PORT and is reached only from the phone itself
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import time
 from contextlib import asynccontextmanager
@@ -17,10 +18,10 @@ from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import assembly, attachments, avatar_video, card_compression, cards, chat_files, character_reactions, config, groups, macros
+from . import assembly, attachments, avatar_video, backup, card_compression, cards, chat_files, character_reactions, config, groups, macros
 from . import memory as memory_store
 from . import prompt_layout
-from . import providers, regex_rules, repo, state as state_mod
+from . import lorebook, providers, regex_rules, repo, state as state_mod
 from . import translation
 from . import vault
 from .config import DATA_DIR, STATIC_DIR, reload_settings
@@ -481,33 +482,41 @@ async def _effective_blocking_budget(db, settings: config.Settings) -> int | Non
 
 @app.get("/api/characters/budget")
 async def characters_budget() -> dict:
-    """Per-character "is this card too big" flags for the roster's warning
-    badge (§ assembly.card_too_big) — a separate call from `/api/characters`
-    rather than a field folded into it, so a Messages backend that cannot be
-    reached costs the roster nothing beyond this one call returning empty
-    rather than failing to load at all.
+    """Per-character warning-badge flags for the roster: "is this card too
+    big" (§ assembly.card_too_big) and "does a lorebook entry look like it
+    may misattribute another character's traits"
+    (§ lorebook.possible_misattributions, ISSUES-TRIAGE.md #6) — a separate
+    call from `/api/characters` rather than fields folded into it, so a
+    Messages backend that cannot be reached costs the roster nothing beyond
+    this one call returning less, not failing to load at all.
 
-    Computed against the *live* Messages/blocking-tier backend, same as a
-    real turn would be — a configured 32k that a probed backend only
-    actually holds 8k of shows the same 8k here, not the number that was
-    typed in and never checked.
+    The size check is computed against the *live* Messages/blocking-tier
+    backend, same as a real turn would be — a configured 32k that a probed
+    backend only actually holds 8k of shows the same 8k here, not the number
+    that was typed in and never checked. The misattribution check needs no
+    backend at all — it reads a card's own lorebook content — so it is
+    always computed, even for every other field this route ever returns
+    empty for.
     """
     settings = config.SETTINGS
     db = get_db()
     effective = await _effective_blocking_budget(db, settings)
-    if effective is None:
-        return {}
 
     out: dict[str, dict] = {}
     for row in repo.list_characters(db):
         character = repo.get_character(db, row["id"])
         if character is None:
             continue
-        out[row["id"]] = {
-            "mandatory_cost": assembly.mandatory_cost(character, settings),
-            "headroom": assembly.conversation_headroom(character, settings, effective),
-            "too_big": assembly.card_too_big(character, settings, effective),
+        entry: dict[str, Any] = {
+            "misattributions": [
+                {"keys": e.keys} for e in lorebook.possible_misattributions(character)
+            ],
         }
+        if effective is not None:
+            entry["mandatory_cost"] = assembly.mandatory_cost(character, settings)
+            entry["headroom"] = assembly.conversation_headroom(character, settings, effective)
+            entry["too_big"] = assembly.card_too_big(character, settings, effective)
+        out[row["id"]] = entry
     return out
 
 
@@ -1119,6 +1128,21 @@ async def export_chat(chat_id: str, download: bool = False) -> JSONResponse:
         )
         headers["Content-Disposition"] = f'attachment; filename="{name}"'
     return JSONResponse(payload, headers=headers)
+
+
+@app.get("/api/backup")
+async def download_backup(download: bool = False) -> StreamingResponse:
+    """Everything as one file — chats, characters, settings, portraits,
+    backgrounds, attachments (ISSUES-TRIAGE.md #1, app/backup.py).
+
+    Building it touches the database and the filesystem, so it runs off the
+    event loop the same way every other blocking call in this file does.
+    """
+    payload = await asyncio.to_thread(backup.build, get_db())
+    headers = {}
+    if download:
+        headers["Content-Disposition"] = f'attachment; filename="{backup.filename()}"'
+    return StreamingResponse(io.BytesIO(payload), media_type="application/zip", headers=headers)
 
 
 @app.get("/api/chats/{chat_id}/members")

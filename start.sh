@@ -57,13 +57,15 @@ EOF
 
 enable_hooks() {
   # Hooks are not carried by clone, so every checkout has to opt in. Doing it
-  # here means the credential guard is live from the first launch rather than
-  # from whenever someone remembers to run a setup step. The repository is
-  # public: a leaked key is public the moment it is pushed.
+  # here means the credential guard and the pre-push test gate are both live
+  # from the first launch rather than from whenever someone remembers to run
+  # a setup step. The repository is public: a leaked key is public the moment
+  # it is pushed, and with no CI, a pre-push test run is the only thing that
+  # ever catches a regression before it does (ISSUES-TRIAGE.md #2).
   [ -d "$HERE/.git" ] && [ -d "$HERE/.githooks" ] || return 0
   chmod +x "$HERE/.githooks/"* 2>/dev/null
   if [ "$(git config --get core.hooksPath 2>/dev/null)" != ".githooks" ]; then
-    git config core.hooksPath .githooks && bold "Enabled the credential pre-commit guard."
+    git config core.hooksPath .githooks && bold "Enabled the git hooks: credential guard + pre-push tests."
   fi
 }
 

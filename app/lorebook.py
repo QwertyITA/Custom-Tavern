@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 
 from .markup import to_plain
-from .models import LorebookEntry
+from .models import Character, LorebookEntry
 from .providers.base import estimate_tokens
 
 
@@ -99,3 +99,60 @@ def split_by_constancy(
         [e for e in entries if e.constant],
         [e for e in entries if not e.constant],
     )
+
+
+# --------------------------------------------------------- misattribution
+
+
+# A single Title-Case token — the shape of a proper name, not a trait word or
+# a sentence fragment. Deliberately narrow: this only ever adds a warning, so
+# missing a name shaped like something else costs nothing, while a keyword
+# wrongly read as a name would.
+_NAME_SHAPED = re.compile(r"^[A-Z][a-zA-Z'-]+$")
+
+
+def possible_misattributions(character: Character) -> list[LorebookEntry]:
+    """Keyed entries that may describe someone other than this card's own
+    character while still writing `{{char}}` for themselves.
+
+    KNOWN-ISSUES.md, "A card's lorebook can misattribute another character's
+    traits": a card can carry entries keyed on a different named character
+    (a shared world, several demi-humans one owner keeps) whose own text
+    lazily writes `{{char}}` instead of that character's actual name — which
+    macro expansion (correctly) resolves to whoever this chat is actually
+    about, attributing the traits fluently and wrongly. That fix is the
+    card's content, which only whoever wrote or assembled the book can
+    actually judge (same note) — this is a warning toward that judgement,
+    not a correction of it.
+
+    Heuristic, not proof, and deliberately conservative: flags a non-constant
+    entry only when (a) its content uses the literal `{{char}}` macro, (b) at
+    least one of its own keys is name-shaped and is not this character's own
+    name, and (c) that key never actually appears as text anywhere in the
+    entry's body — the specific shape of "this entry is keyed on a name it
+    never once writes, because {{char}} is standing in for it throughout."
+    An entry that names the other person alongside {{char}} — a legitimate
+    scene between the two of them — does not trip this; constant entries,
+    which this app's own convention already treats as always being about the
+    chat's own character, are never checked.
+    """
+    own_name = character.name.strip().lower()
+    flagged: list[LorebookEntry] = []
+    for entry in character.lorebook:
+        if entry.constant or not entry.content.strip():
+            continue
+        content_l = entry.content.lower()
+        if "{{char}}" not in content_l:
+            continue
+        for key in entry.keys:
+            key = key.strip()
+            if not key or not _NAME_SHAPED.match(key):
+                continue
+            key_l = key.lower()
+            if not own_name or key_l in own_name or own_name in key_l:
+                continue  # a name or nickname for the character itself
+            if key_l in content_l:
+                continue  # named directly in the body too — not lazy {{char}}
+            flagged.append(entry)
+            break
+    return flagged

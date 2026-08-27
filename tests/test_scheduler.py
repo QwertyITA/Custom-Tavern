@@ -354,6 +354,50 @@ def test_swipe_on_a_user_message_is_refused(sched, chat, character):
     assert events_of(events, "error")
 
 
+# --------------------------------------------------------------- echoed replies
+#
+# The `echo` backend's own reply literally is `"You said: {user}"` — so any
+# user message six words or longer is, by construction, echoed back in full,
+# with nothing to monkeypatch (§ providers/echo.py, ISSUES-TRIAGE.md #15).
+
+LONG_MESSAGE = "I still cannot believe you forgot my birthday this year."
+SHORT_MESSAGE = "Cold out."
+
+
+def test_a_first_reply_is_flagged_when_it_echoes_the_user(sched, chat):
+    events = sync(turn(sched, chat["id"], LONG_MESSAGE))
+    reply = events_of(events, "reply")[0]["message"]
+    assert reply["echoes_user"]
+    assert "forgot my birthday" in reply["echoes_user"]
+
+    stored = repo.get_message(sched.db, reply["id"])
+    assert stored["echoes_user"] == reply["echoes_user"]
+
+
+def test_a_short_user_message_is_never_flagged(sched, chat):
+    """Under find_echoed_phrase's own word floor either way, whatever the
+    reply does — nothing here needs the echo backend's exact wording."""
+    events = sync(turn(sched, chat["id"], SHORT_MESSAGE))
+    reply = events_of(events, "reply")[0]["message"]
+    assert reply["echoes_user"] == ""
+
+
+def test_a_swipe_is_flagged_independently_of_the_first_reply(sched, chat):
+    async def scenario():
+        await turn(sched, chat["id"], LONG_MESSAGE)
+        message = repo.list_messages(sched.db, chat["id"])[-1]
+        events = [e async for e in sched.run_swipe(message["id"])]
+        await sched.await_pending(chat["id"], timeout=20)
+        return message, events
+
+    message, events = sync(scenario())
+    variant = events_of(events, "variant")[0]
+    assert variant["variant"]["echoes_user"]
+
+    variants = repo.list_variants(sched.db, message["id"])
+    assert all(v["echoes_user"] for v in variants)
+
+
 # ------------------------------------------------------------------ memory
 
 

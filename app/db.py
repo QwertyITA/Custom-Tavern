@@ -172,7 +172,7 @@ class Database:
             self._writer_thread.join(timeout=5)
 
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 def _run_migration_step(conn: sqlite3.Connection, step: str) -> None:
     """Apply one migration statement, tolerating one that has already landed.
@@ -290,6 +290,11 @@ MIGRATIONS: dict[int, list[str]] = {
     # then also trims), so one restore button cannot speak for both without
     # losing whichever one it doesn't hold.
     13: ["ALTER TABLE message_variants ADD COLUMN draft_text TEXT NOT NULL DEFAULT ''"],
+    # The echoed-phrase flag (§ app/postprocess.py find_echoed_phrase,
+    # ISSUES-TRIAGE.md #15). Empty for an existing row, same convention as
+    # translation/thinking/full_text/draft_text above — nothing is computed
+    # retroactively for a variant that predates this.
+    14: ["ALTER TABLE message_variants ADD COLUMN echoes_user TEXT NOT NULL DEFAULT ''"],
 }
 
 

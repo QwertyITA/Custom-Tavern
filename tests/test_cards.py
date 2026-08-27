@@ -172,6 +172,80 @@ def test_our_own_export_format_imports_directly():
     assert cards.from_card_json(json.loads(original.model_dump_json())).name == "Y"
 
 
+# ------------------------------------------------------ v3 field passthrough
+
+
+def test_a_v3_cards_spec_round_trips_as_v3():
+    """ISSUES-TRIAGE.md #12: a card imported as v3 used to always be
+    re-exported as v2 — this app's own spec, not the source's."""
+    v3_card = {
+        "spec": "chara_card_v3",
+        "spec_version": "3.0",
+        "data": {"name": "Nyx", "description": "A wanderer.", "first_mes": "Hey."},
+    }
+    character = cards.from_card_json(v3_card)
+    assert character.card_spec == "chara_card_v3"
+    assert character.card_spec_version == "3.0"
+
+    exported = cards.to_card_json(character)
+    assert exported["spec"] == "chara_card_v3"
+    assert exported["spec_version"] == "3.0"
+
+
+def test_fields_this_app_never_reads_survive_a_round_trip():
+    """tags, creator, creator_notes and v3's own source/nickname/
+    creation_date/group_only_greetings all used to be silently dropped on
+    export — nothing in this app ever asked to change any of them."""
+    v3_card = {
+        "spec": "chara_card_v3",
+        "spec_version": "3.0",
+        "data": {
+            "name": "Nyx", "description": "A wanderer.", "first_mes": "Hey.",
+            "tags": ["oc", "fantasy"],
+            "creator": "somebody",
+            "character_version": "1.2",
+            "nickname": "Nyxie",
+            "source": ["https://example.invalid/card"],
+            "creation_date": 1700000000,
+            "group_only_greetings": ["Hello, everyone."],
+        },
+    }
+    character = cards.from_card_json(v3_card)
+    exported = cards.to_card_json(character)
+    data = exported["data"]
+    assert data["tags"] == ["oc", "fantasy"]
+    assert data["creator"] == "somebody"
+    assert data["character_version"] == "1.2"
+    assert data["nickname"] == "Nyxie"
+    assert data["source"] == ["https://example.invalid/card"]
+    assert data["creation_date"] == 1700000000
+    assert data["group_only_greetings"] == ["Hello, everyone."]
+
+
+def test_an_edit_in_this_app_still_wins_over_passthrough():
+    """Passthrough never gets a chance to disagree with a field this app
+    actually owns — name isn't swept into it in the first place."""
+    v2_card = {
+        "spec": "chara_card_v2", "spec_version": "2.0",
+        "data": {"name": "Original Name", "description": "Z", "first_mes": "Hi.",
+                  "tags": ["kept"]},
+    }
+    character = cards.from_card_json(v2_card)
+    character.name = "Edited Name"
+    exported = cards.to_card_json(character)
+    assert exported["data"]["name"] == "Edited Name"
+    assert exported["data"]["tags"] == ["kept"]  # untouched field still preserved
+
+
+def test_a_character_written_in_this_app_gets_v2_defaults_with_no_passthrough():
+    exported = cards.to_card_json(Character(id="x", name="Y", persona="Z"))
+    data = exported["data"]
+    assert exported["spec"] == "chara_card_v2"
+    assert data["tags"] == []
+    assert data["creator"] == ""
+    assert data["character_version"] == "1"
+
+
 def test_bundled_example_card_loads(tmp_path):
     from app.config import DATA_DIR
 

@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Refuse to push if the test suite isn't passing.
+#
+# This is a solo project with no CI (ISSUES-TRIAGE.md #2) — nobody else is
+# ever going to run the suite and catch a regression before it reaches the
+# branch the phone tracks. This hook is that gate, in the one place a push
+# can still be stopped before it leaves the machine.
+#
+# Enabled automatically by start.sh via core.hooksPath, same as pre-commit, or
+# by hand:
+#     git config core.hooksPath .githooks
+#
+# To override on purpose — a docs-only push, or the suite was already run:
+#     git push --no-verify
+
+set -uo pipefail
+
+RED=$'\033[31m'; YELLOW=$'\033[33m'; RESET=$'\033[0m'
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$HERE" || exit 1
+
+if ! command -v python3 >/dev/null 2>&1; then
+  printf '%s\n' "${YELLOW}python3 not found — skipping the pre-push test run.${RESET}"
+  exit 0
+fi
+
+if ! python3 -c "import pytest" >/dev/null 2>&1; then
+  printf '%s\n' "${YELLOW}pytest not installed — skipping the pre-push test run.${RESET}"
+  printf '%s\n' "${YELLOW}Install it to get this check back: pip install pytest${RESET}"
+  exit 0
+fi
+
+printf '%s\n' "Running the test suite before push…"
+if ! python3 -m pytest -q; then
+  printf '\n%s\n' "${RED}Push blocked: the test suite is not passing.${RESET}"
+  printf '%s\n' "${YELLOW}Fix it, or push anyway if you're sure: git push --no-verify${RESET}"
+  exit 1
+fi
+
+exit 0

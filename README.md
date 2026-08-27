@@ -771,6 +771,38 @@ pull` a possible conflict. Both folders are enumerated, so a file dropped into
 either appears in the list. Only uploads can be deleted. A backdrop set by the
 `background_swap` pass takes precedence while it is active.
 
+### Backup
+
+**chats → Download full backup.** One `.zip`: `tavern.db` (chats, characters,
+memories — a consistent snapshot, not a raw copy of a live WAL file),
+`settings.json`, and every stored image (portraits, avatar-idle loops,
+uploaded backgrounds, message attachments). It is the only thing on this
+phone that matters, and until now the only way off it was per-chat and
+per-character export — nothing got everything at once. The chat search
+panel is where per-chat/per-character export already lived, so the button
+is there too rather than in a third place.
+
+It carries real credentials, the same as `data/settings.json` does on disk
+(§ Credentials, below) — the file never leaves this process on its own, but
+once it is sitting in your Downloads folder it is yours to look after, the
+same as the phone itself.
+
+**Restore** is deliberately not a button. Swapping a live database and a
+directory tree out from under the server answering the request is the kind
+of thing that wants the server stopped first:
+
+```bash
+./start.sh stop
+python3 -m zipfile -e ~/storage/downloads/tavern-backup-*.zip data/
+./start.sh
+```
+
+`python3 -m zipfile` rather than `unzip` because Python is the one thing
+guaranteed to be there — Termux does not ship `unzip` by default. This
+overwrites `data/tavern.db`, `data/settings.json` and the asset folders with
+whatever the backup holds; anything written since that backup was taken is
+gone, same as restoring any other backup.
+
 ## Everyday use
 
 ```bash
@@ -865,8 +897,16 @@ Two things enforce this rather than relying on memory:
 ## Tests
 
 ```bash
-python3 -m pytest        # 769 tests, hermetic, no network, no extra deps
+pip install pytest       # once — not a runtime dependency, so it is not in
+                          # requirements.txt (§Termux-friendly, CLAUDE.md)
+python3 -m pytest        # hermetic, no network
 ```
+
+There is no CI (this is a one-person project with no PRs to gate), so
+`.githooks/pre-push` runs the suite before every push instead — the same
+`core.hooksPath` mechanism as the credential guard, enabled the same way.
+A push with a failing suite is refused; `git push --no-verify` overrides it
+on purpose.
 
 The JS tokenizer is checked against the same fixtures as the Python one:
 

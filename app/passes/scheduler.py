@@ -42,7 +42,7 @@ from ..db import Database
 from ..events import BUS
 from ..markup import to_plain
 from ..models import Character, PassDef, Sampling, VariableSchema
-from ..postprocess import ThinkStreamFilter, clean_reply, split_thinking
+from ..postprocess import ThinkStreamFilter, clean_reply, find_echoed_phrase, split_thinking
 from .. import reply_polish
 from .. import worldline
 from ..providers import (
@@ -139,6 +139,11 @@ class TurnContext:
     message_id: str = ""
     variant_id: str = ""
     schema: dict[str, VariableSchema] = field(default_factory=dict)
+    # The message this turn's reply answers — set once in _answer, read by
+    # _run_reply's echoed-phrase check (§ postprocess.find_echoed_phrase,
+    # ISSUES-TRIAGE.md #15). A swipe (§ _run_swipe) has no _answer call to set
+    # this from, and looks its own turn's user message up instead.
+    user_text: str = ""
     pre_values: dict[str, float] = field(default_factory=dict)
     signals: dict[str, str] = field(default_factory=dict)
     toggle_states: dict[str, bool] = field(default_factory=dict)
@@ -602,6 +607,7 @@ class PassScheduler:
             character=character,
             settings=self.settings,
             turn=turn,
+            user_text=user_text,
             schema=state_mod.load_schema(
                 {k: v.model_dump() for k, v in character.state_schema.items()}
                 if character.state_schema
@@ -974,6 +980,11 @@ class PassScheduler:
         if hold_for_polish:
             yield {"type": "delta", "text": reply}
 
+        # A flag, not a rewrite (§ postprocess.find_echoed_phrase,
+        # ISSUES-TRIAGE.md #15) — the reply itself is stored exactly as
+        # written either way.
+        echoes_user = find_echoed_phrase(reply, ctx.user_text)
+
         message = repo.add_message(
             self.db,
             ctx.chat_id,
@@ -983,6 +994,7 @@ class PassScheduler:
             provider=sink.provider or provider.name,
             model=sink.model or provider.model,
             speaker_id=ctx.character.id,
+            echoes_user=echoes_user,
             # Kept with the reply it produced (§5.6). It used to be counted,
             # streamed to the HUD and dropped, which left no way to answer
             # "did it actually think?" a minute later — the question a
@@ -1582,12 +1594,21 @@ class PassScheduler:
         )
         yield {"type": "rollback", "writes": rolled, "turn": message["turn"]}
 
+        # _run_swipe has no _answer call to hand it the user's text the way a
+        # first attempt gets one — it regenerates an existing turn, so the
+        # message the reply is answering has to be looked up instead
+        # (§ postprocess.find_echoed_phrase, ISSUES-TRIAGE.md #15).
+        user_message_for_turn = repo.get_user_message_for_turn(
+            self.db, chat["id"], message["turn"]
+        )
+
         ctx = TurnContext(
             chat=chat,
             character=character,
             settings=self.settings,
             turn=message["turn"],
             message_id=message_id,
+            user_text=(user_message_for_turn or {}).get("text", ""),
             schema=state_mod.load_schema(
                 {k: v.model_dump() for k, v in character.state_schema.items()}
                 if character.state_schema
@@ -1757,6 +1778,7 @@ class PassScheduler:
             thinking=thinking,
             full_text=full_text,
             draft_text=draft_text,
+            echoes_user=find_echoed_phrase(reply, ctx.user_text),
         )
         ctx.variant_id = variant["id"]
         self._record_run(

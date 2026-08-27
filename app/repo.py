@@ -358,6 +358,7 @@ def add_message(
     thinking: str = "",
     full_text: str = "",
     draft_text: str = "",
+    echoes_user: str = "",
 ) -> dict:
     message_id = new_id()
     variant_id = new_id()
@@ -372,8 +373,9 @@ def add_message(
         )
         conn.execute(
             "INSERT INTO message_variants(id, message_id, idx, text, provider, model, "
-            "thinking, full_text, draft_text, created_at) VALUES(?,?,0,?,?,?,?,?,?,?)",
-            (variant_id, message_id, text, provider, model, thinking, full_text, draft_text, timestamp),
+            "thinking, full_text, draft_text, echoes_user, created_at) VALUES(?,?,0,?,?,?,?,?,?,?,?)",
+            (variant_id, message_id, text, provider, model, thinking, full_text, draft_text,
+             echoes_user, timestamp),
         )
         conn.execute("UPDATE chats SET updated_at=? WHERE id=?", (timestamp, chat_id))
 
@@ -391,6 +393,7 @@ def add_message(
         "has_thinking": bool(thinking),
         "has_full_text": bool(full_text),
         "has_draft_text": bool(draft_text),
+        "echoes_user": echoes_user,
         "created_at": timestamp,
     }
 
@@ -405,6 +408,7 @@ def add_variant(
     thinking: str = "",
     full_text: str = "",
     draft_text: str = "",
+    echoes_user: str = "",
 ) -> dict:
     """Add a swipe variant and make it active."""
     variant_id = new_id()
@@ -418,8 +422,9 @@ def add_variant(
         index = row["idx"]
         conn.execute(
             "INSERT INTO message_variants(id, message_id, idx, text, provider, model, "
-            "thinking, full_text, draft_text, created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
-            (variant_id, message_id, index, text, provider, model, thinking, full_text, draft_text, timestamp),
+            "thinking, full_text, draft_text, echoes_user, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            (variant_id, message_id, index, text, provider, model, thinking, full_text, draft_text,
+             echoes_user, timestamp),
         )
         conn.execute(
             "UPDATE messages SET active_variant=? WHERE id=?", (variant_id, message_id)
@@ -430,7 +435,7 @@ def add_variant(
     return {
         "id": variant_id, "idx": index, "text": text,
         "has_thinking": bool(thinking), "has_full_text": bool(full_text),
-        "has_draft_text": bool(draft_text),
+        "has_draft_text": bool(draft_text), "echoes_user": echoes_user,
     }
 
 
@@ -520,7 +525,8 @@ def get_message(db: Database, message_id: str) -> dict | None:
         "SELECT m.*, v.text AS text, v.translation AS translation, v.idx AS variant_index, "
         "(LENGTH(COALESCE(v.thinking, '')) > 0) AS has_thinking, "
         "(LENGTH(COALESCE(v.full_text, '')) > 0) AS has_full_text, "
-        "(LENGTH(COALESCE(v.draft_text, '')) > 0) AS has_draft_text "
+        "(LENGTH(COALESCE(v.draft_text, '')) > 0) AS has_draft_text, "
+        "COALESCE(v.echoes_user, '') AS echoes_user "
         "FROM messages m LEFT JOIN message_variants v ON v.id = m.active_variant "
         "WHERE m.id=?",
         (message_id,),
@@ -533,6 +539,7 @@ def get_message(db: Database, message_id: str) -> dict | None:
     message["has_thinking"] = bool(message["has_thinking"])
     message["has_full_text"] = bool(message["has_full_text"])
     message["has_draft_text"] = bool(message["has_draft_text"])
+    message["echoes_user"] = message["echoes_user"] or ""
     message["variant_id"] = message.pop("active_variant")
     count = db.query_one(
         "SELECT COUNT(*) AS c FROM message_variants WHERE message_id=?", (message_id,)
@@ -545,7 +552,7 @@ def list_variants(db: Database, message_id: str) -> list[dict]:
     return [
         dict(row)
         for row in db.query(
-            "SELECT id, idx, text, provider, model FROM message_variants "
+            "SELECT id, idx, text, provider, model, echoes_user FROM message_variants "
             "WHERE message_id=? ORDER BY idx",
             (message_id,),
         )
@@ -560,6 +567,7 @@ def list_messages(db: Database, chat_id: str, include_dropped: bool = True) -> l
         "(LENGTH(COALESCE(v.thinking, '')) > 0) AS has_thinking, "
         "(LENGTH(COALESCE(v.full_text, '')) > 0) AS has_full_text, "
         "(LENGTH(COALESCE(v.draft_text, '')) > 0) AS has_draft_text, "
+        "COALESCE(v.echoes_user, '') AS echoes_user, "
         "(SELECT COUNT(*) FROM message_variants mv WHERE mv.message_id = m.id) AS variant_count "
         "FROM messages m LEFT JOIN message_variants v ON v.id = m.active_variant "
         "WHERE m.chat_id=?"
@@ -575,9 +583,25 @@ def list_messages(db: Database, chat_id: str, include_dropped: bool = True) -> l
         message["has_thinking"] = bool(message["has_thinking"])
         message["has_full_text"] = bool(message["has_full_text"])
         message["has_draft_text"] = bool(message["has_draft_text"])
+        message["echoes_user"] = message["echoes_user"] or ""
         message["variant_id"] = message.pop("active_variant")
         out.append(message)
     return out
+
+
+def get_user_message_for_turn(db: Database, chat_id: str, turn: int) -> dict | None:
+    """The user message a given turn's reply(ies) are answering — for the
+    echoed-phrase check on a swipe (§ find_echoed_phrase, ISSUES-TRIAGE.md
+    #15), which regenerates the reply to a turn but is not itself hand the
+    user's text the way a first attempt already is (§ scheduler._answer).
+    """
+    row = db.query_one(
+        "SELECT m.id, m.chat_id, m.turn, m.role, v.text AS text "
+        "FROM messages m JOIN message_variants v ON v.id = m.active_variant "
+        "WHERE m.chat_id=? AND m.turn=? AND m.role='user' LIMIT 1",
+        (chat_id, turn),
+    )
+    return dict(row) if row else None
 
 
 def delete_message(db: Database, message_id: str) -> None:

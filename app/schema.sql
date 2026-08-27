@@ -64,6 +64,11 @@ CREATE TABLE IF NOT EXISTS message_variants (
     -- by the length backstop, and each has its own undo. Empty means
     -- post_process never changed this variant.
     draft_text TEXT NOT NULL DEFAULT '',
+    -- The longest phrase (§ app/postprocess.py find_echoed_phrase) this
+    -- variant repeats verbatim from the user's own message, or '' for none —
+    -- a flag, not a correction (ISSUES-TRIAGE.md #15, KNOWN-ISSUES.md "A
+    -- reply can quote the user's own turn back").
+    echoes_user TEXT NOT NULL DEFAULT '',
     created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_variants_message ON message_variants(message_id, idx);

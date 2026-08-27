@@ -15,7 +15,7 @@ import pytest
 
 from app.markup import parse, repair_markup
 from app.passes.contract import MARKER, split_state_suffix
-from app.postprocess import ThinkStreamFilter, clean_reply, split_thinking
+from app.postprocess import ThinkStreamFilter, clean_reply, find_echoed_phrase, split_thinking
 
 
 def strays(text: str) -> int:
@@ -162,3 +162,49 @@ def test_tags_this_app_cannot_render_are_taken_out(text, want):
     """Model output is drawn with textContent (§8), so a tag arrives on screen
     as its own source. A bare < in prose is not a tag and stays."""
     assert clean_reply(text) == want
+
+
+# --------------------------------------------------- find_echoed_phrase
+
+
+def test_finds_a_real_quoted_clause():
+    """The measured shape (KNOWN-ISSUES.md): 1 of 47 real variants echoed a
+    phrase from the message it was replying to."""
+    user = "I still can't believe you forgot my birthday after everything I did for you."
+    reply = '*She scoffs.* "You forgot my birthday after everything I did for you? Unbelievable."'
+    found = find_echoed_phrase(reply, user)
+    assert found == "you forgot my birthday after everything i did for you"
+
+
+def test_ordinary_shared_phrasing_does_not_trip_it():
+    user = "What do you mean by that? I don't understand."
+    reply = '*She tilts her head.* "I don\'t know what you mean."'
+    assert find_echoed_phrase(reply, user) == ""
+
+
+def test_a_short_overlap_under_the_word_floor_does_not_trip_it():
+    user = "Tell me about the harbourmaster and his debts."
+    reply = "*He shrugs.* \"The harbourmaster owes half the town.\""
+    assert find_echoed_phrase(reply, user, min_words=6) == ""
+
+
+def test_no_overlap_at_all():
+    assert find_echoed_phrase("The rain finally stops.", "Where were you last night?") == ""
+
+
+def test_markup_around_the_echoed_words_does_not_break_the_match():
+    user = "the old lighthouse keeper never once left his post"
+    reply = '*narrows her eyes* "the old lighthouse keeper never once left his post."'
+    assert find_echoed_phrase(reply, user) == "the old lighthouse keeper never once left his post"
+
+
+def test_finds_the_longest_match_not_just_the_first():
+    user = "a b c d e f g h and completely unrelated filler text here"
+    reply = "z z z a b c d e f g h and something else"
+    # Grows past the min_words floor to the full run both texts share.
+    assert find_echoed_phrase(reply, user, min_words=6) == "a b c d e f g h and"
+
+
+def test_empty_inputs_never_match():
+    assert find_echoed_phrase("", "anything at all here really") == ""
+    assert find_echoed_phrase("anything at all here really", "") == ""

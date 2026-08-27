@@ -186,11 +186,12 @@ body {
 
 /* min-width: 0 stops a wide child — the nowrap world bar, a long unbroken
    token — from widening the page and giving it a horizontal scroll. */
-.worldbar, .hud, .chat, .composer, .ambient { min-width: 0; flex: none; }
+.worldbar, .hud, .chat-wrap, .composer, .ambient { min-width: 0; flex: none; }
 
 /* Only the chat absorbs the leftover height; min-height: 0 lets it actually
-   scroll instead of growing past the viewport. */
-.chat { flex: 1 1 auto; min-height: 0; }
+   scroll instead of growing past the viewport. .chat-wrap, not .chat itself,
+   is the flex item now — see .chat-wrap below for why. */
+.chat-wrap { flex: 1 1 auto; min-height: 0; }
 
 /* ---------------------------------------------------------- world bar */
 
@@ -835,7 +836,19 @@ body {
    follows. They are separate elements so a ResizeObserver can watch the
    content alone — observing the scroller would only report the viewport
    changing, never the messages growing. */
+/* .chat-wrap exists for one reason: an absolutely positioned descendant of
+   an overflow:auto element scrolls right along with that element's own
+   content in every engine that matters here — it is not exempt just because
+   its `bottom` is measured against the scroller's own padding box. Chromium
+   confirmed it: .scroll-down-btn's first version, positioned directly inside
+   .chat, drifted off the top of the screen the moment the chat scrolled.
+   .chat-wrap is a plain, non-scrolling box the same size as .chat; .chat
+   scrolls inside it, .scroll-down-btn sits beside it as a sibling, and only
+   .chat-wrap ever moves the way its own scroll offset says — which is never,
+   so the button stays exactly where it's put. */
+.chat-wrap { position: relative; }
 .chat {
+  height: 100%;
   overflow-y: auto;
   padding: 12px 10px 4px;
   -webkit-overflow-scrolling: touch;
@@ -849,6 +862,35 @@ body {
   flex-direction: column;
   gap: 10px;
 }
+
+/* Jump back to the newest message once "stick" has let go (§ index.html,
+   app.js scrollDown/initScroll — ISSUES-TRIAGE.md #4). A sibling of .chat,
+   inside .chat-wrap (above) — not a descendant of .chat itself, which is
+   the part that actually scrolls. */
+.scroll-down-btn {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 3;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent);
+  color: var(--on-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Opaque and elevated, the same call .world-pill-float makes: content
+     scrolling underneath has to actually disappear behind it. */
+  box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--text) 30%, transparent);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.scroll-down-btn:active { transform: scale(.9); }
+.scrolldown-enter { transition: opacity var(--dur-base) var(--ease-back), transform var(--dur-base) var(--ease-back); }
+.scrolldown-leave { transition: opacity var(--dur-fast) var(--ease-in-out), transform var(--dur-fast) var(--ease-in-out); }
+.scrolldown-from { opacity: 0; transform: translateY(10px) scale(.7); }
+.scrolldown-to { opacity: 1; transform: translateY(0) scale(1); }
 
 .msg { display: flex; gap: 8px; align-items: flex-start; }
 /* The face sits level with the first line of what they said, not with the
@@ -2922,10 +2964,17 @@ body {
   opacity: .55;
   border-style: dashed;
 }
-.hidden-mark {
+/* One positioned slot, not one per mark — see the comment in index.html on
+   why: two absolutely-positioned marks would stack on the same spot rather
+   than sit beside each other on the messages that trip both. */
+.msg-marks {
   position: absolute;
   top: 6px;
   right: 8px;
+  display: flex;
+  gap: 4px;
+}
+.hidden-mark {
   color: var(--muted);
   animation: hidden-in 240ms var(--ease-back) both;
 }

@@ -151,6 +151,27 @@ def _model_or_default(cls: type, raw: Any) -> Any:
     return cls()
 
 
+# The card fields already read into a Character field of their own — kept
+# out of card_passthrough so a value edited in this app always wins over
+# whatever the original import carried, rather than the two disagreeing.
+_KNOWN_DATA_FIELDS = {
+    "name", "description", "personality", "scenario", "first_mes", "mes_example",
+    "system_prompt", "post_history_instructions", "alternate_greetings",
+    "character_book", "extensions", "spec", "spec_version", "data",
+}
+
+
+def _passthrough_from(body: dict[str, Any]) -> dict[str, Any]:
+    """Whatever `body` carries that nothing on Character reads — tags,
+    creator, creator_notes, a v3 card's source/nickname/creation_date/
+    group_only_greetings, and so on (§ Character.card_passthrough,
+    ISSUES-TRIAGE.md #12). Only top-level fields; a lorebook entry's own
+    extras stay out of scope for the same reason `character_book` itself is
+    excluded — that one field already has a real, modelled shape.
+    """
+    return {k: v for k, v in body.items() if k not in _KNOWN_DATA_FIELDS}
+
+
 def from_card_json(raw: dict[str, Any], *, character_id: str | None = None) -> Character:
     """Map a v1/v2/v3 card (or one of our own exports) onto Character."""
     if not isinstance(raw, dict):
@@ -217,6 +238,9 @@ def from_card_json(raw: dict[str, Any], *, character_id: str | None = None) -> C
         colours=dict(ours.get("colours") or {}),
         authors_note=_authors_note_from(ours),
         stop_strings=[str(x) for x in (ours.get("stop_strings") or []) if str(x).strip()],
+        card_spec=str(raw.get("spec") or "chara_card_v2"),
+        card_spec_version=str(raw.get("spec_version") or "2.0"),
+        card_passthrough=_passthrough_from(body),
     )
 
 
@@ -230,14 +254,24 @@ def from_bytes(data: bytes, filename: str = "") -> Character:
 
 
 def to_card_json(character: Character) -> dict[str, Any]:
-    """Export as a TavernCard v2, readable by SillyTavern and anything else.
+    """Export as a TavernCard, readable by SillyTavern and anything else.
 
-    The v2 payload under `data` is the real card. The same fields are also
+    The payload under `data` is the real card. The same fields are also
     mirrored at the top level, which is the v1 shape: that is what SillyTavern
     itself writes, and it is what lets an older or stricter importer read the
     card at all instead of seeing an object it has no rule for. Everything
     ours that the format has no place for rides in `extensions`, which
     importers are required to preserve and ignore.
+
+    `spec`/`spec_version` mirror whatever the source card declared
+    (`character.card_spec`/`card_spec_version`) rather than always writing
+    v2 — a card imported as v3 round-trips as v3. And `character.
+    card_passthrough` — whatever the import carried that nothing on this
+    model reads, tags/creator/creator_notes/a v3 card's source or
+    creation_date and the rest — is merged in underneath this app's own
+    fields, so editing a character here doesn't silently blank the parts of
+    its card this app was never going to touch anyway
+    (§ ISSUES-TRIAGE.md #12).
     """
     payload = json.loads(character.model_dump_json())
     book = {
@@ -262,7 +296,11 @@ def to_card_json(character: Character) -> dict[str, Any]:
         ],
     }
 
+    # Our own fields last: card_passthrough is whatever this app never read
+    # off the original import, and none of it may override a value this app
+    # actually owns and might have edited since.
     data = {
+        **character.card_passthrough,
         "name": character.name,
         "description": character.persona,
         "personality": "",
@@ -273,9 +311,6 @@ def to_card_json(character: Character) -> dict[str, Any]:
         "system_prompt": character.system_prompt,
         "post_history_instructions": character.post_history_instructions,
         "alternate_greetings": list(character.alternate_greetings),
-        "tags": [],
-        "creator": "",
-        "character_version": str(character.version),
         "character_book": book,
         "extensions": {
             "personal_tavern": {
@@ -294,6 +329,9 @@ def to_card_json(character: Character) -> dict[str, Any]:
             }
         },
     }
+    data.setdefault("tags", [])
+    data.setdefault("creator", "")
+    data.setdefault("character_version", str(character.version))
 
     return {
         # v1 fields at the top level, for importers that never learned v2.
@@ -303,8 +341,8 @@ def to_card_json(character: Character) -> dict[str, Any]:
         "scenario": data["scenario"],
         "first_mes": data["first_mes"],
         "mes_example": data["mes_example"],
-        "spec": "chara_card_v2",
-        "spec_version": "2.0",
+        "spec": character.card_spec,
+        "spec_version": character.card_spec_version,
         "data": data,
     }
 

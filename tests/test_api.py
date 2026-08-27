@@ -460,6 +460,46 @@ def test_budget_flags_a_card_too_big_for_a_tiny_configured_budget(client, isolat
     assert flags[character_id]["too_big"] is False
 
 
+def test_budget_flags_a_possible_lorebook_misattribution(client):
+    """§ ISSUES-TRIAGE.md #6 / lorebook.possible_misattributions."""
+    from app import repo
+    from app.db import get_db
+    from app.models import Character, LorebookEntry
+
+    db = get_db()
+    character = Character(
+        id="kutralike", name="Kutra", persona="Guarded.", first_mes="Hi.",
+        lorebook=[LorebookEntry(keys=["Wira"],
+                                 content="{{char}} is a shy fox spirit who lives in the eaves.")],
+    )
+    repo.save_character(db, character)
+
+    flags = client.get("/api/characters/budget").json()
+    assert flags["kutralike"]["misattributions"] == [{"keys": ["Wira"]}]
+
+
+def test_budget_misattributions_present_even_with_no_messages_backend(client, isolated_settings):
+    """Unlike `too_big` above, this check reads a card's own lorebook
+    content and needs no backend at all — so it is still computed for every
+    field this route otherwise returns nothing for."""
+    from app import config, repo
+    from app.db import get_db
+    from app.models import Character, LorebookEntry
+
+    config.apply_settings(config.Settings(backends=[], tiers=config.Settings().tiers))
+    db = get_db()
+    character = Character(
+        id="kutralike2", name="Kutra", persona="Guarded.", first_mes="Hi.",
+        lorebook=[LorebookEntry(keys=["Wira"],
+                                 content="{{char}} is a shy fox spirit who lives in the eaves.")],
+    )
+    repo.save_character(db, character)
+
+    flags = client.get("/api/characters/budget").json()
+    assert flags["kutralike2"]["misattributions"] == [{"keys": ["Wira"]}]
+    assert "too_big" not in flags["kutralike2"]
+
+
 def test_compress_reports_needed_false_for_a_card_that_already_fits(client):
     character_id = client.get("/api/characters").json()[0]["id"]
     body = client.post(f"/api/characters/{character_id}/compress").json()

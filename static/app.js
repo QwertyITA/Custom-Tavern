@@ -670,7 +670,11 @@ function tavern() {
     sceneBackgroundFile: "",
     fadingId: null,
     // Following the newest message. Cleared when the user scrolls up to read,
-    // restored when they come back down or ask for the newest message.
+    // restored when they come back down or ask for the newest message. Also
+    // what the scroll-to-bottom button's own visibility reads directly
+    // (`!stick`, § ISSUES-TRIAGE.md #4) rather than a second flag: a chat too
+    // short to scroll is trivially "at bottom" already, so nothing extra is
+    // needed to keep the button off a conversation that doesn't need it.
     stick: true,
     scrollPort: null,
     // The header menu, and which of its destinations is open. One panel at a
@@ -3690,6 +3694,25 @@ function tavern() {
       return `This card's own description, scenario and writing rules use most of the current `
         + `prompt budget — as little as ~${room} tokens may be left for the conversation itself `
         + `on your current backend. Move to a bigger tier, or compress the card, from its editor.`;
+    },
+
+    // Whether a lorebook entry on c looks like it may describe someone other
+    // than this character while still writing {{char}} for itself
+    // (§ lorebook.possible_misattributions, ISSUES-TRIAGE.md #6). A
+    // heuristic warning, not a correction — the fix, if there is one, is
+    // editing the card's own lorebook, which this app does not do.
+    cardMisattributed(c) {
+      const info = this.cardBudget[c.id];
+      return !!(info && info.misattributions && info.misattributions.length);
+    },
+
+    cardMisattributionTitle(c) {
+      const keys = ((this.cardBudget[c.id] || {}).misattributions || [])
+        .map((m) => m.keys.join("/")).join(", ");
+      if (!keys) return "";
+      return `A lorebook entry keyed on "${keys}" writes {{char}} throughout without ever `
+        + `naming them — worth checking it's actually about ${c.name} and not someone else `
+        + `the card describes the same way.`;
     },
 
     // Moves whichever character is now open to the top of an already-loaded
