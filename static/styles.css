@@ -284,7 +284,7 @@ body {
    being looked at (the header toggle, the per-row toggle, the roster
    badge) rather than shrinking the drawing to fit; the thinner stroke
    keeps that detail from turning heavy once it's bigger. -->
-.icon-vault { stroke-width: 1.3; }
+.icon-vault { stroke-width: .85; }
 /* 1.75x the header's base 30px — the one spot it's the whole point of the
    row rather than sitting beside other icon-btns its own size. */
 .icon.icon-vault { width: 52.5px; height: 52.5px; }
