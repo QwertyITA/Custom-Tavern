@@ -3491,7 +3491,7 @@ function tavern() {
       } else {
         character.vaulted = wanted;
       }
-      this.flashHint(wanted ? `${character.name} moved to the vault` : `${character.name} taken out of the vault`);
+      this.flashHint(wanted ? `${character.name} locked` : `${character.name} unlocked`);
     },
 
     // The header's single vault button: what tapping it does depends on
@@ -3530,13 +3530,13 @@ function tavern() {
 
     vaultModalTitle() {
       return {
-        setup: "Set a vault PIN",
+        setup: "Set a lock PIN",
         "setup-confirm": "Confirm the PIN",
-        unlock: "Enter the vault PIN",
+        unlock: "Enter the lock PIN",
         "change-current": "Enter the current PIN",
         "change-new": "Choose a new PIN",
         "change-confirm": "Confirm the new PIN",
-        remove: "Enter the PIN to remove the vault",
+        remove: "Enter the PIN to turn off Locked",
       }[this.vaultModalMode] || "";
     },
 
@@ -3604,13 +3604,13 @@ function tavern() {
         if (pin !== this.vaultChangeNewPin) return this.vaultMismatch("change-new");
         return this.vaultSubmit("/api/vault/change", {
           current_pin: this.vaultChangeCurrentPin, new_pin: this.vaultChangeNewPin,
-        }, () => this.flashHint("Vault PIN changed"));
+        }, () => this.flashHint("PIN changed"));
       }
       if (mode === "remove") {
         return this.vaultSubmit("/api/vault/remove", { current_pin: pin }, () => {
           this.settings.vault_configured = false;
           this.settings.vault_unlocked = false;
-          this.flashHint("Vault removed");
+          this.flashHint("Locked turned off");
         }, true);
       }
     },

@@ -360,22 +360,22 @@ There are no tags and no folders, on purpose. One flag answers the question
 anyone actually has of a roster this size ("which of these do I use"), and a
 taxonomy for a dozen characters is more work to maintain than to scroll past.
 
-### Vault
+### Locked
 
 The lock icon next to the panel's close button. Not encryption — a display
 filter that keeps a card someone would rather not have come up while a
 nosy person is holding the phone from showing in the roster at all, unless
 the PIN is entered.
 
-First tap sets a 6-digit PIN and opens the vault. Once open, the same lock
-icon on each character row puts a card in or takes it out; the gear next to
-the header lock changes the PIN or removes the vault entirely (either still
-asks for the current PIN). Locking needs no PIN — only opening does — and
-it doesn't happen on its own: nothing times it out, and it survives closing
-Termux or rebooting the phone, because the point of leaving it open is that
-it stays that way until you close it yourself.
+First tap sets a 6-digit PIN and unlocks. Once unlocked, the same lock icon
+on each character row locks a card or unlocks it; the gear next to the
+header lock changes the PIN or turns Locked off entirely (either still asks
+for the current PIN). Locking needs no PIN — only unlocking does — and it
+doesn't happen on its own: nothing times it out, and it survives closing
+Termux or rebooting the phone, because the point of leaving it unlocked is
+that it stays that way until you lock it yourself.
 
-Removing the vault clears the PIN but not which cards were marked for it —
+Turning Locked off clears the PIN but not which cards were marked for it —
 set a new one later and the same cards go back to hiding.
 
 ### Chats: naming, finding, moving them around
