@@ -52,6 +52,18 @@ def _allowed(request: GenRequest, label: str) -> str:
     return match.group(1).split("\n")[0].split(",")[0].strip()
 
 
+def _first_background_id(request: GenRequest) -> str:
+    """The first id out of background_swap's 'Allowed backgrounds
+    (id: description):' block (§ registry.py) — one '- id[: description]'
+    per line, unlike the single-line comma list `_allowed` reads."""
+    body = "\n".join(m["content"] for m in request.messages)
+    match = re.search(r"Allowed backgrounds[^\n]*:\n((?:-[^\n]*\n?)+)", body)
+    if not match:
+        return ""
+    first_line = match.group(1).strip().split("\n")[0]
+    return first_line.lstrip("- ").split(":")[0].strip()
+
+
 class EchoProvider(Provider):
     kind = "echo"
     native_chat = True
@@ -104,7 +116,7 @@ class EchoProvider(Provider):
         if request.pass_id == "expression":
             return json.dumps({"emotion": _EMOTIONS[seed % len(_EMOTIONS)]})
         if request.pass_id == "background_swap":
-            return json.dumps({"background": _allowed(request, "backgrounds")})
+            return json.dumps({"background": _first_background_id(request)})
         if request.pass_id == "summary":
             return json.dumps(
                 {"summary": "They spoke at length; nothing was settled, but the mood shifted."}

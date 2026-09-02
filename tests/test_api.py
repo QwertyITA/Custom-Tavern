@@ -564,6 +564,52 @@ def test_editing_a_character_keeps_what_the_editor_cannot_show(client):
     assert after["state_schema"] == before["state_schema"]
 
 
+def test_a_characters_backgrounds_can_be_named_and_described(client):
+    character_id = client.get("/api/characters").json()[0]["id"]
+    response = client.put(
+        f"/api/characters/{character_id}",
+        json={
+            "backgrounds": [
+                {
+                    "id": "Rainy tavern",
+                    "img": "tavern.svg",
+                    "description": "A rainy street outside a tavern at night.",
+                },
+                # img not in the shared pool — must be dropped, not kept
+                # dangling for background_swap to describe an image that
+                # does not exist.
+                {"id": "made up", "img": "not-a-real-file.png", "description": "x"},
+            ]
+        },
+    )
+    assert response.status_code == 200
+    after = client.get(f"/api/characters/{character_id}").json()
+    assert after["backgrounds"] == [
+        {
+            "id": "Rainy tavern",
+            "img": "tavern.svg",
+            "description": "A rainy street outside a tavern at night.",
+        }
+    ]
+
+
+def test_duplicate_background_ids_keep_only_the_first(client):
+    character_id = client.get("/api/characters").json()[0]["id"]
+    response = client.put(
+        f"/api/characters/{character_id}",
+        json={
+            "backgrounds": [
+                {"id": "same", "img": "tavern.svg", "description": "first"},
+                {"id": "same", "img": "tavern.svg", "description": "second"},
+            ]
+        },
+    )
+    assert response.status_code == 200
+    after = client.get(f"/api/characters/{character_id}").json()["backgrounds"]
+    assert len(after) == 1
+    assert after[0]["description"] == "first"
+
+
 def test_a_character_cannot_be_left_nameless(client):
     character_id = client.get("/api/characters").json()[0]["id"]
     assert client.put(f"/api/characters/{character_id}", json={"name": "   "}).status_code == 400

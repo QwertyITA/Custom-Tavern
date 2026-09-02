@@ -175,10 +175,12 @@ CANONICAL_PASSES: list[PassDef] = [
         # DATA dependency: it consumes the scene slice, not a write-order rule (§5.5).
         depends_on=["scene"],
         prompt=(
-            "You pick the background image that matches the current scene.\n"
+            "You pick the background image that best matches where the scene is "
+            "now, using each option's description and the recent exchange — not "
+            "just the current scene line, which is only three words.\n"
             'Reply with JSON only: {"background": "<one id from the allowed list>"}\n'
-            "Choose only from the allowed list given in the context. If nothing fits, "
-            "repeat the current background."
+            "Choose only an id from the allowed list given in the context, exactly "
+            "as written there. If nothing fits, repeat the current background."
         ),
     ),
     PassDef(

@@ -1232,11 +1232,26 @@ class PassScheduler:
             ]
             extra = f"Allowed emotions: {', '.join(emotions)}"
         elif definition.id == "background_swap":
-            options = [b.get("id") or b.get("img", "") for b in character.backgrounds]
-            if not options:
+            # id — description, one per line, so the pass has something to
+            # reason with instead of guessing from a filename (§ the
+            # Backgrounds section of the character editor, index.html,
+            # which is what writes the description). A background with
+            # nothing written yet still gets listed by id alone — better
+            # than dropping it, since the id itself is sometimes enough
+            # ("rooftop_at_dawn").
+            listed = [
+                (b.get("id") or b.get("img", ""), (b.get("description") or "").strip())
+                for b in character.backgrounds
+            ]
+            listed = [(bg_id, desc) for bg_id, desc in listed if bg_id]
+            if not listed:
                 return "", [], None
+            lines = [f"- {bg_id}: {desc}" if desc else f"- {bg_id}" for bg_id, desc in listed]
             scene = assembly.scene_line(self.db, ctx.chat_id)
-            extra = f"Allowed backgrounds: {', '.join(options)}\nCurrent scene: {scene or 'unknown'}"
+            extra = (
+                "Allowed backgrounds (id: description):\n" + "\n".join(lines) +
+                f"\nCurrent scene: {scene or 'unknown'}"
+            )
         elif definition.id == "state_auditor":
             bands = state_mod.render_bands(ctx.schema, ctx.pre_values)
             extra = (
@@ -1336,6 +1351,21 @@ class PassScheduler:
                 # instruction that gives "Rainy" nine times gives "Rainy, with
                 # the wind picking up" on the tenth.
                 value = worldline.shorten(value)
+            if definition.id == "background_swap":
+                # An id outside the character's own list — hallucinated, or
+                # stale after someone edited the list mid-chat — must change
+                # nothing rather than swap to whatever the model happened to
+                # invent. No allowed list at all (a character with no
+                # backgrounds attached) never reaches here in the first
+                # place — _build_pass_input returns no handler for it.
+                allowed = {
+                    (b.get("id") or b.get("img", "")) for b in ctx.character.backgrounds
+                }
+                allowed.discard("")
+                chosen = str(value.get("background") or "").strip()
+                if chosen not in allowed:
+                    return False
+                value = {"background": chosen}
             # A pass that came back with nothing usable has nothing to say, and
             # writing its empty result would destroy whatever the slice already
             # held. That is not hypothetical: the random-event pass returning

@@ -2774,6 +2774,48 @@ body {
 .btn-row { display: flex; gap: 8px; }
 .btn-row .wide { display: flex; align-items: center; justify-content: center; gap: 8px; }
 
+/* ------------------------------------------------- character backgrounds */
+
+/* Rows, not tiles (§ .bg-grid above): each entry carries a name and a
+   description too, and a square tile has room for neither. */
+.char-bg-list { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 12px; }
+.char-bg-row {
+  display: flex;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: var(--panel);
+}
+.char-bg-thumb-col {
+  flex: none;
+  width: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+.char-bg-thumb {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--panel-2);
+}
+.char-bg-fields { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.char-bg-fields input, .char-bg-fields textarea {
+  width: 100%;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 8px;
+  font: inherit;
+  font-size: 13px;
+  resize: vertical;
+  min-height: 0;
+}
+
 /* ---------------------------------------------------------- theme presets */
 
 .preset-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }

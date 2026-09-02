@@ -3036,6 +3036,46 @@
                 x-text="characterMemories.length"></span>
         </button>
 
+        <!-- Which ambient backdrop plays behind a scene, chosen by the
+             background pass (§ background_swap, registry.py) once there is
+             more to go on than a bare filename: a name to read (edited
+             here, never the file on disk — id and img stay separate the
+             same way they always have) and a description of what the image
+             actually shows, which is what the pass reasons over instead of
+             guessing from a filename. Uploaded through the same shared pool
+             the Theme panel's backdrop library posts to (§ uploadBackdrop),
+             so a background only has to be uploaded once; the entry itself
+             (name + description) is character-specific and stays in the
+             draft until Save, same as every other field here. -->
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-image"/></svg>Backgrounds</h3>
+        <p class="note">
+          Attach a few images and describe what each shows. On a big enough
+          scene change, the AI reads these descriptions alongside the recent
+          conversation and picks the one that fits — or leaves the current
+          background alone if nothing does.
+        </p>
+        <div class="char-bg-list" x-show="(draftCharacter.backgrounds || []).length">
+          <template x-for="(bg, i) in (draftCharacter.backgrounds || [])" :key="bg.img + '-' + i">
+            <div class="char-bg-row">
+              <div class="char-bg-thumb-col">
+                <img class="char-bg-thumb" :src="`/backgrounds/${encodeURIComponent(bg.img)}`" alt="">
+                <button class="link danger" @click="removeCharacterBackground(i)">Remove</button>
+              </div>
+              <div class="char-bg-fields">
+                <input x-model="bg.id" placeholder="Name" maxlength="60">
+                <textarea x-model="bg.description" rows="2" maxlength="400"
+                          placeholder="What this shows — a rainy street at night, a cosy kitchen…"></textarea>
+              </div>
+            </div>
+          </template>
+        </div>
+        <label class="wide file-btn">
+          <input type="file" accept="image/*" @change="addCharacterBackground($event)" hidden>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-image"/></svg>
+          <span x-text="uploadingCharBg ? 'Uploading…' : 'Add a background'"></span>
+        </label>
+        <p class="kind-note" x-text="charBgError"></p>
+
         <!-- A lip-synced clip over the portrait after each reply, from a
              service run outside this app (AVATAR-VIDEO-CONTRACT.md) — off
              until both that service is pointed at in Brain → Connect and this

@@ -9,7 +9,7 @@ from app.config import SETTINGS
 from app.models import PassDef, Trigger
 from app.passes import registry
 from app.passes.scheduler import PassScheduler, TurnContext
-from app.state import SLICE_VARS, read_slice, slice_for
+from app.state import SLICE_BACKGROUND, SLICE_VARS, read_slice, slice_for
 
 from .conftest import drain, events_of, sync, turn
 
@@ -172,6 +172,50 @@ def test_auditor_correction_overwrites_the_provisional_write(sched, chat, charac
     stored = read_slice(sched.db, chat["id"], slice_for(SLICE_VARS, character.id))
     if stored["source_pass"] == "state_auditor":
         assert stored["provisional"] is False
+
+
+def test_background_swap_picks_by_description_not_just_a_bare_id(sched, chat, character):
+    """§ _build_pass_input's background_swap branch — the prompt carries
+    each entry's description, not just its id, so the pass has something to
+    reason with beyond a filename."""
+    character.backgrounds = [
+        {"id": "tavern_interior", "img": "t.jpg", "description": "A cosy firelit common room."}
+    ]
+    definition = next(d for d in registry.all_passes(sched.db) if d.id == "background_swap")
+
+    task, messages, handler = sched._build_pass_input(context(chat, character), definition)
+    assert handler is not None
+    body = task + " " + " ".join(m["content"] for m in messages)
+    assert "tavern_interior" in body
+    assert "cosy firelit common room" in body
+
+
+def test_background_swap_makes_no_change_on_an_invalid_pick(sched, chat, character, monkeypatch):
+    """The model naming an id outside the character's own list — hallucinated,
+    or stale after the list was edited mid-chat — must change nothing, per
+    the prompt's own contract ('if nothing fits, repeat the current
+    background') and the handler that actually enforces it (§ scheduler.py,
+    _handler_generic's background_swap branch)."""
+    from app.providers import echo as echo_provider
+
+    monkeypatch.setattr(
+        echo_provider, "_first_background_id", lambda request: "not-a-real-background"
+    )
+    definition = next(d for d in registry.all_passes(sched.db) if d.id == "background_swap")
+
+    async def scenario():
+        ctx = context(chat, character, signals={"scene_change": "major"})
+        launched = sched._launch_background(ctx)
+        assert "background_swap" in launched
+        await sched.await_pending(chat["id"])
+
+    sync(scenario())
+    row = sched.db.query_one(
+        "SELECT status FROM pass_runs WHERE chat_id=? AND pass_id='background_swap'",
+        (chat["id"],),
+    )
+    assert row["status"] == "stale"
+    assert read_slice(sched.db, chat["id"], slice_for(SLICE_BACKGROUND, character.id)) is None
 
 
 def test_a_failing_pass_does_not_break_the_turn(db, sched, chat, character):
