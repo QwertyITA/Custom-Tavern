@@ -48,12 +48,18 @@ cannot regress silently.
 
 ## Where work lands
 
-The phone is the only installation that matters, and it tracks
-**`claude/develop-this-tgypnk`**. Push finished work there, always — a commit
-sitting on a feature branch waiting to be merged is a commit the person who
-asked for it cannot run. Fast-forwarding that branch is the last step of the
-task, not a separate errand, and `git pull` on the device is then the whole
-update procedure.
+Only two branches matter here: **`main`** and **`dev`**. The phone is the
+only installation that matters, and it tracks `dev`. Push finished work
+there, always — a commit sitting on a task branch waiting to be merged is a
+commit the person who asked for it cannot run. Fast-forwarding `dev` is the
+last step of the task, not a separate errand, and `git pull` on the device is
+then the whole update procedure.
+
+No other branch should exist. A task branch is scratch space for work in
+flight, not a place to leave it — merge it into `dev` and delete it (locally
+and on the remote) once the work lands there; don't let it linger after
+that. If you find a stray branch that isn't `main`, isn't `dev`, and isn't
+the one you're actively working on, delete it.
 
 Nothing else consumes this repository, so there is no release to coordinate
 with and no one else's checkout to break.
