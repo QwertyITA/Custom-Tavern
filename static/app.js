@@ -593,8 +593,20 @@ function realisticPacing(text) {
 // own refresh button uses (§ refreshWorld) — a hand-forced run behaves
 // exactly like a scheduled one, same event stream, same write rules — and
 // `flag` is the matching key in `refreshing` that marks it running.
+// `name` is the noun the outcome toast uses ("Background changed from…"),
+// `describe(vm)` reads whatever "current value" that toast compares before
+// and after the run, and `label(vm, value)` turns that raw value into the
+// word shown — kept per-command since a future command's value will not
+// always be a background filename.
 const SLASH_COMMANDS = {
-  background: { passId: "background_swap", flag: "background", hint: "Checking the background…" },
+  background: {
+    passId: "background_swap",
+    flag: "background",
+    hint: "Checking the background…",
+    name: "Background",
+    describe: (vm) => vm.sceneBackgroundFile || vm.backgroundFile(),
+    label: (vm, file) => (file ? vm.bgLabel(file) : "no backdrop"),
+  },
 };
 
 // Only a whole "/word" line counts — "/" mid-sentence is just punctuation,
@@ -1046,6 +1058,9 @@ function tavern() {
     hudRuns: [],
     ambient: [],
     refreshing: { scene: false, expression: false, background: false },
+    // "/" runs still resolving (§ runSlashCommand, resolveSlashRun), keyed
+    // by the pass_runs id the server handed back when each was launched.
+    pendingSlashRuns: {},
     cost: { per_pass: [], per_turn: [], totals: {} },
     totals: { tokens_in: 0, tokens_out: 0 },
 
@@ -1673,19 +1688,50 @@ function tavern() {
     // Runs a "/" command (§ SLASH_COMMANDS, send()) — the same on-demand
     // pass endpoint refreshWorld() above uses, just for whichever pass the
     // command names. `pass_status` events (§ handleEvent) are what turn
-    // `refreshing[flag]` back off once the run actually finishes; nothing
-    // here waits on it, since run_pass_now launches the pass and returns
-    // immediately rather than awaiting it.
+    // `refreshing[flag]` back off *and* report the outcome (§
+    // resolveSlashRun below) once the run actually finishes; nothing here
+    // waits on either, since run_pass_now launches the pass and returns
+    // immediately rather than awaiting it. The "before" value is read now,
+    // not when the run resolves — by then it may already be the "after".
     async runSlashCommand(command) {
       if (!this.chatId || this.refreshing[command.flag]) return;
       this.refreshing[command.flag] = true;
       this.flashHint(command.hint);
       try {
-        await api.post(`/api/chats/${this.chatId}/passes/${command.passId}/run`, {});
+        const result = await api.post(`/api/chats/${this.chatId}/passes/${command.passId}/run`, {});
+        this.pendingSlashRuns[result.run_id] = { command, before: command.describe(this) };
       } catch (e) {
         this.refreshing[command.flag] = false;
         this.flashHint(errorText(e));
       }
+    },
+
+    // The other half of runSlashCommand: called from handleEvent for every
+    // pass_status that lands, cheap to no-op on the ones that were never a
+    // "/" run (almost all of them) since the lookup is by that run's own id.
+    // A "/" run's own pass_status is otherwise indistinguishable from a
+    // scheduled one — same event, same shape — which is the point (§
+    // run_pass_now's own docstring, scheduler.py): a forced run behaves
+    // exactly like one the engine decided to make on its own.
+    resolveSlashRun(run) {
+      const pending = this.pendingSlashRuns[run.id];
+      if (!pending) return;
+      delete this.pendingSlashRuns[run.id];
+      const { command, before } = pending;
+      if (run.status === "failed") {
+        this.flashHint(`Error: ${run.error || "the pass failed"}`);
+        return;
+      }
+      // A panel event for this same run, if the pick was valid, arrives
+      // over the same SSE connection strictly before this terminal status
+      // does — so by now `describe` already reads whatever it changed to,
+      // with nothing here needing to read the panel event itself.
+      const after = command.describe(this);
+      this.flashHint(
+        after === before
+          ? `${command.name} unchanged`
+          : `${command.name} changed from ${command.label(this, before)} to ${command.label(this, after)}`
+      );
     },
 
     // Opening the roster from the header is about *this* character, so theirs
@@ -4545,6 +4591,10 @@ function tavern() {
             if (event.run.pass_id === "scene") this.refreshing.scene = running;
             if (event.run.pass_id === "background_swap") this.refreshing.background = running;
           }
+          // A "/" run reaching done/stale/failed/skipped — reported as a
+          // toast (§ resolveSlashRun) independent of the branches above,
+          // which only cover the ambient cue for a *scheduled* run.
+          if (!running) this.resolveSlashRun(event.run);
           break;
         }
         case "panel":
