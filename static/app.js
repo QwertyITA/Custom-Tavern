@@ -4623,14 +4623,42 @@ function tavern() {
       // The wash derives from --bg rather than being a fixed dark overlay, so
       // it works on a light palette as well as a dark one — and it is what
       // keeps text readable over an image at all.
-      document.body.style.backgroundImage = file
+      const image = file
         ? `linear-gradient(color-mix(in srgb, var(--bg) ${dim}%, transparent),` +
           ` color-mix(in srgb, var(--bg) ${Math.min(100, dim + 7)}%, transparent)),` +
           ` url("/backgrounds/${encodeURIComponent(file)}")`
         : "";
-      document.body.style.backgroundSize = "cover";
-      document.body.style.backgroundPosition = "center";
-      document.body.style.backgroundAttachment = "fixed";
+
+      const layers = document.querySelectorAll(".backdrop-layer");
+      if (layers.length < 2) return; // not mounted yet
+      const shown = this._backdropShown || 0;
+      if (file === this._backdropFile) {
+        // Same picture, only the wash changed (the fade slider, glass) —
+        // update whichever layer is actually showing in place. Crossfading
+        // a picture that never left would just be a pointless flicker.
+        layers[shown].style.backgroundImage = image;
+        return;
+      }
+      const first = this._backdropFile === undefined;
+      this._backdropFile = file;
+      if (first) {
+        // boot()'s own first call, before either layer has ever shown
+        // anything — the real starting picture, not a "change" to dissolve
+        // into. Painted straight onto the layer already marked shown (§
+        // index.html) so the very first paint of the app is not a
+        // multi-second fade-in of its own backdrop.
+        layers[shown].style.backgroundImage = image;
+        return;
+      }
+      // A real change: paint it onto the *other* layer and raise that one
+      // over the one currently showing, fading it in. The showing layer
+      // needs nothing done to it — being covered by a rising twin is the
+      // whole crossfade (§ .backdrop-layer, styles.css).
+      const next = shown ? 0 : 1;
+      layers[next].style.backgroundImage = image;
+      layers[next].classList.add("shown");
+      layers[shown].classList.remove("shown");
+      this._backdropShown = next;
     },
 
     backgroundFile() {

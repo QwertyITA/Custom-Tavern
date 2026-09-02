@@ -26,6 +26,19 @@
                        panelOpen ? closePanel() :
                        (menu && (menu = false))">
 
+<!-- The backdrop, as two stacked layers rather than one image swapped in
+     place (§ applyBackground, app.js) — a scene change fading the old
+     picture out from under the new one instead of cutting between them.
+     Only one is ever the current picture ("shown", opacity 1); a change
+     paints the *other* one and raises it, so the layer already on screen
+     needs no transition of its own — being covered by a rising twin is the
+     whole crossfade. Static, unmounted-by-nothing divs read straight off
+     the DOM (§ applyBackground again) rather than through Alpine, since
+     boot() runs on <body>'s own x-init and cannot depend on a child's
+     $refs being resolved that early. -->
+<div class="backdrop-layer shown" aria-hidden="true"></div>
+<div class="backdrop-layer" aria-hidden="true"></div>
+
 <!-- Icon sprite. Every glyph in the app is defined once here and used by
      reference, so the message tools, the action wheel and the menu cannot
      drift into three different drawing styles — and so none of them depend on

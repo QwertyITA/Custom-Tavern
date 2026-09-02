@@ -20,6 +20,7 @@
 @property --dur-fast { syntax: "<time>"; inherits: true; initial-value: 140ms; }
 @property --dur-base { syntax: "<time>"; inherits: true; initial-value: 240ms; }
 @property --dur-slow { syntax: "<time>"; inherits: true; initial-value: 340ms; }
+@property --dur-backdrop-fade { syntax: "<time>"; inherits: true; initial-value: 1400ms; }
 @property --dur-text-fade { syntax: "<time>"; inherits: true; initial-value: 170ms; }
 @property --dur-bubble-resize { syntax: "<time>"; inherits: true; initial-value: 300ms; }
 @property --dur-panel-leave { syntax: "<time>"; inherits: true; initial-value: 260ms; }
@@ -120,6 +121,12 @@
   --dur-fast: max(1ms, calc(140ms * var(--motion)));
   --dur-base: max(1ms, calc(240ms * var(--motion)));
   --dur-slow: max(1ms, calc(340ms * var(--motion)));
+  /* The backdrop dissolve (§ .backdrop-layer below) is deliberately its own,
+     slower token rather than reusing --dur-slow: a full-screen photo
+     crossfade reads as a deliberate scene change at something closer to a
+     second, where 340ms — tuned for UI elements, not a photograph — would
+     look like a stutter, not a dissolve. */
+  --dur-backdrop-fade: max(1ms, calc(1400ms * var(--motion)));
 
   /* The five that JavaScript has to wait on. These were duplicated as
      constants in app.js with a comment admitting they "must stay in step with
@@ -183,6 +190,29 @@ body {
   height: 100dvh;
   overflow-x: hidden;
 }
+
+/* Two stacked, static children of body (§ index.html) rather than body's own
+   background-image (§ applyBackground, app.js used to set that directly) —
+   opacity is what has to animate here, and body's own background can't be
+   the thing crossfading while body itself stays put underneath everything.
+   `position: fixed` takes both out of flow (so neither costs the flex
+   layout above a track) and off `body`'s own scroll; the negative z-index
+   only has to clear the app's own content, every bit of which is already
+   positioned at z-index: 1 or above, so it never needs to go lower than -1.
+   Both start under everything and are visually inert (`pointer-events: none`)
+   — a fixed full-screen layer would otherwise swallow every tap on the app
+   sitting "above" it. */
+.backdrop-layer {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-size: cover;
+  background-position: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-backdrop-fade) var(--ease-in-out);
+}
+.backdrop-layer.shown { opacity: 1; }
 
 /* min-width: 0 stops a wide child — the nowrap world bar, a long unbroken
    token — from widening the page and giving it a horizontal scroll. */
