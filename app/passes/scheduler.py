@@ -1358,6 +1358,16 @@ class PassScheduler:
                 # the wind picking up" on the tenth.
                 value = worldline.shorten(value)
             if definition.id == "background_swap":
+                # The backdrop is global (§ Settings.background, config.py),
+                # the same field the Theme panel's manual picker writes —
+                # not a per-chat slice. Switching chats is meant to keep
+                # whatever backdrop was last showing until something
+                # actually changes it, and a chat-scoped value nothing ever
+                # restores on reopen was exactly the bug that shipped
+                # before this: closing and reopening a chat could show a
+                # stale pick left behind by whichever chat set it last.
+                # So this bypasses write_slice entirely and returns here.
+                #
                 # A filename outside today's eligible set — hallucinated, or
                 # excluded/deleted after the prompt was built earlier this
                 # same turn — must change nothing rather than swap to
@@ -1371,9 +1381,21 @@ class PassScheduler:
                     if (meta.get(name) or {}).get("auto") is not False
                 }
                 chosen = str(value.get("background") or "").strip()
-                if chosen not in allowed:
+                if chosen not in allowed or chosen == self.settings.background:
                     return False
-                value = {"background": chosen}
+                self.settings.background = chosen
+                config.save_settings(self.settings)
+                self._emit(
+                    ctx.chat_id,
+                    {
+                        "type": "panel",
+                        "panel": "background",
+                        "value": {"background": chosen},
+                        "turn": ctx.turn,
+                        "source": definition.id,
+                    },
+                )
+                return True
             # A pass that came back with nothing usable has nothing to say, and
             # writing its empty result would destroy whatever the slice already
             # held. That is not hypothetical: the random-event pass returning

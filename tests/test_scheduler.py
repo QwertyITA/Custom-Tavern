@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 from app import assembly, repo, state as state_mod
 from app.config import SETTINGS
@@ -241,6 +242,37 @@ def test_background_swap_makes_no_change_on_an_invalid_pick(sched, chat, charact
     )
     assert row["status"] == "stale"
     assert read_slice(sched.db, chat["id"], slice_for(SLICE_BACKGROUND, character.id)) is None
+
+
+def test_background_swap_writes_the_global_backdrop_not_a_chat_slice(
+    sched, chat, character, monkeypatch, isolated_settings
+):
+    """The fix for "reopening a chat shows the wrong background" — the pick
+    has to live in Settings.background, the same field the Theme panel's
+    own manual picker writes and the one thing every chat reads, not a
+    per-chat slice nothing ever restores when a chat is reopened."""
+    monkeypatch.setattr(sched.settings, "background_meta", {})
+    # Different from what echo is about to pick ("tavern.svg", the only
+    # shipped image — § _first_background_id), or the write is correctly a
+    # no-op (§ the "already showing that one" guard) rather than the real
+    # change this test means to exercise.
+    monkeypatch.setattr(sched.settings, "background", "none")
+
+    async def scenario():
+        ctx = context(chat, character, signals={"scene_change": "major"})
+        launched = sched._launch_background(ctx)
+        assert "background_swap" in launched
+        await sched.await_pending(chat["id"])
+
+    sync(scenario())
+    row = sched.db.query_one(
+        "SELECT status FROM pass_runs WHERE chat_id=? AND pass_id='background_swap'",
+        (chat["id"],),
+    )
+    assert row["status"] == "done"
+    assert sched.settings.background == "tavern.svg"
+    assert read_slice(sched.db, chat["id"], slice_for(SLICE_BACKGROUND, character.id)) is None
+    assert json.loads(isolated_settings.read_text())["background"] == "tavern.svg"
 
 
 def test_a_failing_pass_does_not_break_the_turn(db, sched, chat, character):

@@ -604,7 +604,7 @@ const SLASH_COMMANDS = {
     passId: "background_swap",
     flag: "background",
     hint: "Checking the background…",
-    describe: (vm) => vm.sceneBackgroundFile || vm.backgroundFile(),
+    describe: (vm) => vm.backgroundFile(),
     label: (vm, file) => (file ? vm.bgLabel(file) : "no backdrop"),
     outcome(vm, run, before) {
       if (run.status === "failed") return `Error: ${run.error || "the pass failed"}`;
@@ -801,7 +801,6 @@ function tavern() {
     editingEl: null,
     regenId: null,
     regenPrevious: "",
-    sceneBackgroundFile: "",
     fadingId: null,
     // Following the newest message. Cleared when the user scrolls up to read,
     // restored when they come back down or ask for the newest message. Also
@@ -1474,8 +1473,11 @@ function tavern() {
       this.toggleStates = data.toggles || {};
       this.persona = data.persona || null;
       this.turn = this.messages.length ? this.messages[this.messages.length - 1].turn : 0;
-      this.sceneBackgroundFile = "";
       this.nextSpeaker = "";
+      // No backdrop reset here on purpose: the backdrop is global (§
+      // Settings.background, applyBackground below), so opening a different
+      // chat keeps showing whatever it already was rather than reverting to
+      // something else until background_swap fires again for this one.
       this.applyTheme();
       // Not awaited: the transcript should be on screen before the room's
       // membership is known, and a speaker label appearing a beat later is
@@ -4538,9 +4540,6 @@ function tavern() {
 
     setBackground(value) {
       this.settings.background = value;
-      // A settings change should show immediately, so drop any scene backdrop
-      // that would otherwise hide the choice being made.
-      this.sceneBackgroundFile = "";
       this.applyBackground();
     },
 
@@ -4618,8 +4617,12 @@ function tavern() {
           } else if (event.panel === "expression" && event.value.emotion) {
             this.expression = event.value.emotion;
           } else if (event.panel === "background" && event.value.background) {
-            this.background = event.value.background;
-            this.applyBackground(event.value.background);
+            // Global now, not per-chat (§ background_swap's handler,
+            // scheduler.py) — the same field the Theme panel's own manual
+            // picker writes, so this just mirrors what the server already
+            // persisted rather than tracking a separate chat-local value.
+            this.settings.background = event.value.background;
+            this.applyBackground();
           }
           break;
         // The search runs before the reply pass starts, so the cue would
@@ -4653,21 +4656,13 @@ function tavern() {
       }
     },
 
-    // A scene set by the background_swap pass wins; otherwise the backdrop
-    // chosen in settings. Kept in one place so the two cannot fight.
-    applyBackground(id) {
-      if (id) {
-        // The id the AI-driven pick arrives as *is* the filename now (§
-        // background_swap's handler, scheduler.py, which only ever writes
-        // one it already checked against the real, currently-eligible
-        // pool) — so unlike the old per-character list there is nothing
-        // left to resolve here. Still checked against the loaded library
-        // rather than trusted outright: a stale reference from before an
-        // image was deleted must leave whatever is already showing alone,
-        // the same "no valid pick, no change" rule the pass itself follows.
-        if (this.backdrops.some((b) => b.name === id)) this.sceneBackgroundFile = id;
-      }
-      const file = this.sceneBackgroundFile || this.backgroundFile();
+    // No argument: the backdrop is entirely `settings.background` now (§
+    // background_swap's handler, scheduler.py, and the "panel" case in
+    // handleEvent above, both of which set that directly rather than
+    // passing a value through here) — nothing left for this to resolve or
+    // fall back from.
+    applyBackground() {
+      const file = this.backgroundFile();
       let dim = Number.isFinite(this.settings.background_dim)
         ? this.settings.background_dim : 70;
 

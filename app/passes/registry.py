@@ -16,7 +16,7 @@ import sqlite3
 
 from ..db import Database
 from ..models import PassDef, PassOutput, Sampling, Toggle, Trigger
-from ..state import SLICE_BACKGROUND, SLICE_EVENT, SLICE_EXPRESSION, SLICE_SCENE
+from ..state import SLICE_EVENT, SLICE_EXPRESSION, SLICE_SCENE
 from ..state import SLICE_VARS
 
 CANONICAL_PASSES: list[PassDef] = [
@@ -171,7 +171,12 @@ CANONICAL_PASSES: list[PassDef] = [
         trigger=Trigger(type="on_signal", signal="scene_change", op=">=", threshold="major"),
         sampling=Sampling(temp=0.1, top_p=0.9, max_tokens=60),
         output=PassOutput(type="gui_panel", target="background"),
-        writes_slice=SLICE_BACKGROUND,
+        # No writes_slice: the backdrop is global (§ Settings.background),
+        # not per-chat state, so its own handler (_handler_generic,
+        # scheduler.py) writes straight to Settings instead of a chat slice
+        # — switching chats is meant to keep whatever backdrop was last
+        # showing, not revert to nothing until this fires again for the
+        # chat now open.
         # DATA dependency: it consumes the scene slice, not a write-order rule (§5.5).
         depends_on=["scene"],
         prompt=(
