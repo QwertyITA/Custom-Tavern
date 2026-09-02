@@ -1610,7 +1610,14 @@ function tavern() {
           // being looked at, and one of them unrolled pushes the rest down.
           this.historyFor = "";
         } else if (name === "settings") {
-          await this.loadSettings();
+          await Promise.all([
+            this.loadSettings(),
+            // So the "Auto-rename chats" checkbox below has the chat_rename
+            // pass to read and flip — the same object Brain's own pass-line
+            // switch uses (§ chatRenamePass, togglePass), which is what
+            // keeps the two connected: they are one boolean, not two.
+            api.get("/api/passes").then((p) => { this.passes = p; }),
+          ]);
         }
       } catch (e) {
         this.error = errorText(e);
@@ -4781,6 +4788,15 @@ function tavern() {
             this.applyBackground();
           }
           break;
+        case "chat_renamed": {
+          // Almost never the chat this listener is attached to — the queue
+          // it comes from (§ chat_naming.py) is the *previous* chat someone
+          // left, not this one — but on the rare chance it is, the sidebar
+          // list should not still say "Latest chat" after this arrives.
+          const renamed = (this.chats || []).find((c) => c.id === event.chat_id);
+          if (renamed) renamed.title = event.title;
+          break;
+        }
         // The search runs before the reply pass starts, so the cue would
         // otherwise say "Typing…" for however long the engine takes. Both
         // events always arrive as a pair, and the reply's own pass_status
@@ -6864,6 +6880,14 @@ function tavern() {
       if (type === "every_n" && pass.trigger.n > 1) return `every ${pass.trigger.n} turns`;
       if (type === "on_signal") return "when something moves";
       return "every turn";
+    },
+
+    // The one pass Settings has its own checkbox for (§ index.html, "Chat
+    // naming"), alongside its ordinary line under Brain → Passes → Secondary
+    // info generator — same object, so flipping either one is flipping the
+    // other (§ togglePass just below).
+    chatRenamePass() {
+      return (this.passes || []).find((p) => p.id === "chat_rename");
     },
 
     async togglePass(pass) {

@@ -289,6 +289,34 @@ CANONICAL_PASSES: list[PassDef] = [
             "Return an empty list if nothing durable happened."
         ),
     ),
+    PassDef(
+        id="chat_rename",
+        kind="canonical",
+        label="Chat rename",
+        blocking=False,
+        model_tier="background",
+        # Never fires through the generic eligible() loop, the same reasoning
+        # as post_process above: this titles whichever chat is at the front
+        # of Settings.rename_queue, not necessarily the one whose turn just
+        # ran, so it is launched by hand from _answer's own fire-and-forget
+        # step (§ scheduler.py _drain_rename_queue) rather than scheduled per
+        # chat like an ordinary background pass.
+        trigger=Trigger(type="manual"),
+        sampling=Sampling(temp=0.4, top_p=0.9, max_tokens=30),
+        output=PassOutput(type="none"),
+        # No writes_slice: a chat's title is a column on the chats table
+        # (§ repo.rename_chat), not per-chat state — its handler
+        # (_handler_chat_rename, scheduler.py) writes there directly.
+        prompt=(
+            "You title one roleplay conversation for a chat list, from its "
+            "opening messages.\n"
+            "Two to five words, specific to what actually happens or what "
+            "it's about. Never the character's name alone, never a generic "
+            'phrase like "New conversation" or "Chat with X".\n'
+            'Reply with JSON only: {"title": "<title>"}\n'
+            "No quotation marks inside the title, no trailing punctuation."
+        ),
+    ),
 ]
 
 

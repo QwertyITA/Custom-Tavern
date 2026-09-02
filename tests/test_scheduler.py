@@ -326,6 +326,92 @@ def test_expression_makes_no_change_on_an_invalid_pick(sched, chat, character, m
     assert row["status"] == "stale"
 
 
+# --------------------------------------------------------- chat rename
+
+
+def test_chat_rename_writes_the_title_and_dequeues(sched, chat, character, monkeypatch):
+    """The front of the queue gets a real title (§ echo's own "chat_rename"
+    case) and is popped off on success (§ _handler_chat_rename)."""
+    repo.add_message(sched.db, chat["id"], "assistant", "Sit wherever. The fire's better on the left.")
+    repo.rename_chat(sched.db, chat["id"], "Latest chat")
+    monkeypatch.setattr(sched.settings, "rename_queue", [chat["id"]])
+
+    sync(sched._drain_rename_queue())
+
+    assert repo.get_chat(sched.db, chat["id"])["title"] not in ("", "Latest chat")
+    assert sched.settings.rename_queue == []
+    row = sched.db.query_one(
+        "SELECT status FROM pass_runs WHERE chat_id=? AND pass_id='chat_rename'",
+        (chat["id"],),
+    )
+    assert row["status"] == "done"
+
+
+def test_chat_rename_does_nothing_with_an_empty_queue(sched, chat, character):
+    original = repo.get_chat(sched.db, chat["id"])["title"]
+
+    sync(sched._drain_rename_queue())
+
+    assert repo.get_chat(sched.db, chat["id"])["title"] == original
+    assert sched.settings.rename_queue == []
+
+
+def test_chat_rename_leaves_a_disabled_pass_queued_for_next_time(
+    sched, chat, character, monkeypatch
+):
+    """Off means "not yet", not "lost" — the entry stays at the front so a
+    later successful prompt (anywhere) tries it again (§ the pass's own
+    docstring in registry.py)."""
+    definition = registry.get_pass(sched.db, "chat_rename")
+    definition.enabled = False
+    sync(registry.save_pass(sched.db, definition))
+    monkeypatch.setattr(sched.settings, "rename_queue", [chat["id"]])
+    original = repo.get_chat(sched.db, chat["id"])["title"]
+
+    sync(sched._drain_rename_queue())
+
+    assert repo.get_chat(sched.db, chat["id"])["title"] == original
+    assert sched.settings.rename_queue == [chat["id"]]
+
+
+def test_chat_rename_respects_the_background_tier_switch(sched, chat, character, monkeypatch):
+    monkeypatch.setattr(sched.settings, "tiers_off", ["background"])
+    monkeypatch.setattr(sched.settings, "rename_queue", [chat["id"]])
+    original = repo.get_chat(sched.db, chat["id"])["title"]
+
+    sync(sched._drain_rename_queue())
+
+    assert repo.get_chat(sched.db, chat["id"])["title"] == original
+    assert sched.settings.rename_queue == [chat["id"]]
+
+
+def test_chat_rename_drops_a_queued_chat_that_no_longer_exists(sched, character, monkeypatch):
+    other = repo.create_chat(sched.db, character.id, "ghost")
+    repo.delete_chat(sched.db, other["id"])
+    monkeypatch.setattr(sched.settings, "rename_queue", [other["id"]])
+
+    sync(sched._drain_rename_queue())
+
+    assert sched.settings.rename_queue == []
+
+
+def test_chat_rename_reads_the_opening_messages_not_the_most_recent_ones(
+    sched, chat, character
+):
+    """Renaming only ever runs once a chat has already grown well past what a
+    title needs — the excerpt is capped to the opening exchange (§
+    _build_pass_input's chat_rename branch)."""
+    for i in range(20):
+        repo.add_message(sched.db, chat["id"], "user", f"filler message {i}")
+    definition = next(d for d in registry.all_passes(sched.db) if d.id == "chat_rename")
+
+    task, messages, handler = sched._build_pass_input(context(chat, character), definition)
+    body = " ".join(m["content"] for m in messages)
+    assert handler is not None
+    assert "filler message 0" in body
+    assert "filler message 19" not in body
+
+
 def test_a_failing_pass_does_not_break_the_turn(db, sched, chat, character):
     broken = PassDef(
         id="broken",

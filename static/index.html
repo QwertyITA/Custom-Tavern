@@ -2388,6 +2388,32 @@
           already on screen, both of which stay instant.
         </p>
 
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-edit"/></svg>Chat naming</h3>
+        <label class="toggle" x-show="chatRenamePass()" x-cloak>
+          <input type="checkbox" :checked="chatRenamePass().enabled"
+                 @change="togglePass(chatRenamePass())">
+          <span>Auto-rename chats</span>
+        </label>
+        <p class="kind-note">
+          A new chat is called "Latest chat" until you leave it for another
+          one — opening a different chat or starting a new one is what ends
+          that and queues this one for a real title, read off its opening
+          messages. The same switch as "Chat rename" under ☰ → Brain →
+          Passes → Secondary info generator — either one flips both.
+        </p>
+        <div class="num-field">
+          <div class="num-head">
+            <span class="num-label">Chats waiting for a name, at once</span>
+            <input class="num-box" type="number" min="1" max="50" step="1"
+                   x-model.number="settings.rename_queue_max" aria-label="Rename queue size">
+          </div>
+          <p class="kind-note">
+            Past this many, the chat that has been waiting longest is dropped
+            from the queue and keeps the character's name instead — never
+            lost, just never retitled.
+          </p>
+        </div>
+
         <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-heart"/></svg>Reactions</h3>
         <label class="toggle">
           <input type="checkbox" x-model="settings.feature_character_reactions">

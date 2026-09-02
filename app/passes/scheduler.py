@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import json
 import random
+import re
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -657,6 +658,14 @@ class PassScheduler:
         launched = self._launch_background(ctx)
         if launched:
             yield {"type": "background_queued", "passes": launched}
+        # The chat waiting longest for a real title, if any (§ chat_naming.py,
+        # _drain_rename_queue below) — queued the same fire-and-forget way as
+        # the two tasks below, and for the same reason: whichever chat gets
+        # named here is not necessarily this one.
+        task = asyncio.create_task(
+            self._drain_rename_queue(), name=f"chat_rename_queue:{chat_id}:{turn}"
+        )
+        self._track(chat_id, task)
         # A character imported while its backend was unreachable, or created
         # blank, gets another try at its reaction lines here — queued after
         # the reply has already gone out, same as the background passes
@@ -1276,6 +1285,22 @@ class PassScheduler:
                 "Allowed backgrounds (id: description):\n" + "\n".join(lines) +
                 f"\nCurrent scene: {scene or 'unknown'}"
             )
+        elif definition.id == "chat_rename":
+            # The opening messages, not the most recent ones: this only ever
+            # runs once per chat (§ _handler_chat_rename dequeues on success),
+            # and by the time a chat reaches the front of the queue it may
+            # have grown well past what a title needs to be read from — the
+            # premise is what the title is about, and that is stated early.
+            history = repo.list_messages(self.db, ctx.chat_id, include_dropped=False)
+            if not history:
+                return "", [], None
+            label = assembly.speaker_label(character.name)
+            transcript = "\n".join(
+                f"{'User' if m['role'] == 'user' else label}: {to_plain(m['text'])}"
+                for m in history[:12]
+            )
+            messages = [{"role": "user", "content": f"## Conversation so far\n{transcript}"}]
+            return definition.prompt, messages, self._handler_chat_rename(ctx)
         elif definition.id == "state_auditor":
             bands = state_mod.render_bands(ctx.schema, ctx.pre_values)
             extra = (
@@ -1509,6 +1534,25 @@ class PassScheduler:
                         "memories": memory_store.list_all(self.db, ctx.character.id)[:5],
                     },
                 )
+            return True
+
+        return handle
+
+    def _handler_chat_rename(self, ctx: TurnContext):
+        async def handle(payload: dict) -> bool:
+            title = re.sub(r"\s+", " ", str(payload.get("title") or "")).strip(" \"'.")
+            title = title[:60]
+            if not title:
+                return False
+            repo.rename_chat(self.db, ctx.chat_id, title)
+            self.settings.rename_queue = [
+                c for c in (self.settings.rename_queue or []) if c != ctx.chat_id
+            ]
+            config.save_settings(self.settings)
+            self._emit(
+                ctx.chat_id,
+                {"type": "chat_renamed", "chat_id": ctx.chat_id, "title": title},
+            )
             return True
 
         return handle
@@ -2210,6 +2254,58 @@ class PassScheduler:
         )
         self._track(chat_id, task)
         return {"ok": True, "run_id": run_id, "pass_id": pass_id}
+
+    async def _drain_rename_queue(self) -> None:
+        """Try the chat that has been waiting longest for a name.
+
+        One chat per call, from the front of `Settings.rename_queue` (§
+        app/chat_naming.py) — this runs once after every reply that lands
+        anywhere, which is "next successful prompt" from that module's own
+        docstring. A chat stays at the front of the queue until it is
+        actually renamed: the pass being off, or the attempt failing, both
+        just mean it is tried again next time rather than lost or pushed
+        behind newer arrivals.
+        """
+        if "background" in (self.settings.tiers_off or []):
+            return
+        definition = registry.get_pass(self.db, "chat_rename")
+        if definition is None or not definition.enabled:
+            return
+        queue = self.settings.rename_queue or []
+        if not queue:
+            return
+        chat_id = queue[0]
+        chat = repo.get_chat(self.db, chat_id)
+        character = repo.get_character(self.db, chat["character_id"]) if chat else None
+        if chat is None or character is None:
+            # The chat, or its character, is gone — nothing left to name.
+            self.settings.rename_queue = queue[1:]
+            config.save_settings(self.settings)
+            return
+        messages = repo.list_messages(self.db, chat_id, include_dropped=False)
+        if not messages:
+            return  # nothing said yet to title from — leave it queued
+
+        ctx = TurnContext(
+            chat=chat,
+            character=character,
+            settings=self.settings,
+            turn=messages[-1]["turn"],
+            schema=state_mod.load_schema(
+                {k: v.model_dump() for k, v in character.state_schema.items()}
+                if character.state_schema
+                else None
+            ),
+        )
+        run_id = self._record_run(ctx, definition, "pending")
+        try:
+            await self._execute(ctx, definition, run_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # a broken pass must not take anything else with it
+            self._record_run(
+                ctx, definition, "failed", run_id=run_id, error=repr(exc), finished_at=time.time()
+            )
 
     async def reaudit(self, message_id: str) -> dict:
         """Re-run the auditor against an edited message (§9)."""

@@ -20,7 +20,7 @@ from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import assembly, attachments, avatar_video, backup, card_compression, cards, chat_files, character_reactions, config, debug_export, groups, macros
+from . import assembly, attachments, avatar_video, backup, card_compression, cards, chat_files, character_reactions, chat_naming, config, debug_export, groups, macros
 from . import memory as memory_store
 from . import prompt_layout
 from . import lorebook, providers, regex_rules, repo, state as state_mod
@@ -1117,7 +1117,13 @@ async def create_chat(payload: CreateChatRequest) -> dict:
     character = repo.get_character(db, payload.character_id)
     if character is None or _vault_hidden(character):
         raise HTTPException(404, "character not found")
-    chat = repo.create_chat(db, payload.character_id, payload.title or character.name)
+    # An explicit title (no caller does this today, but the field is public
+    # API) opts out of "Latest chat" entirely — someone who named their own
+    # chat did not ask for it to be queued for a different one later.
+    explicit_title = payload.title.strip()
+    chat = repo.create_chat(db, payload.character_id, explicit_title or chat_naming.LATEST_LABEL)
+    if not explicit_title:
+        chat_naming.mark_latest(db, config.SETTINGS, chat["id"])
     # The greeting loads at chat start (§7.4) and is a real message, so it takes
     # part in context assembly and can be swiped like any other. Its macros are
     # resolved once, here: a message is a record of something that was said, and
@@ -1179,6 +1185,10 @@ async def get_chat(chat_id: str) -> dict:
     chat = repo.get_chat(db, chat_id)
     if chat is None:
         raise HTTPException(404, "chat not found")
+    # Opening any chat other than the current "Latest chat" ends its run (§
+    # app/chat_naming.py) — a no-op whenever this chat already is the latest
+    # one, or nothing holds that status right now.
+    chat_naming.note_opened(db, config.SETTINGS, chat_id)
     character = repo.get_character(db, chat["character_id"])
     schema = state_mod.load_schema(
         {k: v.model_dump() for k, v in character.state_schema.items()}

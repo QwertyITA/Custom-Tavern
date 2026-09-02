@@ -136,6 +136,23 @@ def test_saving_a_horde_backend_with_the_singular_model_field_is_accepted(client
     assert response.status_code == 200
 
 
+def test_rename_queue_max_round_trips_and_is_bounds_checked(client, isolated_settings):
+    from app import config
+
+    backends = {
+        "backends": [{"name": "echo", "kind": "echo", "model": "echo-1"}],
+        "tiers": {"blocking": "echo", "foreground": "echo", "background": "echo"},
+    }
+    ok = client.put("/api/settings", json={**backends, "rename_queue_max": 3})
+    assert ok.status_code == 200
+    assert config.SETTINGS.rename_queue_max == 3
+    assert json.loads(isolated_settings.read_text())["rename_queue_max"] == 3
+
+    bad = client.put("/api/settings", json={**backends, "rename_queue_max": 0})
+    assert bad.status_code == 400
+    assert config.SETTINGS.rename_queue_max == 3  # unchanged by the rejected save
+
+
 def test_connection_test_probes_a_backend(client):
     body = client.post("/api/settings/test", json={"name": "echo", "kind": "echo", "model": "echo-1"}).json()
     assert body["ok"] is True
@@ -182,6 +199,61 @@ def test_chat_detail_carries_state_bands_and_toggles(client):
 def test_empty_message_is_rejected(client):
     chat_id = new_chat(client)
     assert client.post(f"/api/chats/{chat_id}/send", json={"text": "   "}).status_code == 400
+
+
+# ------------------------------------------------------- chat naming (§ chat_naming.py)
+
+
+def test_a_new_chat_is_called_latest_chat(client, isolated_settings):
+    from app import config
+
+    chat_id = new_chat(client)
+    assert client.get(f"/api/chats/{chat_id}").json()["chat"]["title"] == "Latest chat"
+    assert config.SETTINGS.latest_chat_id == chat_id
+
+
+def test_creating_a_second_chat_demotes_the_first(client, isolated_settings):
+    from app import config
+
+    first = new_chat(client)
+    # Off /api/characters rather than opening `first`'s own chat detail —
+    # opening any chat other than the current latest is itself a demotion
+    # (§ the "opening a different chat" test below), and `second` does not
+    # exist to be the latest one yet.
+    character_name = client.get("/api/characters").json()[0]["name"]
+    second = new_chat(client)
+
+    # Checking on `second` first: it is the current latest, so this open
+    # has no side effect — unlike checking `first`, which would demote it.
+    assert client.get(f"/api/chats/{second}").json()["chat"]["title"] == "Latest chat"
+    assert config.SETTINGS.latest_chat_id == second
+    assert config.SETTINGS.rename_queue == [first]
+    assert client.get(f"/api/chats/{first}").json()["chat"]["title"] == character_name
+
+
+def test_opening_a_different_chat_demotes_whichever_one_is_latest(client, isolated_settings):
+    from app import config
+
+    a = new_chat(client)
+    character_name = client.get(f"/api/chats/{a}").json()["character"]["name"]
+    b = new_chat(client)  # demotes a; b is now latest
+
+    client.get(f"/api/chats/{a}")  # opening a demotes b, not a — a is already demoted
+
+    assert config.SETTINGS.latest_chat_id == ""
+    assert config.SETTINGS.rename_queue == [a, b]
+    assert client.get(f"/api/chats/{b}").json()["chat"]["title"] == character_name
+
+
+def test_reopening_the_latest_chat_does_not_demote_it(client, isolated_settings):
+    from app import config
+
+    chat_id = new_chat(client)
+    client.get(f"/api/chats/{chat_id}")
+
+    assert config.SETTINGS.latest_chat_id == chat_id
+    assert config.SETTINGS.rename_queue == []
+    assert client.get(f"/api/chats/{chat_id}").json()["chat"]["title"] == "Latest chat"
 
 
 # ------------------------------------------------------------------- turn

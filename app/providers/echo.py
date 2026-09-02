@@ -140,6 +140,9 @@ class EchoProvider(Provider):
                  "keys": ["woman", "scar", "searching"]},
             ]
             return json.dumps({"memories": [facts[seed % len(facts)]]})
+        if request.pass_id == "chat_rename":
+            titles = ["A Quiet Arrival", "Words at the Bar", "An Uneasy Start", "Something Unsettled"]
+            return json.dumps({"title": titles[seed % len(titles)]})
         if request.pass_id == "random_event":
             return json.dumps({"event": _EVENTS[seed % len(_EVENTS)]})
         if request.pass_id == "translate":

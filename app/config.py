@@ -499,6 +499,17 @@ class Settings:
     # address) and wrong otherwise — set this explicitly when it is wrong.
     avatar_self_url: str = ""
 
+    # Chat auto-rename (§ app/chat_naming.py). `latest_chat_id` is whichever
+    # chat currently holds the "Latest chat" placeholder title — cleared the
+    # moment a different chat is created or opened, which is also the moment
+    # that chat is pushed onto `rename_queue` to get a real title from the
+    # chat_rename pass (app/passes/registry.py). Neither is user-editable —
+    # both are bookkeeping the app itself writes — but `rename_queue_max`,
+    # the cap on how many chats can be waiting at once, is (§ build_settings).
+    latest_chat_id: str = ""
+    rename_queue: list[str] = field(default_factory=list)
+    rename_queue_max: int = 10
+
     # Appearance overrides: CSS variable -> value. Only keys in THEME_TOKENS,
     # only values matching that token's shape (§12, §18.4).
     theme: dict[str, str] = field(default_factory=dict)
@@ -903,6 +914,19 @@ def build_settings(payload: dict[str, Any], current: Settings) -> Settings:
     settings.avatar_self_url = str(
         payload.get("avatar_self_url", current.avatar_self_url) or ""
     ).strip()[:500]
+    try:
+        queue_max = int(payload.get("rename_queue_max", current.rename_queue_max))
+    except (TypeError, ValueError):
+        raise SettingsError("rename_queue_max must be a number") from None
+    if not 1 <= queue_max <= 50:
+        raise SettingsError("rename_queue_max must be between 1 and 50")
+    settings.rename_queue_max = queue_max
+    # Never taken from this payload — app/chat_naming.py and the chat_rename
+    # pass own writing these, the same reasoning as the vault fields below:
+    # an unrelated Settings save must not reset which chat is "latest" or
+    # empty the queue out from under a chat waiting in it.
+    settings.latest_chat_id = current.latest_chat_id
+    settings.rename_queue = list(current.rename_queue)
     # Never taken from this payload — dedicated /api/vault/* routes own
     # setting, checking and clearing the PIN, so a wrong guess can be
     # throttled and a right one can require the PIN it claims to be. Carried
