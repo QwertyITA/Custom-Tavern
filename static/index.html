@@ -344,10 +344,21 @@
          rather than shared, since Alpine has no partial to pull one copy
          of a template into two different places in the tree — but both
          read the same state, so the two can never show different values,
-         only render in different spots. Plain text, not a control: nothing
-         here opens or expands anything anymore. -->
-    <div class="world-pill world-pill-inline" :class="{ empty: !hasScene }"
-         x-show="!menu && (!hasScene || pillFitsInline())" x-cloak>
+         only render in different spots.
+         Once there is a scene, the pill itself is now the control: the
+         refresh button stays hidden (§ pillOpen, app.js) until you tap the
+         fields, which is what actually shrank this — a bare reading with no
+         button beside it is as narrow as the text needs. The empty pill has
+         no fields to tap, so its button just stays visible outright; there
+         would be nothing else on it to open it with. -->
+    <div class="world-pill world-pill-inline" :class="{ empty: !hasScene, open: pillOpen }"
+         x-show="!menu && (!hasScene || pillFitsInline())" x-cloak
+         @click="hasScene && (pillOpen = !pillOpen)"
+         :role="hasScene ? 'button' : null" :tabindex="hasScene ? 0 : null"
+         @keydown.enter="hasScene && (pillOpen = !pillOpen)"
+         @keydown.space.prevent="hasScene && (pillOpen = !pillOpen)"
+         :aria-expanded="hasScene ? pillOpen : null"
+         :aria-label="hasScene ? (pillOpen ? 'Hide refresh world info' : 'Show refresh world info') : null">
       <!-- x-show, not left to the three field spans hiding themselves —
            empty otherwise still reserves world-fields' own min-height
            beside the refresh button, the same collapsed-box gap the float
@@ -370,7 +381,10 @@
         </span>
       </div>
       <button class="icon-btn refresh" :class="{ spinning: refreshing.scene }"
-              @click="refreshWorld()" :disabled="refreshing.scene || !chatId"
+              @click.stop="refreshWorld()" :disabled="refreshing.scene || !chatId"
+              x-show="!hasScene || pillOpen" x-cloak
+              x-transition:enter="pill-refresh-enter" x-transition:enter-start="pill-refresh-from" x-transition:enter-end="pill-refresh-to"
+              x-transition:leave="pill-refresh-leave" x-transition:leave-start="pill-refresh-to" x-transition:leave-end="pill-refresh-from"
               aria-label="Refresh world info" title="Refresh world info">
         <svg class="icon" viewBox="0 0 24 24"><use href="#i-refresh"/></svg>
       </button>
@@ -442,13 +456,19 @@
      cover — a covered-but-still-there pill bled through the gaps between
      them under glass, which looked broken, and there is nothing to bleed
      through when it is not rendered at all. -->
-<div class="world-pill world-pill-float" x-show="!menu && hasScene && !pillFitsInline()" x-cloak
+<div class="world-pill world-pill-float" :class="{ open: pillOpen }"
+     x-show="!menu && hasScene && !pillFitsInline()" x-cloak
      x-transition:enter="braintab-enter" x-transition:enter-start="braintab-from"
-     x-transition:enter-end="braintab-to">
+     x-transition:enter-end="braintab-to"
+     @click="pillOpen = !pillOpen" role="button" tabindex="0"
+     @keydown.enter="pillOpen = !pillOpen" @keydown.space.prevent="pillOpen = !pillOpen"
+     :aria-expanded="pillOpen"
+     :aria-label="pillOpen ? 'Hide refresh world info' : 'Show refresh world info'">
   <!-- No empty state to hide here — the outer x-show above already
        guarantees hasScene by the time this renders (empty lives on the
-       inline pill instead, § world-pill-inline). Plain text, not a
-       control — same as the inline pill, nothing here opens or expands. -->
+       inline pill instead, § world-pill-inline). Same tap-to-reveal control
+       as the inline pill (§ pillOpen there) — always has a scene, so unlike
+       the inline pill there is no bare-button case to leave open outright. -->
   <div class="world-fields">
     <span class="field" :class="{ refreshing: refreshing.scene }"
           :title="`Place: ${scene.place || 'unknown'}`" x-show="scene.place">
@@ -469,13 +489,14 @@
 
   <!-- The scene pass only fires when a reply suggests the setting moved.
        That is right nearly always, and wrong exactly when you are looking at
-       a stale line and can see that it is stale. Before there is any line at
-       all this is also the way to ask for one — so this stays reachable
-       whether or not hasScene is true, unlike the fields beside it. -->
+       a stale line and can see that it is stale. Hidden until the pill is
+       tapped open (§ pillOpen) — same reasoning as the inline pill's button. -->
   <button class="icon-btn refresh" :class="{ spinning: refreshing.scene }"
-          @click="refreshWorld()" :disabled="refreshing.scene || !chatId"
-          :aria-label="hasScene ? 'Refresh world info' : 'Generate world info'"
-          :title="hasScene ? 'Refresh world info' : 'Generate world info'">
+          @click.stop="refreshWorld()" :disabled="refreshing.scene || !chatId"
+          x-show="pillOpen" x-cloak
+          x-transition:enter="pill-refresh-enter" x-transition:enter-start="pill-refresh-from" x-transition:enter-end="pill-refresh-to"
+          x-transition:leave="pill-refresh-leave" x-transition:leave-start="pill-refresh-to" x-transition:leave-end="pill-refresh-from"
+          aria-label="Refresh world info" title="Refresh world info">
     <svg class="icon" viewBox="0 0 24 24"><use href="#i-refresh"/></svg>
   </button>
 </div>

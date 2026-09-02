@@ -751,6 +751,14 @@ function tavern() {
     // The header menu, and which of its destinations is open. One panel at a
     // time — "" means the conversation is unobstructed.
     menu: false,
+    // Whether the world-info pill (§ world-pill-inline/world-pill-float,
+    // index.html) has its refresh button open. Only meaningful once there is
+    // a scene to read — the empty pill has nothing else in it, so its
+    // refresh/"generate this" button stays visible outright rather than
+    // needing this to reveal it. Shared by both pills rather than one flag
+    // each: only one of the two ever renders at a time, so there is nothing
+    // to desync.
+    pillOpen: false,
     // Two fields rather than one: `panel` says which body to render and
     // `panelOpen` says whether the sheet is on screen. Clearing the name at
     // the moment of closing would unmount the body through its own x-if, and
