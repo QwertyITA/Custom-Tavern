@@ -302,7 +302,7 @@ CANONICAL_PASSES: list[PassDef] = [
         # step (§ scheduler.py _drain_rename_queue) rather than scheduled per
         # chat like an ordinary background pass.
         trigger=Trigger(type="manual"),
-        sampling=Sampling(temp=0.4, top_p=0.9, max_tokens=30),
+        sampling=Sampling(temp=0.4, top_p=0.9, max_tokens=40),
         output=PassOutput(type="none"),
         # No writes_slice: a chat's title is a column on the chats table
         # (§ repo.rename_chat), not per-chat state — its handler
@@ -310,7 +310,7 @@ CANONICAL_PASSES: list[PassDef] = [
         prompt=(
             "You title one roleplay conversation for a chat list, from its "
             "opening messages.\n"
-            "Two to five words, specific to what actually happens or what "
+            "Five to ten words, specific to what actually happens or what "
             "it's about. Never the character's name alone, never a generic "
             'phrase like "New conversation" or "Chat with X".\n'
             'Reply with JSON only: {"title": "<title>"}\n'

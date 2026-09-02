@@ -1541,7 +1541,10 @@ class PassScheduler:
     def _handler_chat_rename(self, ctx: TurnContext):
         async def handle(payload: dict) -> bool:
             title = re.sub(r"\s+", " ", str(payload.get("title") or "")).strip(" \"'.")
-            title = title[:60]
+            # Room for ten words plus punctuation (§ registry.py's prompt) —
+            # long enough not to clip a real title, short enough it can never
+            # run away with something the model padded.
+            title = title[:90]
             if not title:
                 return False
             repo.rename_chat(self.db, ctx.chat_id, title)
