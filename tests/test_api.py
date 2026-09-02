@@ -256,6 +256,29 @@ def test_reopening_the_latest_chat_does_not_demote_it(client, isolated_settings)
     assert client.get(f"/api/chats/{chat_id}").json()["chat"]["title"] == "Latest chat"
 
 
+def test_queue_unnamed_endpoint_finds_character_named_chats(client, isolated_settings):
+    from app import config
+
+    a = new_chat(client)
+    character_name = client.get("/api/characters").json()[0]["name"]
+    new_chat(client)  # demotes a — a is now titled after its character, and queued
+
+    # Simulate the case this button actually exists for: a chat that fell
+    # out of the queue (the cap, or predating this feature) while still
+    # carrying the character-name fallback title.
+    config.SETTINGS.rename_queue = []
+
+    result = client.post("/api/chats/queue-unnamed")
+    assert result.status_code == 200
+    assert result.json()["queued"] == 1
+    assert config.SETTINGS.rename_queue == [a]
+    assert client.get(f"/api/chats/{a}").json()["chat"]["title"] == character_name
+
+    # Calling it again finds nothing new — a is already queued.
+    again = client.post("/api/chats/queue-unnamed")
+    assert again.json()["queued"] == 0
+
+
 # ------------------------------------------------------------------- turn
 
 

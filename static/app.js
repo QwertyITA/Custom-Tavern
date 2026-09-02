@@ -1061,6 +1061,7 @@ function tavern() {
     importError: "",
     hud: false,
     debugLogBusy: false,
+    queueingUnnamed: false,
     // § brokenPfp/markPfpBroken below — which portrait URLs have 404'd.
     brokenPfps: {},
     error: "",
@@ -6888,6 +6889,25 @@ function tavern() {
     // other (§ togglePass just below).
     chatRenamePass() {
       return (this.passes || []).find((p) => p.id === "chat_rename");
+    },
+
+    // The catch-up button for the same section: every chat still just
+    // called after its character — dropped by the queue's cap earlier, or
+    // never queued at all because it predates this feature — goes back in.
+    async queueUnnamedChats() {
+      this.queueingUnnamed = true;
+      try {
+        const result = await api.post("/api/chats/queue-unnamed", {});
+        this.flashHint(
+          result.queued
+            ? `Queued ${result.queued} chat${result.queued === 1 ? "" : "s"} for a name`
+            : "Nothing to queue — every chat already has a name, or is waiting for one"
+        );
+      } catch (e) {
+        this.flashHint(errorText(e));
+      } finally {
+        this.queueingUnnamed = false;
+      }
     },
 
     async togglePass(pass) {

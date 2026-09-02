@@ -43,6 +43,34 @@ def note_opened(db: Database, settings: Settings, chat_id: str) -> None:
         save_settings(settings)
 
 
+def queue_all_unnamed(db: Database, settings: Settings) -> int:
+    """Push every chat still titled exactly its character's name onto the
+    queue — the ones a demotion queued and the cap later dropped, or that
+    were already sitting there from before this feature existed. Already
+    queued chats and the current "latest" one (mid-placeholder on purpose)
+    are left alone.
+
+    Processed oldest-active first, so that if there are more eligible chats
+    than the queue can hold, it is the least recently active ones the cap
+    drops — not an arbitrary cutoff (§ _demote_current_latest, same rule).
+    """
+    queue = list(settings.rename_queue)
+    added = 0
+    for row in reversed(repo.list_chats(db)):
+        if row["id"] == settings.latest_chat_id or row["id"] in queue:
+            continue
+        character = repo.get_character(db, row["character_id"])
+        if character is None or row["title"] != character.name:
+            continue
+        queue.append(row["id"])
+        added += 1
+    if added:
+        cap = max(1, settings.rename_queue_max)
+        settings.rename_queue = queue[-cap:]
+        save_settings(settings)
+    return added
+
+
 def _demote_current_latest(db: Database, settings: Settings) -> None:
     chat_id = settings.latest_chat_id
     if not chat_id:

@@ -2413,6 +2413,15 @@
             lost, just never retitled.
           </p>
         </div>
+        <button class="wide" @click="queueUnnamedChats()" :disabled="queueingUnnamed">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-refresh"/></svg>
+          <span x-text="queueingUnnamed ? 'Queueing…' : 'Queue all unnamed chats'"></span>
+        </button>
+        <p class="kind-note">
+          Every chat still just called after its character — dropped by the
+          cap above at some point, or from before this existed at all —
+          goes back in line for a real title.
+        </p>
 
         <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-heart"/></svg>Reactions</h3>
         <label class="toggle">

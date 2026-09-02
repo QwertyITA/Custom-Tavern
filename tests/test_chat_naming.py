@@ -82,6 +82,63 @@ def test_queue_is_capped_fifo(db, character, isolated_settings):
     assert settings.rename_queue == [chats[1]["id"], chats[2]["id"]]
 
 
+# --------------------------------------------------------- queue_all_unnamed
+
+
+def test_queue_all_unnamed_finds_every_character_named_chat(db, character, isolated_settings):
+    named = repo.create_chat(db, character.id, "A real title")
+    unnamed_a = repo.create_chat(db, character.id, character.name)
+    unnamed_b = repo.create_chat(db, character.id, character.name)
+    settings = Settings()
+
+    added = chat_naming.queue_all_unnamed(db, settings)
+
+    assert added == 2
+    assert set(settings.rename_queue) == {unnamed_a["id"], unnamed_b["id"]}
+    assert named["id"] not in settings.rename_queue
+
+
+def test_queue_all_unnamed_skips_the_current_latest_chat(db, character, isolated_settings):
+    """A chat still called after its character can also just be one whose
+    character happens to share the "Latest chat" placeholder's fate by
+    coincidence — but the chat actually holding "latest" status right now
+    is mid-placeholder on purpose and is never swept up here."""
+    latest = repo.create_chat(db, character.id, chat_naming.LATEST_LABEL)
+    settings = Settings()
+    chat_naming.mark_latest(db, settings, latest["id"])
+    # Title it the character's name by hand, without going through a real
+    # demotion — the one way "latest" and "character-named" could coincide.
+    repo.rename_chat(db, latest["id"], character.name)
+
+    added = chat_naming.queue_all_unnamed(db, settings)
+
+    assert added == 0
+    assert settings.rename_queue == []
+
+
+def test_queue_all_unnamed_does_not_duplicate_an_already_queued_chat(
+    db, character, isolated_settings
+):
+    unnamed = repo.create_chat(db, character.id, character.name)
+    settings = Settings()
+    settings.rename_queue = [unnamed["id"]]
+
+    added = chat_naming.queue_all_unnamed(db, settings)
+
+    assert added == 0
+    assert settings.rename_queue == [unnamed["id"]]
+
+
+def test_queue_all_unnamed_is_a_no_op_when_nothing_qualifies(db, character, isolated_settings):
+    repo.create_chat(db, character.id, "Already titled")
+    settings = Settings()
+
+    added = chat_naming.queue_all_unnamed(db, settings)
+
+    assert added == 0
+    assert settings.rename_queue == []
+
+
 def test_a_deleted_chat_is_just_dropped(db, character, isolated_settings):
     latest = repo.create_chat(db, character.id, chat_naming.LATEST_LABEL)
     settings = Settings()

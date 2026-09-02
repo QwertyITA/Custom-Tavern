@@ -1148,9 +1148,19 @@ async def create_chat(payload: CreateChatRequest) -> dict:
     return chat
 
 
-# These two sit above /api/chats/{chat_id} on purpose: routes match in the
-# order they are declared, so "search" and "import" would otherwise be read
-# as chat ids and 404.
+# These three sit above /api/chats/{chat_id} on purpose: routes match in the
+# order they are declared, so "search", "import" and "queue-unnamed" would
+# otherwise be read as chat ids and 404.
+@app.post("/api/chats/queue-unnamed")
+async def queue_unnamed_chats() -> dict:
+    """Requeue every chat still just called after its character (§ Settings
+    → Chat naming's own button) — the ones a demotion queued and the cap
+    later dropped, or that predate this feature entirely."""
+    db = get_db()
+    added = chat_naming.queue_all_unnamed(db, config.SETTINGS)
+    return {"ok": True, "queued": added}
+
+
 @app.get("/api/chats/search")
 async def search_chats(q: str = "", limit: int = 40) -> list[dict]:
     """Chats matching `q` in their title or their messages (§10)."""
