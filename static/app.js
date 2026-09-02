@@ -885,11 +885,6 @@ function tavern() {
     uploadingAvatar: false,
     uploadingPfp: false,
     uploadingAvatarIdle: false,
-    // A background attached to this character (§ addCharacterBackground) —
-    // separate from uploadingBg above, which is the Theme panel's own global
-    // backdrop library upload.
-    uploadingCharBg: false,
-    charBgError: "",
     // Right at its default until it is not, same as the Advanced fold below.
     pfpEffectOpen: false,
     // Starts false on every open, flips true one frame later so the preview
@@ -2514,44 +2509,6 @@ function tavern() {
       this.draftCharacter.pfp_set = set;
     },
 
-    // Adds one entry to this character's background list (§ background_swap,
-    // registry.py) — the pass that swaps the ambient backdrop on a major
-    // scene change. Uploaded through the same shared image pool the Theme
-    // panel's own backdrop library uses (§ uploadBackdrop) rather than a
-    // second upload path, so the file only has to be posted once; only the
-    // *entry* (id + description) is character-specific and lives in the
-    // draft until Save, same as pfp_set beside it.
-    async addCharacterBackground(event) {
-      const file = (event.target.files || [])[0];
-      if (!file) return;
-      this.uploadingCharBg = true;
-      this.charBgError = "";
-      try {
-        const response = await fetch(
-          `/api/backgrounds?filename=${encodeURIComponent(file.name)}`,
-          { method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file },
-        );
-        if (!response.ok) throw await apiError(response);
-        const added = await response.json();
-        this.draftCharacter.backgrounds = [
-          ...(this.draftCharacter.backgrounds || []),
-          // A readable default name rather than the raw upload filename —
-          // edited in place below, same as every other field here.
-          { id: added.name.replace(/\.[^.]+$/, ""), img: added.name, description: "" },
-        ];
-      } catch (e) {
-        this.charBgError = errorText(e);
-      } finally {
-        this.uploadingCharBg = false;
-        event.target.value = "";   // so the same file can be picked again
-      }
-    },
-
-    removeCharacterBackground(index) {
-      this.draftCharacter.backgrounds =
-        (this.draftCharacter.backgrounds || []).filter((_, i) => i !== index);
-    },
-
     draftPortrait() {
       const set = this.draftCharacter.pfp_set || {};
       return pfpUrl(set.neutral || Object.values(set)[0] || "");
@@ -3451,6 +3408,14 @@ function tavern() {
         const result = await api.del(`/api/backgrounds/${encodeURIComponent(backdrop.name)}`);
         await this.loadBackdrops();
         this.settings.backgrounds = this.backdrops.map((b) => b.name);
+        // The server already drops its own copy of this image's meta on
+        // delete (§ remove_background, main.py); this is just the same
+        // cleanup on the in-memory settings a Save would otherwise send
+        // straight back — harmless either way since the server re-filters
+        // by what still exists, but no reason to carry it around.
+        const meta = { ...(this.settings.background_meta || {}) };
+        delete meta[backdrop.name];
+        this.settings.background_meta = meta;
         // The server resets the setting if the deleted image was in use; take
         // its word for what the backdrop is now rather than assuming.
         this.setBackground(result.background);
@@ -3458,6 +3423,23 @@ function tavern() {
       } catch (e) {
         this.bgMsg = errorText(e);
       }
+    },
+
+    // Per-image metadata for the shared backdrop library (§ Settings.
+    // background_meta, config.py) — what background_swap reads to pick one
+    // automatically. Live-edited here like every other Theme-panel setting
+    // (immutable replace, not a deep mutation, same as setTheme below) and
+    // only actually persisted on the panel's own Save.
+    bgMeta(name) {
+      return (this.settings.background_meta || {})[name] || {};
+    },
+    bgLabel(name) {
+      return this.bgMeta(name).label || name.replace(/\.[^.]+$/, "");
+    },
+    setBgMeta(name, key, value) {
+      const all = { ...(this.settings.background_meta || {}) };
+      all[name] = { ...(all[name] || {}), [key]: value };
+      this.settings.background_meta = all;
     },
 
     // ---- theme presets ----
@@ -4069,7 +4051,6 @@ function tavern() {
           stop_strings: this.stopStrings,
           pfp_set: draft.pfp_set || {},
           pfp_shape: draft.pfp_shape || "portrait",
-          backgrounds: draft.backgrounds || [],
           pfp_effect: draft.pfp_effect || {},
           reactions: draft.reactions || {},
           memory_enabled: draft.memory_enabled !== false,
@@ -4573,17 +4554,15 @@ function tavern() {
     // chosen in settings. Kept in one place so the two cannot fight.
     applyBackground(id) {
       if (id) {
-        const found = ((this.character || {}).backgrounds || []).find(
-          (b) => (b.id || b.img) === id
-        );
-        // An id that doesn't resolve — a stale reference to an entry the
-        // character no longer has — leaves whatever is already showing
-        // alone rather than clearing to the global backdrop. The pass
-        // itself already refuses to write an id outside the allowed list
-        // (§ background_swap's handler, scheduler.py), so this only ever
-        // matters for a reference left over from before an edit; either
-        // way "no valid pick, no change" holds here too.
-        if (found) this.sceneBackgroundFile = found.img;
+        // The id the AI-driven pick arrives as *is* the filename now (§
+        // background_swap's handler, scheduler.py, which only ever writes
+        // one it already checked against the real, currently-eligible
+        // pool) — so unlike the old per-character list there is nothing
+        // left to resolve here. Still checked against the loaded library
+        // rather than trusted outright: a stale reference from before an
+        // image was deleted must leave whatever is already showing alone,
+        // the same "no valid pick, no change" rule the pass itself follows.
+        if (this.backdrops.some((b) => b.name === id)) this.sceneBackgroundFile = id;
       }
       const file = this.sceneBackgroundFile || this.backgroundFile();
       let dim = Number.isFinite(this.settings.background_dim)
@@ -5961,7 +5940,8 @@ function tavern() {
     settings: { backends: [], tiers: {}, tier_names: [], tier_groups: [], kinds: [],
                 templates: [], think_modes: [], tiers_off: [], pass_every: {},
                 kind_defaults: {}, theme_tokens: [], theme: {},
-                backgrounds: [], background: "none", background_dim: 70, path: "" },
+                backgrounds: [], background: "none", background_dim: 70, background_meta: {},
+                path: "" },
     thought: null,
     thoughtError: "",
     saving: false,

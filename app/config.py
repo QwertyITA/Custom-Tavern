@@ -273,6 +273,33 @@ def validate_background(raw: Any) -> str:
     raise SettingsError(f"unknown background {value!r}")
 
 
+def validate_background_meta(raw: Any) -> dict[str, dict[str, Any]]:
+    """Keep only entries for images that still exist, trimmed to what
+    actually differs from the defaults (§ validate_theme above — same
+    reasoning: an empty label/description and auto=True are the same as no
+    entry at all, so there is nothing worth keeping on disk for them)."""
+    if not isinstance(raw, dict):
+        return {}
+    pool = set(available_backgrounds())
+    out: dict[str, dict[str, Any]] = {}
+    for name, entry in raw.items():
+        name = str(name)
+        if name not in pool or not isinstance(entry, dict):
+            continue
+        cleaned: dict[str, Any] = {}
+        label = str(entry.get("label") or "").strip()[:60]
+        if label:
+            cleaned["label"] = label
+        description = str(entry.get("description") or "").strip()[:400]
+        if description:
+            cleaned["description"] = description
+        if entry.get("auto") is False:
+            cleaned["auto"] = False
+        if cleaned:
+            out[name] = cleaned
+    return out
+
+
 def user_avatars() -> list[str]:
     return sorted(_listing(AVATAR_DIR))
 
@@ -481,6 +508,17 @@ class Settings:
     # present without the text fighting it.
     background: str = "tavern.svg"
     background_dim: int = 70
+    # Per-image metadata for the shared backdrop pool (§ available_backgrounds),
+    # keyed by filename: {"label": str, "description": str, "auto": bool}. Global
+    # rather than per-character — one library everyone's characters share, edited
+    # once in Theme → Backdrop rather than re-described on every card. `label` and
+    # `description` are what background_swap (app/passes/registry.py) reads to
+    # pick a fitting one on a scene change; `auto` (default True when the key is
+    # missing or the field absent) is the eye toggle that pulls an image out of
+    # that automatic pick without deleting it or dropping it from the manual
+    # picker — a background someone keeps around but never wants the AI reaching
+    # for on its own.
+    background_meta: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     # How much of the motion to run, 0–100. `prefers-reduced-motion` is a
     # switch and this is a dial: someone who finds the interface busy but does
@@ -809,6 +847,10 @@ def build_settings(payload: dict[str, Any], current: Settings) -> Settings:
     if not 0 <= dim <= 100:
         raise SettingsError("background_dim must be between 0 and 100")
     settings.background_dim = dim
+    settings.background_meta = (
+        validate_background_meta(payload["background_meta"])
+        if "background_meta" in payload else dict(current.background_meta)
+    )
     try:
         motion = int(payload.get("motion", current.motion))
     except (TypeError, ValueError):

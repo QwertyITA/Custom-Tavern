@@ -32,6 +32,7 @@ from .. import assembly
 from .. import attachments
 from .. import avatar_video
 from .. import character_reactions
+from .. import config
 from .. import groups
 from .. import macros, memory as memory_store, regex_rules, repo, state as state_mod
 from .. import reply_length
@@ -1232,21 +1233,26 @@ class PassScheduler:
             ]
             extra = f"Allowed emotions: {', '.join(emotions)}"
         elif definition.id == "background_swap":
-            # id — description, one per line, so the pass has something to
-            # reason with instead of guessing from a filename (§ the
-            # Backgrounds section of the character editor, index.html,
-            # which is what writes the description). A background with
-            # nothing written yet still gets listed by id alone — better
-            # than dropping it, since the id itself is sometimes enough
-            # ("rooftop_at_dawn").
+            # filename — description, one per line, so the pass has
+            # something to reason with instead of guessing from a bare
+            # name. Global rather than per-character (§ Settings.
+            # background_meta, config.py — edited in Theme → Backdrop):
+            # one shared library every character's scenes draw from. The
+            # filename itself is the id the model has to echo back — it is
+            # already unique and unambiguous, so there is no separate label
+            # to resolve back to a file the way there would be with a
+            # second identifier. An image whose `auto` flag is off (the eye
+            # toggle in the editor) is left out entirely: it stays choosable
+            # by hand, just never by this pass.
+            meta = self.settings.background_meta or {}
             listed = [
-                (b.get("id") or b.get("img", ""), (b.get("description") or "").strip())
-                for b in character.backgrounds
+                (name, ((meta.get(name) or {}).get("description") or "").strip())
+                for name in config.available_backgrounds()
+                if (meta.get(name) or {}).get("auto") is not False
             ]
-            listed = [(bg_id, desc) for bg_id, desc in listed if bg_id]
             if not listed:
                 return "", [], None
-            lines = [f"- {bg_id}: {desc}" if desc else f"- {bg_id}" for bg_id, desc in listed]
+            lines = [f"- {name}: {desc}" if desc else f"- {name}" for name, desc in listed]
             scene = assembly.scene_line(self.db, ctx.chat_id)
             extra = (
                 "Allowed backgrounds (id: description):\n" + "\n".join(lines) +
@@ -1352,16 +1358,18 @@ class PassScheduler:
                 # the wind picking up" on the tenth.
                 value = worldline.shorten(value)
             if definition.id == "background_swap":
-                # An id outside the character's own list — hallucinated, or
-                # stale after someone edited the list mid-chat — must change
-                # nothing rather than swap to whatever the model happened to
-                # invent. No allowed list at all (a character with no
-                # backgrounds attached) never reaches here in the first
-                # place — _build_pass_input returns no handler for it.
+                # A filename outside today's eligible set — hallucinated, or
+                # excluded/deleted after the prompt was built earlier this
+                # same turn — must change nothing rather than swap to
+                # whatever the model happened to invent. Re-read fresh
+                # rather than trusting the list _build_pass_input handed the
+                # model: that is the one guard against a race between the
+                # two, not just against the model itself.
+                meta = self.settings.background_meta or {}
                 allowed = {
-                    (b.get("id") or b.get("img", "")) for b in ctx.character.backgrounds
+                    name for name in config.available_backgrounds()
+                    if (meta.get(name) or {}).get("auto") is not False
                 }
-                allowed.discard("")
                 chosen = str(value.get("background") or "").strip()
                 if chosen not in allowed:
                     return False

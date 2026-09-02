@@ -2400,25 +2400,60 @@
         <p class="note">Everything here previews live. Save keeps it.</p>
 
         <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-image"/></svg>Backdrop</h3>
-        <!-- Pictures, not a dropdown of filenames: the thing being chosen is
-             an image, and a name in a list says nothing about how it looks
-             behind text. -->
-        <div class="bg-grid">
-          <button class="bg-tile" :class="{ on: settings.background === 'none' }"
-                  @click="setBackground('none')" aria-label="No backdrop">
-            <span class="bg-none">None</span>
-          </button>
+        <!-- One shared library, not a per-character list — every character's
+             automatic background pick (§ background_swap, registry.py) now
+             draws from the same images named and described here, in
+             Settings.background_meta (config.py). Tapping a thumbnail sets
+             it as the app's own fixed backdrop, same as the old tile grid
+             this replaced; the name and description feed the AI's own pick
+             instead, and are independent of what is on screen right now.
+             The eye is the third, separate question: whether the AI may
+             choose this image *at all* — off pulls it out of that pick
+             without deleting it or losing its place as a manual choice
+             here. -->
+        <p class="kind-note">
+          Name and describe an image so the AI can pick a fitting backdrop
+          on its own during a chat. The eye excludes one from that automatic
+          pick without removing it — it stays choosable by hand here either
+          way.
+        </p>
+        <div class="bg-row-none" :class="{ on: settings.background === 'none' }"
+             @click="setBackground('none')" role="button" tabindex="0"
+             @keydown.enter="setBackground('none')" @keydown.space.prevent="setBackground('none')">
+          No backdrop
+        </div>
+        <div class="bg-list">
           <template x-for="b in backdrops" :key="b.name">
-            <button class="bg-tile" :class="{ on: settings.background === b.name }"
-                    @click="setBackground(b.name)" :aria-label="b.name"
-                    :style="`background-image:url('${b.url}')`">
-              <span class="bg-name" x-text="b.name.replace(/\.[^.]+$/, '')"></span>
-              <span class="bg-del" x-show="b.removable" :class="{ armed: confirmBg === b.name }"
-                    @click.stop="deleteBackdrop(b)"
-                    :title="confirmBg === b.name ? 'Tap again to delete' : 'Delete'">
-                <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-close"/></svg>
-              </span>
-            </button>
+            <div class="bg-row" :class="{ on: settings.background === b.name }">
+              <button class="bg-row-thumb" @click="setBackground(b.name)"
+                      :style="`background-image:url('${b.url}')`"
+                      :aria-pressed="settings.background === b.name"
+                      :aria-label="`Use ${bgLabel(b.name)} as the backdrop`"></button>
+              <div class="bg-row-fields">
+                <input :value="bgLabel(b.name)" placeholder="Name" maxlength="60"
+                       @input="setBgMeta(b.name, 'label', $event.target.value)">
+                <textarea :value="bgMeta(b.name).description || ''" rows="2" maxlength="400"
+                          placeholder="What this shows — helps the AI pick it automatically."
+                          @input="setBgMeta(b.name, 'description', $event.target.value)"></textarea>
+              </div>
+              <div class="bg-row-actions">
+                <button class="icon-btn" :class="{ on: bgMeta(b.name).auto !== false }"
+                        @click="setBgMeta(b.name, 'auto', bgMeta(b.name).auto === false)"
+                        :aria-pressed="bgMeta(b.name).auto !== false"
+                        :title="bgMeta(b.name).auto === false
+                          ? 'Excluded from the AI\'s automatic pick — tap to include'
+                          : 'Eligible for the AI\'s automatic pick — tap to exclude'">
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <use :href="bgMeta(b.name).auto === false ? '#i-eye-off' : '#i-eye'"></use>
+                  </svg>
+                </button>
+                <button class="icon-btn danger" x-show="b.removable"
+                        :class="{ armed: confirmBg === b.name }" @click="deleteBackdrop(b)"
+                        :title="confirmBg === b.name ? 'Tap again to delete' : 'Delete'">
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-delete"/></svg>
+                </button>
+              </div>
+            </div>
           </template>
         </div>
 
@@ -3035,46 +3070,6 @@
           <span class="p-count" x-show="characterMemories.length"
                 x-text="characterMemories.length"></span>
         </button>
-
-        <!-- Which ambient backdrop plays behind a scene, chosen by the
-             background pass (§ background_swap, registry.py) once there is
-             more to go on than a bare filename: a name to read (edited
-             here, never the file on disk — id and img stay separate the
-             same way they always have) and a description of what the image
-             actually shows, which is what the pass reasons over instead of
-             guessing from a filename. Uploaded through the same shared pool
-             the Theme panel's backdrop library posts to (§ uploadBackdrop),
-             so a background only has to be uploaded once; the entry itself
-             (name + description) is character-specific and stays in the
-             draft until Save, same as every other field here. -->
-        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-image"/></svg>Backgrounds</h3>
-        <p class="note">
-          Attach a few images and describe what each shows. On a big enough
-          scene change, the AI reads these descriptions alongside the recent
-          conversation and picks the one that fits — or leaves the current
-          background alone if nothing does.
-        </p>
-        <div class="char-bg-list" x-show="(draftCharacter.backgrounds || []).length">
-          <template x-for="(bg, i) in (draftCharacter.backgrounds || [])" :key="bg.img + '-' + i">
-            <div class="char-bg-row">
-              <div class="char-bg-thumb-col">
-                <img class="char-bg-thumb" :src="`/backgrounds/${encodeURIComponent(bg.img)}`" alt="">
-                <button class="link danger" @click="removeCharacterBackground(i)">Remove</button>
-              </div>
-              <div class="char-bg-fields">
-                <input x-model="bg.id" placeholder="Name" maxlength="60">
-                <textarea x-model="bg.description" rows="2" maxlength="400"
-                          placeholder="What this shows — a rainy street at night, a cosy kitchen…"></textarea>
-              </div>
-            </div>
-          </template>
-        </div>
-        <label class="wide file-btn">
-          <input type="file" accept="image/*" @change="addCharacterBackground($event)" hidden>
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-image"/></svg>
-          <span x-text="uploadingCharBg ? 'Uploading…' : 'Add a background'"></span>
-        </label>
-        <p class="kind-note" x-text="charBgError"></p>
 
         <!-- A lip-synced clip over the portrait after each reply, from a
              service run outside this app (AVATAR-VIDEO-CONTRACT.md) — off

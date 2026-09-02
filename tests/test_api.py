@@ -564,50 +564,47 @@ def test_editing_a_character_keeps_what_the_editor_cannot_show(client):
     assert after["state_schema"] == before["state_schema"]
 
 
-def test_a_characters_backgrounds_can_be_named_and_described(client):
-    character_id = client.get("/api/characters").json()[0]["id"]
-    response = client.put(
-        f"/api/characters/{character_id}",
-        json={
-            "backgrounds": [
-                {
-                    "id": "Rainy tavern",
-                    "img": "tavern.svg",
-                    "description": "A rainy street outside a tavern at night.",
-                },
-                # img not in the shared pool — must be dropped, not kept
-                # dangling for background_swap to describe an image that
-                # does not exist.
-                {"id": "made up", "img": "not-a-real-file.png", "description": "x"},
-            ]
+def test_a_backdrop_can_be_named_and_described(client):
+    """§ Settings.background_meta — the shared, global library edited in
+    Theme → Backdrop, read by background_swap for its automatic pick."""
+    base = {
+        "backends": [{"name": "echo", "kind": "echo"}],
+        "tiers": {"blocking": "echo", "foreground": "echo", "background": "echo"},
+    }
+    response = client.put("/api/settings", json={
+        **base,
+        "background_meta": {
+            "tavern.svg": {
+                "label": "Rainy tavern",
+                "description": "A rainy street outside a tavern at night.",
+            },
+            # not a real background — must be dropped, not kept dangling
+            # for background_swap to describe an image that does not exist.
+            "not-a-real-file.png": {"label": "made up", "description": "x"},
         },
-    )
+    })
     assert response.status_code == 200
-    after = client.get(f"/api/characters/{character_id}").json()
-    assert after["backgrounds"] == [
-        {
-            "id": "Rainy tavern",
-            "img": "tavern.svg",
+    meta = client.get("/api/settings").json()["background_meta"]
+    assert meta == {
+        "tavern.svg": {
+            "label": "Rainy tavern",
             "description": "A rainy street outside a tavern at night.",
         }
-    ]
+    }
 
 
-def test_duplicate_background_ids_keep_only_the_first(client):
-    character_id = client.get("/api/characters").json()[0]["id"]
-    response = client.put(
-        f"/api/characters/{character_id}",
-        json={
-            "backgrounds": [
-                {"id": "same", "img": "tavern.svg", "description": "first"},
-                {"id": "same", "img": "tavern.svg", "description": "second"},
-            ]
-        },
-    )
+def test_a_backdrop_can_be_excluded_from_the_automatic_pick(client):
+    base = {
+        "backends": [{"name": "echo", "kind": "echo"}],
+        "tiers": {"blocking": "echo", "foreground": "echo", "background": "echo"},
+    }
+    response = client.put("/api/settings", json={
+        **base,
+        "background_meta": {"tavern.svg": {"auto": False}},
+    })
     assert response.status_code == 200
-    after = client.get(f"/api/characters/{character_id}").json()["backgrounds"]
-    assert len(after) == 1
-    assert after[0]["description"] == "first"
+    meta = client.get("/api/settings").json()["background_meta"]
+    assert meta["tavern.svg"]["auto"] is False
 
 
 def test_a_character_cannot_be_left_nameless(client):

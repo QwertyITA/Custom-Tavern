@@ -578,12 +578,14 @@ async def create_character(payload: dict = Body(default={})) -> dict:
 async def update_character(character_id: str, payload: dict = Body(...)) -> dict:
     """Edit the written parts of a card.
 
-    Merged onto the stored character rather than replacing it: lorebook,
-    state schema and nudges come from the card and are not editable here,
-    and a PUT that dropped them would quietly destroy the parts of an
-    imported character the editor cannot show. `backgrounds` is the one
-    card-sourced list that *is* editable here (§ below) — the editor has a
-    real place to show it now, unlike the others.
+    Merged onto the stored character rather than replacing it: backgrounds,
+    lorebook, state schema and nudges come from the card and are not editable
+    here, and a PUT that dropped them would quietly destroy the parts of an
+    imported character the editor cannot show. Backgrounds specifically:
+    the automatic background pass reads a global, per-image library now
+    (§ Settings.background_meta, config.py; Theme → Backdrop is where it's
+    edited), not this per-character list, so there is nowhere left in the
+    app that needs to write it.
 
     The picture is editable, because a character written here rather than
     imported had no way to have one at all.
@@ -652,36 +654,6 @@ async def update_character(character_id: str, payload: dict = Body(...)) -> dict
             for key, value in raw.items()
             if isinstance(value, str) and _safe_pfp(value)
         }
-    if "backgrounds" in payload:
-        # `id` is a label, never a path — it is only ever compared as a
-        # string (§ background_swap's handler below, and applyBackground in
-        # app.js), so unlike pfp_set there is nothing to path-check there.
-        # `img` is a real file, so it has to actually be one: an entry
-        # naming an id that isn't in the shared pool (§ config.
-        # available_backgrounds) is dropped rather than kept dangling,
-        # since a background pass would otherwise be free to describe an
-        # image that does not exist. Duplicate ids keep the first only —
-        # the AI picks by id, and a duplicate would be ambiguous which one
-        # it meant.
-        raw = payload["backgrounds"]
-        if not isinstance(raw, list):
-            raise HTTPException(400, "backgrounds must be a list")
-        pool = set(config.available_backgrounds())
-        seen_ids: set[str] = set()
-        cleaned = []
-        for entry in raw:
-            if not isinstance(entry, dict):
-                continue
-            img = str(entry.get("img") or "").strip()
-            if img not in pool:
-                continue
-            bg_id = str(entry.get("id") or "").strip()[:60] or img
-            if bg_id in seen_ids:
-                continue
-            seen_ids.add(bg_id)
-            description = str(entry.get("description") or "").strip()[:400]
-            cleaned.append({"id": bg_id, "img": img, "description": description})
-        character.backgrounds = cleaned
     if "stop_strings" in payload:
         try:
             character.stop_strings = config.parse_stop_strings(payload["stop_strings"])
@@ -1904,9 +1876,18 @@ async def remove_background(filename: str) -> dict:
     (config.USER_BACKGROUND_DIR / filename).unlink(missing_ok=True)
 
     # A setting pointing at a file that no longer exists would fail validation
-    # on the next save, long after the cause.
+    # on the next save, long after the cause — same reasoning for both: the
+    # chosen backdrop, and this image's own name/description/auto flag.
+    dirty = False
     if config.SETTINGS.background == filename:
         config.SETTINGS.background = config.NO_BACKGROUND
+        dirty = True
+    if filename in config.SETTINGS.background_meta:
+        meta = dict(config.SETTINGS.background_meta)
+        del meta[filename]
+        config.SETTINGS.background_meta = meta
+        dirty = True
+    if dirty:
         try:
             config.save_settings(config.SETTINGS)
         except OSError:

@@ -174,30 +174,55 @@ def test_auditor_correction_overwrites_the_provisional_write(sched, chat, charac
         assert stored["provisional"] is False
 
 
-def test_background_swap_picks_by_description_not_just_a_bare_id(sched, chat, character):
+def test_background_swap_picks_by_description_not_just_a_bare_id(sched, chat, character, monkeypatch):
     """§ _build_pass_input's background_swap branch — the prompt carries
-    each entry's description, not just its id, so the pass has something to
-    reason with beyond a filename."""
-    character.backgrounds = [
-        {"id": "tavern_interior", "img": "t.jpg", "description": "A cosy firelit common room."}
-    ]
+    each background's own description, not just its filename, so the pass
+    has something to reason with beyond a name. Global (§ Settings.
+    background_meta, config.py) rather than per-character.
+
+    `monkeypatch`, not a plain assignment: `sched.settings` is the process-
+    wide `config.SETTINGS` (§ the `sched` fixture), which the `pristine_settings`
+    autouse fixture does not actually reset between tests in this file — it
+    rebinds `config.SETTINGS` itself, but the `SETTINGS` name this file
+    imported at module load keeps pointing at the original object. A plain
+    assignment here would leak into whichever test runs next.
+    """
+    monkeypatch.setattr(
+        sched.settings, "background_meta",
+        {"tavern.svg": {"description": "A cosy firelit common room."}},
+    )
     definition = next(d for d in registry.all_passes(sched.db) if d.id == "background_swap")
 
     task, messages, handler = sched._build_pass_input(context(chat, character), definition)
     assert handler is not None
     body = task + " " + " ".join(m["content"] for m in messages)
-    assert "tavern_interior" in body
+    assert "tavern.svg" in body
     assert "cosy firelit common room" in body
 
 
+def test_background_swap_excludes_an_image_marked_auto_false(sched, chat, character, monkeypatch):
+    """The eye toggle (Theme → Backdrop) pulls an image out of the automatic
+    pick without touching anything else about it. (§ monkeypatch note above.)"""
+    monkeypatch.setattr(sched.settings, "background_meta", {"tavern.svg": {"auto": False}})
+    definition = next(d for d in registry.all_passes(sched.db) if d.id == "background_swap")
+
+    task, messages, handler = sched._build_pass_input(context(chat, character), definition)
+    body = (task + " " + " ".join(m["content"] for m in messages)) if handler else ""
+    assert "tavern.svg" not in body
+
+
 def test_background_swap_makes_no_change_on_an_invalid_pick(sched, chat, character, monkeypatch):
-    """The model naming an id outside the character's own list — hallucinated,
-    or stale after the list was edited mid-chat — must change nothing, per
-    the prompt's own contract ('if nothing fits, repeat the current
-    background') and the handler that actually enforces it (§ scheduler.py,
-    _handler_generic's background_swap branch)."""
+    """The model naming a filename outside today's eligible set —
+    hallucinated, or excluded/deleted since the prompt was built — must
+    change nothing, per the prompt's own contract ('if nothing fits, repeat
+    the current background') and the handler that actually enforces it
+    (§ scheduler.py, _handler_generic's background_swap branch)."""
     from app.providers import echo as echo_provider
 
+    # A clean slate (§ monkeypatch note on the test above) — nothing excluded,
+    # so the pass has "tavern.svg" to offer and this is testing the pick
+    # itself, not an empty allowed list.
+    monkeypatch.setattr(sched.settings, "background_meta", {})
     monkeypatch.setattr(
         echo_provider, "_first_background_id", lambda request: "not-a-real-background"
     )
