@@ -347,6 +347,45 @@ def test_chat_rename_writes_the_title_and_dequeues(sched, chat, character, monke
     assert row["status"] == "done"
 
 
+def test_concurrent_drain_calls_never_run_at_the_same_time(
+    sched, chat, character, monkeypatch
+):
+    """Several messages landing close together must not turn into several
+    chat_rename attempts running at once (§ _rename_lock) — a second call
+    waits for the first to actually finish rather than racing it for the
+    same front-of-queue chat."""
+    other = repo.create_chat(sched.db, character.id, character.name)
+    for cid in (chat["id"], other["id"]):
+        repo.add_message(sched.db, cid, "assistant", "Sit wherever.")
+    monkeypatch.setattr(sched.settings, "rename_queue", [chat["id"], other["id"]])
+
+    in_flight = 0
+    max_in_flight = 0
+    real_execute = sched._execute
+
+    async def tracked_execute(ctx, definition, run_id=None):
+        nonlocal in_flight, max_in_flight
+        in_flight += 1
+        max_in_flight = max(max_in_flight, in_flight)
+        try:
+            await asyncio.sleep(0.01)  # long enough for a second call to arrive
+            await real_execute(ctx, definition, run_id)
+        finally:
+            in_flight -= 1
+
+    monkeypatch.setattr(sched, "_execute", tracked_execute)
+
+    async def scenario():
+        await asyncio.gather(sched._drain_rename_queue(), sched._drain_rename_queue())
+
+    sync(scenario())
+
+    assert max_in_flight == 1
+    assert sched.settings.rename_queue == []
+    assert repo.get_chat(sched.db, chat["id"])["title"] != character.name
+    assert repo.get_chat(sched.db, other["id"])["title"] != character.name
+
+
 def test_kick_rename_queue_drains_several_in_one_go(sched, chat, character, monkeypatch):
     """The "queue all unnamed chats" button's own reason to exist (§
     kick_rename_queue's docstring) — several chats get a title without

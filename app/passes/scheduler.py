@@ -192,6 +192,16 @@ class PassScheduler:
         # (§ MAX_CONCURRENT_BACKGROUND_PASSES_PER_CHAT). Same "never pruned,
         # bytes-scale" reasoning as `_chat_locks` just above.
         self._background_slots: dict[str, asyncio.Semaphore] = {}
+        # One chat_rename attempt at a time, never several at once (§
+        # _drain_rename_queue below). Every message and every swipe, in
+        # every chat, launches its own attempt the instant it lands — with
+        # nothing serialising them, a run of messages sent close together
+        # (any background tier slower than instant, e.g. Horde) would launch
+        # that many *concurrent* calls, several of them racing for the same
+        # front-of-queue chat. A single process-wide lock instead: a second
+        # attempt waits for the first to actually finish, then runs against
+        # whatever the queue looks like by then, rather than piling on.
+        self._rename_lock = asyncio.Lock()
 
     # ------------------------------------------------------------- plumbing
 
@@ -2275,47 +2285,58 @@ class PassScheduler:
         actually renamed: the pass being off, or the attempt failing, both
         just mean it is tried again next time rather than lost or pushed
         behind newer arrivals.
-        """
-        if "background" in (self.settings.tiers_off or []):
-            return
-        definition = registry.get_pass(self.db, "chat_rename")
-        if definition is None or not definition.enabled:
-            return
-        queue = self.settings.rename_queue or []
-        if not queue:
-            return
-        chat_id = queue[0]
-        chat = repo.get_chat(self.db, chat_id)
-        character = repo.get_character(self.db, chat["character_id"]) if chat else None
-        if chat is None or character is None:
-            # The chat, or its character, is gone — nothing left to name.
-            self.settings.rename_queue = queue[1:]
-            config.save_settings(self.settings)
-            return
-        messages = repo.list_messages(self.db, chat_id, include_dropped=False)
-        if not messages:
-            return  # nothing said yet to title from — leave it queued
 
-        ctx = TurnContext(
-            chat=chat,
-            character=character,
-            settings=self.settings,
-            turn=messages[-1]["turn"],
-            schema=state_mod.load_schema(
-                {k: v.model_dump() for k, v in character.state_schema.items()}
-                if character.state_schema
-                else None
-            ),
-        )
-        run_id = self._record_run(ctx, definition, "pending")
-        try:
-            await self._execute(ctx, definition, run_id)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:  # a broken pass must not take anything else with it
-            self._record_run(
-                ctx, definition, "failed", run_id=run_id, error=repr(exc), finished_at=time.time()
+        Serialised on `self._rename_lock` (§ __init__) rather than left to
+        run however many of these land at once: several messages sent close
+        together each launch their own call, and without this they would be
+        that many concurrent chat_rename attempts — on a slow background
+        tier (Horde, say) several actual jobs in flight together, more than
+        one of them liable to be racing for the very same front-of-queue
+        chat. A call that arrives while another is still working waits for
+        it to finish rather than running alongside it, and then acts on
+        whatever the queue looks like by then.
+        """
+        async with self._rename_lock:
+            if "background" in (self.settings.tiers_off or []):
+                return
+            definition = registry.get_pass(self.db, "chat_rename")
+            if definition is None or not definition.enabled:
+                return
+            queue = self.settings.rename_queue or []
+            if not queue:
+                return
+            chat_id = queue[0]
+            chat = repo.get_chat(self.db, chat_id)
+            character = repo.get_character(self.db, chat["character_id"]) if chat else None
+            if chat is None or character is None:
+                # The chat, or its character, is gone — nothing left to name.
+                self.settings.rename_queue = queue[1:]
+                config.save_settings(self.settings)
+                return
+            messages = repo.list_messages(self.db, chat_id, include_dropped=False)
+            if not messages:
+                return  # nothing said yet to title from — leave it queued
+
+            ctx = TurnContext(
+                chat=chat,
+                character=character,
+                settings=self.settings,
+                turn=messages[-1]["turn"],
+                schema=state_mod.load_schema(
+                    {k: v.model_dump() for k, v in character.state_schema.items()}
+                    if character.state_schema
+                    else None
+                ),
             )
+            run_id = self._record_run(ctx, definition, "pending")
+            try:
+                await self._execute(ctx, definition, run_id)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # a broken pass must not take anything else with it
+                self._record_run(
+                    ctx, definition, "failed", run_id=run_id, error=repr(exc), finished_at=time.time()
+                )
 
     async def kick_rename_queue(self, limit: int = 5) -> None:
         """Work through several chats right away instead of waiting on the
