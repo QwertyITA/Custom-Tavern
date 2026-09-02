@@ -2857,12 +2857,13 @@
                            @keydown.escape="renamingChat = ''"
                            @blur="saveChatName(chat, $event.target.value)"
                            placeholder="Untitled" aria-label="Chat name">
-                    <!-- Rename, export and delete used to be three separate
+                    <!-- Rename, export and delete were three separate
                          targets crowding a row that only has room for a
-                         title and a time — folded behind this one glyph
-                         instead, as an actual compact menu list (§
-                         .chat-row-menu below), not the same three buttons
-                         merely hidden until tapped. -->
+                         title and a time — tucked behind this glyph
+                         instead. Nothing else about them changes: tapping
+                         it reveals the exact same three buttons, same
+                         icons, same behaviour, just not sitting in the
+                         row by default. -->
                     <button class="chat-kebab-btn" x-show="renamingChat !== chat.id"
                             @click="chatMenuFor = chatMenuFor === chat.id ? '' : chat.id"
                             :aria-expanded="chatMenuFor === chat.id"
@@ -2872,23 +2873,22 @@
                   </div>
                   <div class="fold chat-row-fold" :class="{ open: chatMenuFor === chat.id }">
                     <div class="fold-clip">
-                      <div class="chat-row-menu">
-                        <button class="chat-row-menu-item" @click="chatMenuFor = ''; startRenameChat(chat, $el)">
+                      <div class="chat-row-actions">
+                        <button class="glyph-btn" @click="chatMenuFor = ''; startRenameChat(chat, $el)"
+                                title="Rename chat" aria-label="Rename chat">
                           <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-edit"/></svg>
-                          <span>Rename</span>
                         </button>
-                        <a class="chat-row-menu-item" :href="`/api/chats/${chat.id}/export?download=true`"
+                        <a class="glyph-btn" :href="`/api/chats/${chat.id}/export?download=true`"
                            :download="`${chat.title || 'chat'}.json`"
-                           @click="chatMenuFor = ''">
+                           @click="chatMenuFor = ''"
+                           title="Export chat" aria-label="Export chat">
                           <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-export"/></svg>
-                          <span>Export</span>
                         </a>
-                        <button class="chat-row-menu-item danger" :class="{ armed: confirmChat === chat.id }"
+                        <button class="glyph-btn danger" :class="{ armed: confirmChat === chat.id }"
                                 @click="deleteChat(chat)"
-                                :aria-label="confirmChat === chat.id ? 'Tap again to delete' : 'Delete chat'">
-                          <span class="glyph" x-text="confirmChat === chat.id ? '⚠&#xFE0E;' : '✕&#xFE0E;'"></span>
-                          <span x-text="confirmChat === chat.id ? 'Tap again to delete' : 'Delete'"></span>
-                        </button>
+                                :title="confirmChat === chat.id ? 'Tap again to delete' : 'Delete chat'"
+                                aria-label="Delete chat"
+                                x-text="confirmChat === chat.id ? '⚠&#xFE0E;' : '✕&#xFE0E;'"></button>
                       </div>
                     </div>
                   </div>

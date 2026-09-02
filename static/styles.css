@@ -2046,44 +2046,13 @@ body {
 .chat-kebab-btn:active { background: var(--panel-2); }
 
 /* Rename/export/delete, folded under the row's own kebab button (§
-   index.html "Recent chats") as an actual compact menu — a narrow list
-   hugging the right edge, not the same three wide buttons merely hidden
-   until tapped. Same .fold/.fold-clip grid-rows trick as everywhere else
-   this app expands something inline, so a menu near the bottom of a long
-   scrolled list pushes the page rather than getting clipped by it. */
-.chat-row-menu {
-  display: flex;
-  flex-direction: column;
-  width: max-content;
-  min-width: 150px;
-  max-width: 210px;
-  margin: 0 8px 8px auto;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  overflow: hidden;
-}
-.chat-row-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  background: none;
-  border: 0;
-  border-top: 1px solid var(--line);
-  color: var(--text);
-  text-align: left;
-  font: inherit;
-  font-size: 13px;
-  padding: 10px 12px;
-  transition: background 140ms var(--ease-out);
-}
-.chat-row-menu-item:first-child { border-top: 0; }
-.chat-row-menu-item:active { background: var(--panel); }
-.chat-row-menu-item.danger { color: var(--error); }
-.chat-row-menu-item.armed { background: var(--error); color: var(--on-accent); }
-.chat-row-menu-item .icon-btn-glyph { width: 15px; height: 15px; flex: none; }
-.chat-row-menu-item .glyph { flex: none; }
+   index.html "Recent chats") — the exact same .glyph-btn row these always
+   were, just not sitting in the row by default. Right-aligned under the
+   kebab, same trailing-edge spot the three of them held before this.
+   Same .fold/.fold-clip grid-rows trick as everywhere else this app
+   expands something inline, so a fold near the bottom of a long scrolled
+   list pushes the page rather than getting clipped by it. */
+.chat-row-actions { display: flex; justify-content: flex-end; gap: 4px; padding: 0 8px 8px; }
 
 /* The offer to answer a message whose reply never came. It sits where the
    reply would have been and is quiet about it — a failed turn is already one
