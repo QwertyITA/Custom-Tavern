@@ -14,6 +14,7 @@ import binascii
 import json
 import struct
 import uuid
+import zlib
 from pathlib import Path
 from typing import Any
 
@@ -64,8 +65,6 @@ def read_png_text_chunks(data: bytes) -> dict[str, str]:
             for _ in range(2):
                 _, _, payload = payload.partition(b"\x00")
             if compressed:
-                import zlib
-
                 try:
                     payload = zlib.decompress(payload)
                 except zlib.error:
@@ -89,6 +88,100 @@ def card_json_from_png(data: bytes) -> dict[str, Any]:
         except json.JSONDecodeError:
             continue
     raise CardError("no character data found in PNG (looked for ccv3 and chara)")
+
+
+# ----------------------------------------------------------- writing chunks
+
+# Not a standard keyword (ccv3/chara are) — this app's own bonus, read only
+# by the code just below and written only by to_card_png. A plain PNG
+# viewer, and any other card reader, just never looks for it and sees an
+# ordinary portrait; only this app's own import goes looking further.
+SPRITE_KEYWORD = "tavern-sprites"
+
+
+def _text_chunk(keyword: str, text: str) -> bytes:
+    """One tEXt chunk, length-prefixed and CRC'd — the write side of
+    read_png_text_chunks' tEXt branch above. `text` must already be pure
+    ASCII (base64 output always is), since tEXt is latin-1 only."""
+    body = keyword.encode("latin-1") + b"\x00" + text.encode("latin-1")
+    chunk_type = b"tEXt"
+    payload = chunk_type + body
+    crc = zlib.crc32(payload) & 0xFFFFFFFF
+    return struct.pack(">I", len(body)) + payload + struct.pack(">I", crc)
+
+
+def _insert_before_iend(png: bytes, chunk: bytes) -> bytes:
+    """Splice one raw chunk in just ahead of IEND — the one position an
+    ancillary chunk (§ the PNG spec) is always valid to add, regardless of
+    whatever else the file already carries."""
+    idx = png.rfind(b"IEND")
+    if idx < 4:
+        raise CardError("not a well-formed PNG (no IEND chunk)")
+    insert_at = idx - 4  # IEND's own 4-byte length prefix
+    return png[:insert_at] + chunk + png[insert_at:]
+
+
+def embed_sprites(png: bytes, sprites: dict[str, dict[str, str]]) -> bytes:
+    """Bundles extra expression portraits into one exported PNG.
+
+    Base64 JSON in a tEXt chunk, the same trick the card payload itself
+    already rides in under the `chara` keyword (§ card_json_from_png) — so
+    a normal image viewer just shows the neutral portrait on the canvas,
+    and only this app's own import path (§ extract_sprites) goes looking
+    for anything past it. `sprites` is `{name: {"img_b64": ...,
+    "description": ...}}`; the image bytes are base64 a second time here
+    (once for this JSON, same as any binary-in-JSON has to be) — simpler
+    than a binary-safe format for what is, in practice, a handful of small
+    cropped portraits, not a media library.
+    """
+    if not png.startswith(PNG_SIGNATURE):
+        raise CardError("not a PNG file")
+    payload = base64.b64encode(json.dumps(sprites).encode("utf-8")).decode("ascii")
+    return _insert_before_iend(png, _text_chunk(SPRITE_KEYWORD, payload))
+
+
+def extract_sprites(png: bytes) -> dict[str, dict[str, str]]:
+    """The other half of embed_sprites. Empty (never an error) for a PNG
+    with nothing of ours in it — every card that predates this feature, and
+    every card that never had extra expressions to carry."""
+    raw = read_png_text_chunks(png).get(SPRITE_KEYWORD)
+    if not raw:
+        return {}
+    try:
+        decoded = base64.b64decode(raw, validate=False).decode("utf-8")
+        data = json.loads(decoded)
+    except (binascii.Error, UnicodeDecodeError, ValueError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def to_card_png(character: Character, base_png: bytes, sprite_files: dict[str, bytes]) -> bytes:
+    """The character as one PNG: the neutral portrait as the visible image,
+    the card JSON in a `chara` chunk exactly like any V2/V3 card already
+    carries (round-trips through the plain PNG import unchanged), and every
+    other pfp_set entry's own image bytes bundled alongside it (§
+    embed_sprites) — described from character.expression_meta where one
+    exists. `sprite_files` is keyed by the same pfp_set name, holding each
+    slot's raw image bytes; entries this app cannot resolve to a real file
+    (§ export_character, main.py) are simply not offered here, not an error.
+    """
+    if not base_png.startswith(PNG_SIGNATURE):
+        raise CardError("the neutral portrait is not a PNG")
+    chara_b64 = base64.b64encode(
+        json.dumps(to_card_json(character)).encode("utf-8")
+    ).decode("ascii")
+    out = _insert_before_iend(base_png, _text_chunk("chara", chara_b64))
+    if not sprite_files:
+        return out
+    meta = character.expression_meta or {}
+    sprites = {
+        key: {
+            "img_b64": base64.b64encode(data).decode("ascii"),
+            "description": (meta.get(key) or {}).get("description", ""),
+        }
+        for key, data in sprite_files.items()
+    }
+    return embed_sprites(out, sprites)
 
 
 # ------------------------------------------------------------------ mapping

@@ -697,6 +697,21 @@ def test_the_character_list_carries_a_portrait_and_chat_count(client):
     assert after["pfp"]
 
 
+def test_the_character_list_flags_extra_expressions(client):
+    """§ has_expressions, repo.py — what the roster's export link (§
+    characterExportUrl, app.js) picks its format from."""
+    character_id = client.get("/api/characters").json()[0]["id"]
+    client.put(f"/api/characters/{character_id}", json={"pfp_set": {"neutral": "n.png"}})
+    row = next(c for c in client.get("/api/characters").json() if c["id"] == character_id)
+    assert row["has_expressions"] is False
+
+    client.put(f"/api/characters/{character_id}", json={
+        "pfp_set": {"neutral": "n.png", "happy": "h.png"},
+    })
+    row = next(c for c in client.get("/api/characters").json() if c["id"] == character_id)
+    assert row["has_expressions"] is True
+
+
 def test_deleting_a_character_takes_its_chats_with_it(client):
     character_id = client.post("/api/characters", json={"name": "Doomed"}).json()["id"]
     chat_id = client.post("/api/chats", json={"character_id": character_id}).json()["id"]

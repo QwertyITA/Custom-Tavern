@@ -124,6 +124,38 @@ def test_png_without_card_data_raises():
         cards.from_bytes(make_png({"Comment": "just a picture"}), "plain.png")
 
 
+def test_sprites_round_trip_through_a_png():
+    """§ cards.embed_sprites / extract_sprites — the write side of the same
+    tEXt-chunk trick the card payload itself already rides in (§
+    card_json_from_png above), just under its own keyword."""
+    png = make_png({})
+    sprites = {
+        "happy": {"img_b64": base64.b64encode(b"HAPPYBYTES").decode(), "description": "a grin"}
+    }
+    out = cards.embed_sprites(png, sprites)
+    assert out.startswith(cards.PNG_SIGNATURE)
+    assert cards.extract_sprites(out) == sprites
+    # A PNG with nothing of ours embedded reads back empty, not an error —
+    # every card that predates this feature looks like this.
+    assert cards.extract_sprites(png) == {}
+
+
+def test_to_card_png_bundles_the_card_and_its_extra_portraits():
+    base = make_png({})
+    character = Character(
+        id="x", name="Mira",
+        pfp_set={"neutral": "/avatars/n.png", "happy": "/avatars/h.png"},
+        expression_meta={"happy": {"description": "a grin"}},
+    )
+    out = cards.to_card_png(character, base, {"happy": b"HAPPYBYTES"})
+
+    back = cards.card_json_from_png(out)
+    assert back.get("name") == "Mira"
+    sprites = cards.extract_sprites(out)
+    assert base64.b64decode(sprites["happy"]["img_b64"]) == b"HAPPYBYTES"
+    assert sprites["happy"]["description"] == "a grin"
+
+
 def test_non_card_file_raises():
     with pytest.raises(cards.CardError):
         cards.from_bytes(b"this is not a card", "notes.txt")
@@ -330,6 +362,61 @@ def test_importing_a_png_card_keeps_the_picture(client, isolated_settings, isola
     assert character.pfp_set.get("neutral", "").startswith("/avatars/")
     saved = isolated_avatars / character.pfp_set["neutral"].rsplit("/", 1)[-1]
     assert saved.read_bytes() == data
+
+
+def test_exporting_as_png_bundles_extra_portraits_and_reimport_restores_them(
+    client, isolated_settings, isolated_avatars
+):
+    """§ export_character_png, main.py — the whole point: a plain JSON
+    export never carried the image bytes behind pfp_set, only local paths,
+    so every expression but whichever happened to be a card's own visible
+    picture was lost the moment the export left this device."""
+    from app import repo
+    from app.db import get_db
+
+    character_id = client.get("/api/characters").json()[0]["id"]
+    neutral_png = make_png({})
+    happy_png = make_png({})
+    isolated_avatars.mkdir(parents=True, exist_ok=True)
+    (isolated_avatars / "n.png").write_bytes(neutral_png)
+    (isolated_avatars / "h.png").write_bytes(happy_png)
+
+    response = client.put(f"/api/characters/{character_id}", json={
+        "pfp_set": {"neutral": "/avatars/n.png", "happy": "/avatars/h.png"},
+        "expression_meta": {"happy": {"description": "a grin"}},
+    })
+    assert response.status_code == 200
+
+    exported = client.get(f"/api/characters/{character_id}/export.png")
+    assert exported.status_code == 200
+    assert exported.headers["content-type"].startswith("image/png")
+    png_bytes = exported.content
+    sprites = cards.extract_sprites(png_bytes)
+    assert base64.b64decode(sprites["happy"]["img_b64"]) == happy_png
+    assert sprites["happy"]["description"] == "a grin"
+
+    # Reimporting it (a stand-in for "on another device") restores the
+    # extra portrait as a real file again, not a dangling path.
+    reimport = client.post("/api/characters/import?filename=roundtrip.png", content=png_bytes)
+    assert reimport.status_code == 200
+    reimported = repo.get_character(get_db(), reimport.json()["id"])
+    assert reimported.pfp_set.get("happy", "").startswith("/avatars/")
+    assert reimported.expression_meta.get("happy", {}).get("description") == "a grin"
+    saved = isolated_avatars / reimported.pfp_set["happy"].rsplit("/", 1)[-1]
+    assert saved.read_bytes() == happy_png
+
+
+def test_exporting_as_png_needs_a_resolvable_neutral_portrait(client):
+    """A card whose neutral picture is bundled static art (never this app's
+    own upload) has no raw bytes this can read generically — refused rather
+    than silently exporting a blank or wrong image."""
+    character_id = client.get("/api/characters").json()[0]["id"]
+    response = client.put(f"/api/characters/{character_id}", json={
+        "pfp_set": {"neutral": "mira/neutral.png"},
+    })
+    assert response.status_code == 200
+    exported = client.get(f"/api/characters/{character_id}/export.png")
+    assert exported.status_code == 400
 
 
 def test_a_json_card_imports_without_a_picture(client, isolated_settings):

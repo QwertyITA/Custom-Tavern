@@ -7,6 +7,8 @@ Runs on the phone at localhost:PORT and is reached only from the phone itself
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import io
 import json
 import time
@@ -15,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Body, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import assembly, attachments, avatar_video, backup, card_compression, cards, chat_files, character_reactions, config, debug_export, groups, macros
@@ -802,6 +804,34 @@ async def import_character(request: Request, filename: str = Query("card.json"))
         saved = _store_avatar(payload, f"{character.name or 'card'}.png")
         if saved:
             character.pfp_set = {"neutral": saved}
+    # Extra expression portraits this app's own export bundled (§
+    # cards.embed_sprites) — self-contained bytes, unlike a `pfp_set` path
+    # in the card's own JSON, which may point at a file that only ever
+    # existed on whichever device made the export. Always restored to a
+    # freshly stored file here rather than only filling in what pfp_set is
+    # missing, since the embedded bytes are the one copy guaranteed to
+    # actually be portable.
+    if payload.startswith(cards.PNG_SIGNATURE):
+        sprites = cards.extract_sprites(payload)
+        if sprites:
+            pfp_set = dict(character.pfp_set)
+            expression_meta = dict(character.expression_meta)
+            for key, entry in sprites.items():
+                if not isinstance(entry, dict) or not isinstance(entry.get("img_b64"), str):
+                    continue
+                try:
+                    img_bytes = base64.b64decode(entry["img_b64"], validate=False)
+                except (binascii.Error, ValueError):
+                    continue
+                saved = _store_avatar(img_bytes, f"{key}.png")
+                if not saved:
+                    continue
+                pfp_set[key] = saved
+                description = str(entry.get("description") or "").strip()[:400]
+                if description:
+                    expression_meta[key] = {"description": description}
+            character.pfp_set = pfp_set
+            character.expression_meta = expression_meta
     repo.save_character(get_db(), character)
     # Best-effort and not awaited: the import response should not wait on a
     # model call, and a backend that is slow or unreachable right now is not
@@ -855,6 +885,63 @@ async def export_character(character_id: str, download: bool = False) -> JSONRes
     if download:
         headers["Content-Disposition"] = f'attachment; filename="{_card_filename(character.name)}"'
     return JSONResponse(card, headers=headers)
+
+
+def _resolve_own_avatar(value: str) -> bytes | None:
+    """Read back the bytes an app-uploaded pfp_set value points at.
+
+    Only `/avatars/...` — this app's own uploads, always a real PNG (§
+    the cropper, app.js, which never writes anything else). A card's own
+    bundled art living elsewhere in the static tree is not something this
+    can read raw bytes for generically, so it is simply not offered for
+    embedding rather than guessed at.
+    """
+    if not value.startswith("/avatars/"):
+        return None
+    path = config.avatar_path(value[len("/avatars/") :])
+    if path is None:
+        return None
+    try:
+        return path.read_bytes()
+    except OSError:
+        return None
+
+
+@app.get("/api/characters/{character_id}/export.png")
+async def export_character_png(character_id: str, download: bool = False) -> Response:
+    """The card as one PNG, sprites and all (§ cards.to_card_png).
+
+    A plain JSON export (the route above) carries every field including
+    `pfp_set`, but never the image *bytes* behind it — those stay local
+    filenames, so a card exported to another device loses every portrait
+    but whichever one happens to already be embedded in a PNG it started
+    as. This bundles them all into one file instead: the neutral portrait
+    as the visible image, everything else riding in a chunk only this
+    app's own import (§ import_character) goes looking for.
+    """
+    character = repo.get_character(get_db(), character_id)
+    if character is None:
+        raise HTTPException(404, "character not found")
+    neutral = character.pfp_set.get("neutral", "")
+    base_png = _resolve_own_avatar(neutral)
+    if base_png is None:
+        raise HTTPException(400, "no portrait to build a PNG export from")
+    sprite_files = {}
+    for key, value in character.pfp_set.items():
+        if key == "neutral":
+            continue
+        data = _resolve_own_avatar(value)
+        if data is not None:
+            sprite_files[key] = data
+    try:
+        png = cards.to_card_png(character, base_png, sprite_files)
+    except cards.CardError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    headers = {}
+    if download:
+        name = _card_filename(character.name).replace(".card.json", ".card.png")
+        headers["Content-Disposition"] = f'attachment; filename="{name}"'
+    return Response(content=png, media_type="image/png", headers=headers)
 
 
 @app.delete("/api/characters/{character_id}")

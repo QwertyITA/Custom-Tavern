@@ -2781,8 +2781,15 @@
                           title="Edit character" aria-label="Edit character">
                     <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-edit"/></svg>
                   </button>
-                  <a class="glyph-btn" :href="`/api/characters/${c.id}/export?download=true`"
-                     :download="`${c.name}.card.json`" @click.stop
+                  <!-- PNG when there is more than neutral to carry (§
+                       has_expressions, repo.py) — the same card data either
+                       way, but a PNG also bundles the actual portrait bytes
+                       (§ export_character_png, main.py), which plain JSON
+                       never could. Nothing to choose: the link just picks
+                       whichever format actually preserves what this
+                       character has. -->
+                  <a class="glyph-btn" :href="characterExportUrl(c)"
+                     :download="characterExportName(c)" @click.stop
                      title="Export card" aria-label="Export card">
                     <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-export"/></svg>
                   </a>

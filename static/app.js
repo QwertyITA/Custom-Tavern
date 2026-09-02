@@ -4211,6 +4211,20 @@ function tavern() {
       }
     },
 
+    // The roster's export link (§ index.html) — PNG when there is more
+    // than a neutral portrait to carry (§ has_expressions, repo.py), since
+    // only a PNG export actually bundles the extra portraits' own bytes
+    // (§ export_character_png, main.py); plain JSON otherwise, same as
+    // always for a character with nothing more to lose.
+    characterExportUrl(c) {
+      return c.has_expressions
+        ? `/api/characters/${c.id}/export.png?download=true`
+        : `/api/characters/${c.id}/export?download=true`;
+    },
+    characterExportName(c) {
+      return `${c.name}.card.${c.has_expressions ? "png" : "json"}`;
+    },
+
     async newCharacter() {
       try {
         const created = await api.post("/api/characters", { name: "New character" });

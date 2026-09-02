@@ -90,6 +90,12 @@ def list_characters(db: Database) -> list[dict]:
                 # character is wrong on the next, so the roster has to know it
                 # too rather than drawing every face plain.
                 "pfp_effect": card.get("pfp_effect") if isinstance(card.get("pfp_effect"), dict) else {},
+                # Whether there is anything beyond neutral worth bundling
+                # into a PNG export (§ export_character_png, main.py) — the
+                # roster's own export link picks its URL from this rather
+                # than the card fetching its own full pfp_set just to ask
+                # the same one-bit question.
+                "has_expressions": len(pfp_set) > 1,
                 # So starring/unstarring can show the character's own line
                 # instead of a generic toast, without a second round trip.
                 "reactions": card.get("reactions") if isinstance(card.get("reactions"), dict) else {},
