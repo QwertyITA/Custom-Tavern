@@ -586,6 +586,26 @@ function realisticPacing(text) {
   return { silenceMs, typingMinMs: randRange(REALISTIC_TYPING_MIN_MS) };
 }
 
+// "/" lines in the composer are forced actions, not something to send — see
+// send() and runSlashCommand(). A table rather than an if/else chain in
+// send() itself, so a new command is one more entry here, not a new branch
+// there. `passId` is run through the same on-demand endpoint the world-pill's
+// own refresh button uses (§ refreshWorld) — a hand-forced run behaves
+// exactly like a scheduled one, same event stream, same write rules — and
+// `flag` is the matching key in `refreshing` that marks it running.
+const SLASH_COMMANDS = {
+  background: { passId: "background_swap", flag: "background", hint: "Checking the background…" },
+};
+
+// Only a whole "/word" line counts — "/" mid-sentence is just punctuation,
+// and a command with trailing words ("/background please") is not one of
+// the fixed few names above, so it falls through to being sent as text
+// rather than silently doing the wrong thing.
+function parseSlashCommand(text) {
+  const match = /^\/([a-z]+)$/i.exec(text);
+  return match ? SLASH_COMMANDS[match[1].toLowerCase()] || null : null;
+}
+
 // How far from the bottom still counts as "following the conversation". Big
 // enough to absorb sub-pixel scroll heights and the rubber-band at the end of
 // a touch scroll, small enough that one deliberate flick upward detaches.
@@ -1647,6 +1667,24 @@ function tavern() {
       } catch (e) {
         this.refreshing.scene = false;
         this.error = errorText(e);
+      }
+    },
+
+    // Runs a "/" command (§ SLASH_COMMANDS, send()) — the same on-demand
+    // pass endpoint refreshWorld() above uses, just for whichever pass the
+    // command names. `pass_status` events (§ handleEvent) are what turn
+    // `refreshing[flag]` back off once the run actually finishes; nothing
+    // here waits on it, since run_pass_now launches the pass and returns
+    // immediately rather than awaiting it.
+    async runSlashCommand(command) {
+      if (!this.chatId || this.refreshing[command.flag]) return;
+      this.refreshing[command.flag] = true;
+      this.flashHint(command.hint);
+      try {
+        await api.post(`/api/chats/${this.chatId}/passes/${command.passId}/run`, {});
+      } catch (e) {
+        this.refreshing[command.flag] = false;
+        this.flashHint(errorText(e));
       }
     },
 
@@ -4505,6 +4543,7 @@ function tavern() {
               ? [...new Set([...this.ambient, event.run.label])]
               : this.ambient.filter((a) => a !== event.run.label);
             if (event.run.pass_id === "scene") this.refreshing.scene = running;
+            if (event.run.pass_id === "background_swap") this.refreshing.background = running;
           }
           break;
         }
@@ -4626,6 +4665,15 @@ function tavern() {
 
     async send() {
       const text = this.draft.trim();
+      // A recognised "/" line is a forced action (§ SLASH_COMMANDS above),
+      // not a message — it never reaches the transcript at all, same as
+      // hitting the world-pill's own refresh button by hand.
+      const command = parseSlashCommand(text);
+      if (command) {
+        this.draft = "";
+        if (this.$refs.input) this.$refs.input.style.height = "auto";
+        return this.runSlashCommand(command);
+      }
       const files = this.stagedIds();
       // "Look at this" with a picture and no words is a real message; only one
       // with neither is empty.
