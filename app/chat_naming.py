@@ -71,6 +71,21 @@ def queue_all_unnamed(db: Database, settings: Settings) -> int:
     return added
 
 
+def clear_queue(settings: Settings) -> int:
+    """Empty the queue outright — every chat in it keeps whatever title it
+    already has (the character's name, almost always) and simply stops
+    waiting for a better one. Does not touch a chat_rename attempt already
+    in flight: that one finishes on its own, same as it would if the queue
+    had emptied out from under it any other way (§ _handler_chat_rename's
+    own dequeue, a no-op once the entry it's looking for is already gone).
+    """
+    cleared = len(settings.rename_queue)
+    if cleared:
+        settings.rename_queue = []
+        save_settings(settings)
+    return cleared
+
+
 def _demote_current_latest(db: Database, settings: Settings) -> None:
     chat_id = settings.latest_chat_id
     if not chat_id:

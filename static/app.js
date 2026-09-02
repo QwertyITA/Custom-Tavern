@@ -1062,6 +1062,7 @@ function tavern() {
     hud: false,
     debugLogBusy: false,
     queueingUnnamed: false,
+    clearingQueue: false,
     // § brokenPfp/markPfpBroken below — which portrait URLs have 404'd.
     brokenPfps: {},
     error: "",
@@ -6907,6 +6908,27 @@ function tavern() {
         this.flashHint(errorText(e));
       } finally {
         this.queueingUnnamed = false;
+      }
+    },
+
+    // The undo for the button above — every chat in the queue keeps
+    // whatever title it already has, it just stops waiting for a better
+    // one. Doesn't touch an attempt already in flight (§ chat_naming.py's
+    // clear_queue) — that one finishes on its own.
+    async clearRenameQueue() {
+      this.clearingQueue = true;
+      try {
+        const result = await api.del("/api/chats/rename-queue");
+        this.settings.rename_queue = [];
+        this.flashHint(
+          result.cleared
+            ? `Cleared ${result.cleared} chat${result.cleared === 1 ? "" : "s"} from the queue`
+            : "Nothing queued"
+        );
+      } catch (e) {
+        this.flashHint(errorText(e));
+      } finally {
+        this.clearingQueue = false;
       }
     },
 

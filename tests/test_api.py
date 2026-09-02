@@ -284,6 +284,20 @@ def test_queue_unnamed_endpoint_finds_character_named_chats(client, isolated_set
     assert again.json()["queued"] == 0
 
 
+def test_clear_rename_queue_endpoint(client, isolated_settings):
+    from app import config
+
+    config.SETTINGS.rename_queue = ["a", "b"]
+
+    result = client.delete("/api/chats/rename-queue")
+    assert result.status_code == 200
+    assert result.json()["cleared"] == 2
+    assert config.SETTINGS.rename_queue == []
+
+    again = client.delete("/api/chats/rename-queue")
+    assert again.json()["cleared"] == 0
+
+
 # ------------------------------------------------------------------- turn
 
 

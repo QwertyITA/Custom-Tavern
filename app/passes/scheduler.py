@@ -25,6 +25,7 @@ import random
 import re
 import time
 import uuid
+from collections import deque
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -172,6 +173,51 @@ CONTEXT_SAFETY = assembly.CONTEXT_SAFETY
 MIN_CONTEXT = assembly.MIN_CONTEXT
 
 
+class _PriorityLock:
+    """One lock, two waiting lines (§ PassScheduler._rename_lock).
+
+    The "queue all unnamed chats" button's own burst (§ kick_rename_queue)
+    always cuts ahead of the ordinary line every message and every swipe
+    joins — it is what someone pressing that button is actually asking for:
+    not to wait behind however many other chats happen to be finishing up
+    first. It never preempts whichever attempt is already running, only
+    reorders who goes *next* once that one releases the lock.
+    """
+
+    def __init__(self) -> None:
+        self._locked = False
+        self._high: deque[asyncio.Future] = deque()
+        self._normal: deque[asyncio.Future] = deque()
+
+    async def acquire(self, *, priority: bool = False) -> None:
+        if not self._locked:
+            self._locked = True
+            return
+        fut = asyncio.get_running_loop().create_future()
+        line = self._high if priority else self._normal
+        line.append(fut)
+        try:
+            await fut
+        except asyncio.CancelledError:
+            # Still waiting, never woken — drop out rather than leave a
+            # cancelled future for release() to skip past forever.
+            try:
+                line.remove(fut)
+            except ValueError:
+                pass
+            raise
+
+    def release(self) -> None:
+        for line in (self._high, self._normal):
+            while line:
+                fut = line.popleft()
+                if not fut.done():
+                    fut.set_result(None)
+                    return  # ownership passes straight to the woken waiter
+            # every future in this line was already cancelled — try the next
+        self._locked = False
+
+
 class PassScheduler:
     def __init__(self, db: Database, settings: Settings) -> None:
         self.db = db
@@ -198,10 +244,13 @@ class PassScheduler:
         # nothing serialising them, a run of messages sent close together
         # (any background tier slower than instant, e.g. Horde) would launch
         # that many *concurrent* calls, several of them racing for the same
-        # front-of-queue chat. A single process-wide lock instead: a second
-        # attempt waits for the first to actually finish, then runs against
-        # whatever the queue looks like by then, rather than piling on.
-        self._rename_lock = asyncio.Lock()
+        # front-of-queue chat. A priority lock instead (§ _PriorityLock):
+        # a second attempt waits for the first to actually finish, then runs
+        # against whatever the queue looks like by then, rather than piling
+        # on — and the "queue all unnamed chats" button's own burst always
+        # goes first in that wait, never behind however many ordinary
+        # message-triggered attempts happen to already be in line.
+        self._rename_lock = _PriorityLock()
 
     # ------------------------------------------------------------- plumbing
 
@@ -2275,7 +2324,7 @@ class PassScheduler:
         self._track(chat_id, task)
         return {"ok": True, "run_id": run_id, "pass_id": pass_id}
 
-    async def _drain_rename_queue(self) -> None:
+    async def _drain_rename_queue(self, *, priority: bool = False) -> None:
         """Try the chat that has been waiting longest for a name.
 
         One chat per call, from the front of `Settings.rename_queue` (§
@@ -2286,17 +2335,20 @@ class PassScheduler:
         just mean it is tried again next time rather than lost or pushed
         behind newer arrivals.
 
-        Serialised on `self._rename_lock` (§ __init__) rather than left to
-        run however many of these land at once: several messages sent close
-        together each launch their own call, and without this they would be
-        that many concurrent chat_rename attempts — on a slow background
-        tier (Horde, say) several actual jobs in flight together, more than
-        one of them liable to be racing for the very same front-of-queue
-        chat. A call that arrives while another is still working waits for
-        it to finish rather than running alongside it, and then acts on
-        whatever the queue looks like by then.
+        Serialised on `self._rename_lock` (§ __init__, _PriorityLock) rather
+        than left to run however many of these land at once: several
+        messages sent close together each launch their own call, and
+        without this they would be that many concurrent chat_rename
+        attempts — on a slow background tier (Horde, say) several actual
+        jobs in flight together, more than one of them liable to be racing
+        for the very same front-of-queue chat. A call that arrives while
+        another is still working waits for it to finish rather than running
+        alongside it, and then acts on whatever the queue looks like by
+        then. `priority=True` (§ kick_rename_queue) cuts to the front of
+        that wait — never in front of whichever attempt is already running.
         """
-        async with self._rename_lock:
+        await self._rename_lock.acquire(priority=priority)
+        try:
             if "background" in (self.settings.tiers_off or []):
                 return
             definition = registry.get_pass(self.db, "chat_rename")
@@ -2337,6 +2389,8 @@ class PassScheduler:
                 self._record_run(
                     ctx, definition, "failed", run_id=run_id, error=repr(exc), finished_at=time.time()
                 )
+        finally:
+            self._rename_lock.release()
 
     async def kick_rename_queue(self, limit: int = 5) -> None:
         """Work through several chats right away instead of waiting on the
@@ -2345,7 +2399,9 @@ class PassScheduler:
         it) — pressing a button that says "queue" and then watching nothing
         happen until you go type in an unrelated chat is not what anyone
         pressing it wants, whatever `_drain_rename_queue`'s own usual trigger
-        is for everything else.
+        is for everything else. Runs with priority (§ _PriorityLock): this
+        burst always goes first, ahead of however many ordinary message- or
+        swipe-triggered attempts happen to already be waiting their turn.
 
         Stops early if a call makes no progress — the queue is unchanged,
         meaning that chat is stuck (a broken backend, say) — rather than
@@ -2355,7 +2411,7 @@ class PassScheduler:
             before = list(self.settings.rename_queue)
             if not before:
                 return
-            await self._drain_rename_queue()
+            await self._drain_rename_queue(priority=True)
             if self.settings.rename_queue == before:
                 return
 

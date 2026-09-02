@@ -1148,9 +1148,18 @@ async def create_chat(payload: CreateChatRequest) -> dict:
     return chat
 
 
-# These three sit above /api/chats/{chat_id} on purpose: routes match in the
-# order they are declared, so "search", "import" and "queue-unnamed" would
-# otherwise be read as chat ids and 404.
+# These four sit above /api/chats/{chat_id} on purpose: routes match in the
+# order they are declared, so "search", "import", "queue-unnamed" and
+# "rename-queue" would otherwise be read as chat ids and 404.
+@app.delete("/api/chats/rename-queue")
+async def clear_rename_queue() -> dict:
+    """Empty the rename queue outright (§ Settings → Chat naming's own
+    button). Every chat in it keeps whatever title it already has — this
+    only stops it waiting for a better one."""
+    cleared = chat_naming.clear_queue(config.SETTINGS)
+    return {"ok": True, "cleared": cleared}
+
+
 @app.post("/api/chats/queue-unnamed")
 async def queue_unnamed_chats() -> dict:
     """Requeue every chat still just called after its character (§ Settings

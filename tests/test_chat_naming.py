@@ -139,6 +139,28 @@ def test_queue_all_unnamed_is_a_no_op_when_nothing_qualifies(db, character, isol
     assert settings.rename_queue == []
 
 
+# ------------------------------------------------------------- clear_queue
+
+
+def test_clear_queue_empties_it_and_reports_the_count(isolated_settings):
+    settings = Settings()
+    settings.rename_queue = ["a", "b", "c"]
+
+    cleared = chat_naming.clear_queue(settings)
+
+    assert cleared == 3
+    assert settings.rename_queue == []
+
+
+def test_clear_queue_on_an_empty_queue_is_a_no_op(isolated_settings):
+    settings = Settings()
+
+    cleared = chat_naming.clear_queue(settings)
+
+    assert cleared == 0
+    assert settings.rename_queue == []
+
+
 def test_a_deleted_chat_is_just_dropped(db, character, isolated_settings):
     latest = repo.create_chat(db, character.id, chat_naming.LATEST_LABEL)
     settings = Settings()

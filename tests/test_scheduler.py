@@ -386,6 +386,49 @@ def test_concurrent_drain_calls_never_run_at_the_same_time(
     assert repo.get_chat(sched.db, other["id"])["title"] != character.name
 
 
+def test_priority_drain_cuts_ahead_of_a_waiting_normal_one(
+    sched, character, monkeypatch, isolated_settings
+):
+    """The "queue all unnamed chats" burst (§ kick_rename_queue,
+    priority=True) always goes next once the lock frees up, ahead of
+    whichever ordinary message-triggered call got in line first — never in
+    front of whatever is already running, only in front of other waiters."""
+    chats = [repo.create_chat(sched.db, character.id, character.name) for _ in range(3)]
+    for c in chats:
+        repo.add_message(sched.db, c["id"], "assistant", "Sit wherever.")
+    monkeypatch.setattr(sched.settings, "rename_queue", [c["id"] for c in chats])
+
+    order: list[str] = []
+    real_execute = sched._execute
+    release_first = asyncio.Event()
+
+    async def tracked_execute(ctx, definition, run_id=None):
+        order.append(ctx.chat_id)
+        if len(order) == 1:
+            # Held open until both waiters below have actually joined their
+            # lines, so the test proves ordering rather than luck.
+            await release_first.wait()
+        await real_execute(ctx, definition, run_id)
+
+    monkeypatch.setattr(sched, "_execute", tracked_execute)
+
+    async def scenario():
+        first = asyncio.create_task(sched._drain_rename_queue())
+        await asyncio.sleep(0)  # first: acquires the lock, blocks in _execute
+        normal = asyncio.create_task(sched._drain_rename_queue())
+        await asyncio.sleep(0)  # normal: joins the ordinary waiting line
+        priority = asyncio.create_task(sched._drain_rename_queue(priority=True))
+        await asyncio.sleep(0)  # priority: joins the high-priority line
+        release_first.set()
+        await asyncio.gather(first, normal, priority)
+
+    sync(scenario())
+
+    assert order == [chats[0]["id"], chats[1]["id"], chats[2]["id"]]
+    for c in chats:
+        assert repo.get_chat(sched.db, c["id"])["title"] != character.name
+
+
 def test_kick_rename_queue_drains_several_in_one_go(sched, chat, character, monkeypatch):
     """The "queue all unnamed chats" button's own reason to exist (§
     kick_rename_queue's docstring) — several chats get a title without

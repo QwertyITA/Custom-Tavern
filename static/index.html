@@ -2418,10 +2418,17 @@
             lost, just never retitled.
           </p>
         </div>
-        <button class="wide" @click="queueUnnamedChats()" :disabled="queueingUnnamed">
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-refresh"/></svg>
-          <span x-text="queueingUnnamed ? 'Queueing…' : 'Queue all unnamed chats'"></span>
-        </button>
+        <div class="btn-row">
+          <button class="wide" @click="queueUnnamedChats()" :disabled="queueingUnnamed">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-refresh"/></svg>
+            <span x-text="queueingUnnamed ? 'Queueing…' : 'Queue all unnamed chats'"></span>
+          </button>
+          <button class="wide" x-show="(settings.rename_queue || []).length"
+                  @click="clearRenameQueue()" :disabled="clearingQueue">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-delete"/></svg>
+            <span x-text="clearingQueue ? 'Clearing…' : 'Clear queue'"></span>
+          </button>
+        </div>
         <p class="kind-note">
           Every chat still just called after its character — dropped by the
           cap above at some point, or from before this existed at all —
@@ -2429,6 +2436,12 @@
           away rather than waiting on your next reply somewhere else; the
           rest catch up the normal way, one per reply, if there are more
           than that.
+        </p>
+        <p class="kind-note" x-show="(settings.rename_queue || []).length">
+          <span x-text="(settings.rename_queue || []).length"></span>
+          chat<span x-show="(settings.rename_queue || []).length !== 1">s</span>
+          waiting right now. Clear queue drops all of them — each keeps the
+          name it already has, it just stops waiting for a better one.
         </p>
 
         <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-heart"/></svg>Reactions</h3>
