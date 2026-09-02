@@ -9,7 +9,13 @@ from app import assembly, repo, state as state_mod
 from app.config import SETTINGS
 from app.models import PassDef, Trigger
 from app.passes import registry
-from app.passes.scheduler import PassScheduler, TurnContext
+from app.passes.scheduler import (
+    CHAT_RENAME_EVERY,
+    CHAT_RENAME_FIRST_AT,
+    PassScheduler,
+    TurnContext,
+    _milestones_crossed,
+)
 from app.state import SLICE_BACKGROUND, SLICE_VARS, read_slice, slice_for
 
 from .conftest import drain, events_of, sync, turn
@@ -329,18 +335,37 @@ def test_expression_makes_no_change_on_an_invalid_pick(sched, chat, character, m
 # --------------------------------------------------------- chat rename
 
 
-def test_chat_rename_writes_the_title_and_dequeues(sched, chat, character, monkeypatch):
-    """The front of the queue gets a real title (§ echo's own "chat_rename"
-    case) and is popped off on success (§ _handler_chat_rename)."""
-    repo.add_message(sched.db, chat["id"], "assistant", "Sit wherever. The fire's better on the left.")
-    repo.add_message(sched.db, chat["id"], "user", "Cold out there.")
-    repo.rename_chat(sched.db, chat["id"], "Latest chat")
-    monkeypatch.setattr(sched.settings, "rename_queue", [chat["id"]])
+def _fill_messages(db, chat_id: str, count: int) -> None:
+    """`count` plain messages, alternating roles starting with the user —
+    a stand-in for a real conversation when only the *number* of messages
+    matters to the test."""
+    for i in range(count):
+        role = "user" if i % 2 == 0 else "assistant"
+        repo.add_message(db, chat_id, role, f"message {i}")
 
-    sync(sched._drain_rename_queue())
 
-    assert repo.get_chat(sched.db, chat["id"])["title"] not in ("", "Latest chat")
-    assert sched.settings.rename_queue == []
+def test_milestones_crossed_counts_anchors_reached_or_passed():
+    """A count almost never lands exactly on an anchor (a chat's greeting
+    is message 1, so real counts run odd) — this is what a milestone check
+    actually compares, not `count == anchor` (§ _maybe_rename_chat)."""
+    assert _milestones_crossed(0) == 0
+    assert _milestones_crossed(9) == 0
+    assert _milestones_crossed(10) == 1
+    assert _milestones_crossed(11) == 1  # the realistic case: crossed, not landed on
+    assert _milestones_crossed(59) == 1
+    assert _milestones_crossed(60) == 2
+    assert _milestones_crossed(61) == 2
+    assert _milestones_crossed(110) == 3
+
+
+def test_chat_rename_fires_at_the_tenth_message(sched, chat, character):
+    _fill_messages(sched.db, chat["id"], CHAT_RENAME_FIRST_AT)
+
+    sync(sched._maybe_rename_chat(context(chat, character)))
+
+    updated = repo.get_chat(sched.db, chat["id"])
+    assert updated["title"] not in ("", chat["title"])
+    assert updated["title_auto_count"] == CHAT_RENAME_FIRST_AT
     row = sched.db.query_one(
         "SELECT status FROM pass_runs WHERE chat_id=? AND pass_id='chat_rename'",
         (chat["id"],),
@@ -348,188 +373,123 @@ def test_chat_rename_writes_the_title_and_dequeues(sched, chat, character, monke
     assert row["status"] == "done"
 
 
-def test_concurrent_drain_calls_never_run_at_the_same_time(
-    sched, chat, character, monkeypatch
-):
-    """Several messages landing close together must not turn into several
-    chat_rename attempts running at once (§ _rename_lock) — a second call
-    waits for the first to actually finish rather than racing it for the
-    same front-of-queue chat."""
-    other = repo.create_chat(sched.db, character.id, character.name)
-    for cid in (chat["id"], other["id"]):
-        repo.add_message(sched.db, cid, "assistant", "Sit wherever.")
-        repo.add_message(sched.db, cid, "user", "Cold out there.")
-    monkeypatch.setattr(sched.settings, "rename_queue", [chat["id"], other["id"]])
+def test_chat_rename_does_not_fire_before_the_tenth_message(sched, chat, character):
+    _fill_messages(sched.db, chat["id"], CHAT_RENAME_FIRST_AT - 1)
 
-    in_flight = 0
-    max_in_flight = 0
-    real_execute = sched._execute
+    sync(sched._maybe_rename_chat(context(chat, character)))
 
-    async def tracked_execute(ctx, definition, run_id=None):
-        nonlocal in_flight, max_in_flight
-        in_flight += 1
-        max_in_flight = max(max_in_flight, in_flight)
-        try:
-            await asyncio.sleep(0.01)  # long enough for a second call to arrive
-            await real_execute(ctx, definition, run_id)
-        finally:
-            in_flight -= 1
-
-    monkeypatch.setattr(sched, "_execute", tracked_execute)
-
-    async def scenario():
-        await asyncio.gather(sched._drain_rename_queue(), sched._drain_rename_queue())
-
-    sync(scenario())
-
-    assert max_in_flight == 1
-    assert sched.settings.rename_queue == []
-    assert repo.get_chat(sched.db, chat["id"])["title"] != character.name
-    assert repo.get_chat(sched.db, other["id"])["title"] != character.name
+    updated = repo.get_chat(sched.db, chat["id"])
+    assert updated["title"] == chat["title"]
+    assert updated["title_auto_count"] == 0
 
 
-def test_priority_drain_cuts_ahead_of_a_waiting_normal_one(
-    sched, character, monkeypatch, isolated_settings
-):
-    """The "queue all unnamed chats" burst (§ kick_rename_queue,
-    priority=True) always goes next once the lock frees up, ahead of
-    whichever ordinary message-triggered call got in line first — never in
-    front of whatever is already running, only in front of other waiters."""
-    chats = [repo.create_chat(sched.db, character.id, character.name) for _ in range(3)]
-    for c in chats:
-        repo.add_message(sched.db, c["id"], "assistant", "Sit wherever.")
-        repo.add_message(sched.db, c["id"], "user", "Cold out there.")
-    monkeypatch.setattr(sched.settings, "rename_queue", [c["id"] for c in chats])
+def test_chat_rename_fires_again_every_fifty_messages_after_that(sched, chat, character):
+    # First milestone, checked the moment the chat reaches it — same as a
+    # real chat's own turn-by-turn checking would.
+    _fill_messages(sched.db, chat["id"], CHAT_RENAME_FIRST_AT)
+    sync(sched._maybe_rename_chat(context(repo.get_chat(sched.db, chat["id"]), character)))
+    assert repo.get_chat(sched.db, chat["id"])["title_auto_count"] == CHAT_RENAME_FIRST_AT
 
-    order: list[str] = []
-    real_execute = sched._execute
-    release_first = asyncio.Event()
+    # Grown past the first milestone but short of the second — not due yet.
+    _fill_messages(sched.db, chat["id"], CHAT_RENAME_EVERY - 1)  # up to 59 total
+    fresh = repo.get_chat(sched.db, chat["id"])
+    sync(sched._maybe_rename_chat(context(fresh, character)))
+    assert repo.get_chat(sched.db, chat["id"])["title_auto_count"] == CHAT_RENAME_FIRST_AT
 
-    async def tracked_execute(ctx, definition, run_id=None):
-        order.append(ctx.chat_id)
-        if len(order) == 1:
-            # Held open until both waiters below have actually joined their
-            # lines, so the test proves ordering rather than luck.
-            await release_first.wait()
-        await real_execute(ctx, definition, run_id)
+    repo.add_message(sched.db, chat["id"], "user", "one more")  # message 60
+    fresh = repo.get_chat(sched.db, chat["id"])
+    sync(sched._maybe_rename_chat(context(fresh, character)))
 
-    monkeypatch.setattr(sched, "_execute", tracked_execute)
-
-    async def scenario():
-        first = asyncio.create_task(sched._drain_rename_queue())
-        await asyncio.sleep(0)  # first: acquires the lock, blocks in _execute
-        normal = asyncio.create_task(sched._drain_rename_queue())
-        await asyncio.sleep(0)  # normal: joins the ordinary waiting line
-        priority = asyncio.create_task(sched._drain_rename_queue(priority=True))
-        await asyncio.sleep(0)  # priority: joins the high-priority line
-        release_first.set()
-        await asyncio.gather(first, normal, priority)
-
-    sync(scenario())
-
-    assert order == [chats[0]["id"], chats[1]["id"], chats[2]["id"]]
-    for c in chats:
-        assert repo.get_chat(sched.db, c["id"])["title"] != character.name
+    assert repo.get_chat(sched.db, chat["id"])["title_auto_count"] == (
+        CHAT_RENAME_FIRST_AT + CHAT_RENAME_EVERY
+    )
 
 
-def test_kick_rename_queue_drains_several_in_one_go(sched, chat, character, monkeypatch):
-    """The "queue all unnamed chats" button's own reason to exist (§
-    kick_rename_queue's docstring) — several chats get a title without
-    waiting on a reply landing somewhere else first."""
-    other = repo.create_chat(sched.db, character.id, character.name)
-    for cid in (chat["id"], other["id"]):
-        repo.add_message(sched.db, cid, "assistant", "Sit wherever. The fire's better on the left.")
-        repo.add_message(sched.db, cid, "user", "Cold out there.")
-    monkeypatch.setattr(sched.settings, "rename_queue", [chat["id"], other["id"]])
+def test_chat_rename_does_not_refire_at_the_same_message_count(sched, chat, character):
+    """A swipe never moves the message count — this is what a later request
+    (built from a fresh chat dict, the same way _run_swipe fetches its own)
+    sees once the first attempt has already marked that count (§
+    _maybe_rename_chat, repo.mark_title_auto_attempt)."""
+    _fill_messages(sched.db, chat["id"], CHAT_RENAME_FIRST_AT)
+    sync(sched._maybe_rename_chat(context(repo.get_chat(sched.db, chat["id"]), character)))
+    first_title = repo.get_chat(sched.db, chat["id"])["title"]
 
-    sync(sched.kick_rename_queue(limit=5))
+    sync(sched._maybe_rename_chat(context(repo.get_chat(sched.db, chat["id"]), character)))
 
-    assert sched.settings.rename_queue == []
-    assert repo.get_chat(sched.db, chat["id"])["title"] != character.name
-    assert repo.get_chat(sched.db, other["id"])["title"] != character.name
-
-
-def test_kick_rename_queue_stops_early_when_a_chat_makes_no_progress(
-    sched, chat, character, monkeypatch
-):
-    """A chat with nothing said yet stays queued rather than being renamed
-    (§ _drain_rename_queue) — kick_rename_queue reads that as "no progress"
-    and stops instead of spinning through its whole `limit` on the same
-    stuck entry, leaving whatever is queued behind it untouched."""
-    empty = repo.create_chat(sched.db, character.id, character.name)  # no messages
-    other = repo.create_chat(sched.db, character.id, character.name)
-    repo.add_message(sched.db, other["id"], "assistant", "Hello.")
-    monkeypatch.setattr(sched.settings, "rename_queue", [empty["id"], other["id"]])
-
-    sync(sched.kick_rename_queue(limit=5))
-
-    assert sched.settings.rename_queue == [empty["id"], other["id"]]
-    assert repo.get_chat(sched.db, other["id"])["title"] == character.name
+    assert repo.get_chat(sched.db, chat["id"])["title"] == first_title
+    rows = sched.db.query(
+        "SELECT id FROM pass_runs WHERE chat_id=? AND pass_id='chat_rename'", (chat["id"],)
+    )
+    assert len(rows) == 1
 
 
-def test_chat_rename_does_nothing_with_an_empty_queue(sched, chat, character):
-    original = repo.get_chat(sched.db, chat["id"])["title"]
+def test_chat_rename_never_fires_once_named_manually(sched, chat, character):
+    repo.rename_chat(sched.db, chat["id"], "My Own Title", manual=True)
+    _fill_messages(sched.db, chat["id"], CHAT_RENAME_FIRST_AT)
+    fresh = repo.get_chat(sched.db, chat["id"])
 
-    sync(sched._drain_rename_queue())
+    sync(sched._maybe_rename_chat(context(fresh, character)))
 
-    assert repo.get_chat(sched.db, chat["id"])["title"] == original
-    assert sched.settings.rename_queue == []
+    updated = repo.get_chat(sched.db, chat["id"])
+    assert updated["title"] == "My Own Title"
+    assert updated["title_auto_count"] == 0
 
 
-def test_chat_rename_leaves_a_disabled_pass_queued_for_next_time(
-    sched, chat, character, monkeypatch
-):
-    """Off means "not yet", not "lost" — the entry stays at the front so a
-    later successful prompt (anywhere) tries it again (§ the pass's own
-    docstring in registry.py)."""
+def test_clearing_a_title_by_hand_makes_it_eligible_again(sched, chat, character):
+    repo.rename_chat(sched.db, chat["id"], "My Own Title", manual=True)
+    _fill_messages(sched.db, chat["id"], CHAT_RENAME_FIRST_AT)
+    sync(sched._maybe_rename_chat(context(repo.get_chat(sched.db, chat["id"]), character)))
+    assert repo.get_chat(sched.db, chat["id"])["title"] == "My Own Title"  # still untouched
+
+    repo.rename_chat(sched.db, chat["id"], "", manual=False)  # cleared by hand
+
+    sync(sched._maybe_rename_chat(context(repo.get_chat(sched.db, chat["id"]), character)))
+
+    assert repo.get_chat(sched.db, chat["id"])["title"] not in ("", "My Own Title")
+
+
+def test_chat_rename_disabled_pass_does_nothing(sched, chat, character):
+    """Off means "not yet": title_auto_count is never marked while the pass
+    is off, so re-enabling it makes this chat eligible again at the same
+    milestone rather than skipping straight to the next one."""
     definition = registry.get_pass(sched.db, "chat_rename")
     definition.enabled = False
     sync(registry.save_pass(sched.db, definition))
-    monkeypatch.setattr(sched.settings, "rename_queue", [chat["id"]])
-    original = repo.get_chat(sched.db, chat["id"])["title"]
+    _fill_messages(sched.db, chat["id"], CHAT_RENAME_FIRST_AT)
+    fresh = repo.get_chat(sched.db, chat["id"])
 
-    sync(sched._drain_rename_queue())
+    sync(sched._maybe_rename_chat(context(fresh, character)))
 
-    assert repo.get_chat(sched.db, chat["id"])["title"] == original
-    assert sched.settings.rename_queue == [chat["id"]]
+    updated = repo.get_chat(sched.db, chat["id"])
+    assert updated["title"] == chat["title"]
+    assert updated["title_auto_count"] == 0
 
 
 def test_chat_rename_respects_the_background_tier_switch(sched, chat, character, monkeypatch):
     monkeypatch.setattr(sched.settings, "tiers_off", ["background"])
-    monkeypatch.setattr(sched.settings, "rename_queue", [chat["id"]])
-    original = repo.get_chat(sched.db, chat["id"])["title"]
+    _fill_messages(sched.db, chat["id"], CHAT_RENAME_FIRST_AT)
+    fresh = repo.get_chat(sched.db, chat["id"])
 
-    sync(sched._drain_rename_queue())
+    sync(sched._maybe_rename_chat(context(fresh, character)))
 
-    assert repo.get_chat(sched.db, chat["id"])["title"] == original
-    assert sched.settings.rename_queue == [chat["id"]]
-
-
-def test_chat_rename_drops_a_queued_chat_that_no_longer_exists(sched, character, monkeypatch):
-    other = repo.create_chat(sched.db, character.id, "ghost")
-    repo.delete_chat(sched.db, other["id"])
-    monkeypatch.setattr(sched.settings, "rename_queue", [other["id"]])
-
-    sync(sched._drain_rename_queue())
-
-    assert sched.settings.rename_queue == []
+    updated = repo.get_chat(sched.db, chat["id"])
+    assert updated["title"] == chat["title"]
+    assert updated["title_auto_count"] == 0
 
 
-def test_chat_rename_reads_the_opening_messages_not_the_most_recent_ones(
-    sched, chat, character
-):
-    """Renaming only ever runs once a chat has already grown well past what a
-    title needs — the excerpt is capped to the opening exchange (§
-    _build_pass_input's chat_rename branch)."""
-    for i in range(20):
-        repo.add_message(sched.db, chat["id"], "user", f"filler message {i}")
+def test_chat_rename_reads_the_whole_chat_not_just_the_opening(sched, chat, character):
+    """No cap on how much of the conversation it reads: it can retitle a
+    chat more than once as it grows (§ CHAT_RENAME_EVERY), and a later
+    title deserves to be read against everything said so far, not just how
+    it opened (§ _build_pass_input's chat_rename branch)."""
+    _fill_messages(sched.db, chat["id"], CHAT_RENAME_FIRST_AT + CHAT_RENAME_EVERY - 1)
     definition = next(d for d in registry.all_passes(sched.db) if d.id == "chat_rename")
 
     task, messages, handler = sched._build_pass_input(context(chat, character), definition)
     body = " ".join(m["content"] for m in messages)
     assert handler is not None
-    assert "filler message 0" in body
-    assert "filler message 19" not in body
+    assert "message 1" in body
+    assert "message 58" in body
 
 
 def test_chat_rename_never_shows_the_greeting(sched, chat, character):
@@ -680,28 +640,43 @@ def test_two_turns_in_one_chat_do_not_run_at_once(sched, chat, character, monkey
 # ----------------------------------------------------------------- swipes
 
 
-def test_a_swipe_also_drains_the_rename_queue(sched, chat, character, monkeypatch):
-    """A swipe is a successful prompt landing too (§ _run_swipe's own call to
-    _drain_rename_queue) — not just a fresh turn. Regressed once already:
-    the first version only wired this into _answer, so a chat that mostly
-    got swiped/regenerated never renamed anything."""
-    other = repo.create_chat(sched.db, character.id, character.name)
-    repo.add_message(sched.db, other["id"], "assistant", "Sit wherever.")
-    repo.add_message(sched.db, other["id"], "user", "Cold out there.")
-
+def test_reaching_message_ten_via_real_turns_fires_chat_rename(sched, chat, character):
+    """The full pipeline, not just _maybe_rename_chat directly: each real
+    turn adds two messages (user + reply), so five land on the milestone."""
     async def scenario():
-        await turn(sched, chat["id"], "Cold out.")
-        # Queued only now — empty during the turn above, so this isolates
-        # the swipe as what actually drains it.
-        monkeypatch.setattr(sched.settings, "rename_queue", [other["id"]])
+        for i in range(CHAT_RENAME_FIRST_AT // 2):
+            await turn(sched, chat["id"], f"message {i}")
+
+    sync(scenario())
+
+    updated = repo.get_chat(sched.db, chat["id"])
+    assert updated["title"] not in ("", chat["title"])
+    assert updated["title_auto_count"] == CHAT_RENAME_FIRST_AT
+
+
+def test_a_swipe_of_the_milestone_message_does_not_refire_chat_rename(
+    sched, chat, character
+):
+    """A swipe is a successful prompt landing too (§ _run_swipe's own call
+    to _maybe_rename_chat) — not just a fresh turn, so it must be exercised
+    the same way normal messages are, not skipped as a fresh turn's worth
+    of milestone tracking would silently do. But it also must not fire a
+    *second* attempt at the same milestone message it just regenerated —
+    the actual point of the test — since a swipe never moves the message
+    count that milestone is measured in."""
+    async def scenario():
+        for i in range(CHAT_RENAME_FIRST_AT // 2):
+            await turn(sched, chat["id"], f"message {i}")
+        first_title = repo.get_chat(sched.db, chat["id"])["title"]
+
         message = repo.list_messages(sched.db, chat["id"])[-1]
         async for _event in sched.run_swipe(message["id"]):
             pass
         await sched.await_pending(chat["id"], timeout=20)
+        return first_title
 
-    sync(scenario())
-    assert repo.get_chat(sched.db, other["id"])["title"] != character.name
-    assert sched.settings.rename_queue == []
+    first_title = sync(scenario())
+    assert repo.get_chat(sched.db, chat["id"])["title"] == first_title
 
 
 def test_swipe_adds_a_variant_without_a_new_message(sched, chat, character):

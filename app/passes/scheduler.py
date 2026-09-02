@@ -25,7 +25,6 @@ import random
 import re
 import time
 import uuid
-from collections import deque
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -173,49 +172,23 @@ CONTEXT_SAFETY = assembly.CONTEXT_SAFETY
 MIN_CONTEXT = assembly.MIN_CONTEXT
 
 
-class _PriorityLock:
-    """One lock, two waiting lines (§ PassScheduler._rename_lock).
+# Message-count milestones for the chat_rename pass (§ _maybe_rename_chat):
+# the first attempt at CHAT_RENAME_FIRST_AT messages, then another every
+# CHAT_RENAME_EVERY after that (10, 60, 110, 160, ...).
+CHAT_RENAME_FIRST_AT = 10
+CHAT_RENAME_EVERY = 50
 
-    The "queue all unnamed chats" button's own burst (§ kick_rename_queue)
-    always cuts ahead of the ordinary line every message and every swipe
-    joins — it is what someone pressing that button is actually asking for:
-    not to wait behind however many other chats happen to be finishing up
-    first. It never preempts whichever attempt is already running, only
-    reorders who goes *next* once that one releases the lock.
-    """
 
-    def __init__(self) -> None:
-        self._locked = False
-        self._high: deque[asyncio.Future] = deque()
-        self._normal: deque[asyncio.Future] = deque()
-
-    async def acquire(self, *, priority: bool = False) -> None:
-        if not self._locked:
-            self._locked = True
-            return
-        fut = asyncio.get_running_loop().create_future()
-        line = self._high if priority else self._normal
-        line.append(fut)
-        try:
-            await fut
-        except asyncio.CancelledError:
-            # Still waiting, never woken — drop out rather than leave a
-            # cancelled future for release() to skip past forever.
-            try:
-                line.remove(fut)
-            except ValueError:
-                pass
-            raise
-
-    def release(self) -> None:
-        for line in (self._high, self._normal):
-            while line:
-                fut = line.popleft()
-                if not fut.done():
-                    fut.set_result(None)
-                    return  # ownership passes straight to the woken waiter
-            # every future in this line was already cancelled — try the next
-        self._locked = False
+def _milestones_crossed(count: int) -> int:
+    """How many chat_rename anchors (10, 60, 110, ...) `count` has reached
+    or passed. A chat's message count almost never lands on an anchor
+    exactly — the greeting is message 1 and every turn after it adds two —
+    so this is compared between two counts rather than checked against one:
+    the milestone fired is whichever anchor a count first reaches, not the
+    exact number it happens to land on."""
+    if count < CHAT_RENAME_FIRST_AT:
+        return 0
+    return 1 + (count - CHAT_RENAME_FIRST_AT) // CHAT_RENAME_EVERY
 
 
 class PassScheduler:
@@ -238,19 +211,6 @@ class PassScheduler:
         # (§ MAX_CONCURRENT_BACKGROUND_PASSES_PER_CHAT). Same "never pruned,
         # bytes-scale" reasoning as `_chat_locks` just above.
         self._background_slots: dict[str, asyncio.Semaphore] = {}
-        # One chat_rename attempt at a time, never several at once (§
-        # _drain_rename_queue below). Every message and every swipe, in
-        # every chat, launches its own attempt the instant it lands — with
-        # nothing serialising them, a run of messages sent close together
-        # (any background tier slower than instant, e.g. Horde) would launch
-        # that many *concurrent* calls, several of them racing for the same
-        # front-of-queue chat. A priority lock instead (§ _PriorityLock):
-        # a second attempt waits for the first to actually finish, then runs
-        # against whatever the queue looks like by then, rather than piling
-        # on — and the "queue all unnamed chats" button's own burst always
-        # goes first in that wait, never behind however many ordinary
-        # message-triggered attempts happen to already be in line.
-        self._rename_lock = _PriorityLock()
 
     # ------------------------------------------------------------- plumbing
 
@@ -717,12 +677,12 @@ class PassScheduler:
         launched = self._launch_background(ctx)
         if launched:
             yield {"type": "background_queued", "passes": launched}
-        # The chat waiting longest for a real title, if any (§ chat_naming.py,
-        # _drain_rename_queue below) — queued the same fire-and-forget way as
-        # the two tasks below, and for the same reason: whichever chat gets
-        # named here is not necessarily this one.
+        # A new title, if this chat has grown enough to be due one (§
+        # _maybe_rename_chat below) — queued the same fire-and-forget way as
+        # the two tasks below, so a slow background tier never holds up the
+        # reply that just landed.
         task = asyncio.create_task(
-            self._drain_rename_queue(), name=f"chat_rename_queue:{chat_id}:{turn}"
+            self._maybe_rename_chat(ctx), name=f"chat_rename:{chat_id}:{turn}"
         )
         self._track(chat_id, task)
         # A character imported while its backend was unreachable, or created
@@ -1345,11 +1305,10 @@ class PassScheduler:
                 f"\nCurrent scene: {scene or 'unknown'}"
             )
         elif definition.id == "chat_rename":
-            # The opening messages, not the most recent ones: this only ever
-            # runs once per chat (§ _handler_chat_rename dequeues on success),
-            # and by the time a chat reaches the front of the queue it may
-            # have grown well past what a title needs to be read from — the
-            # premise is what the title is about, and that is stated early.
+            # The whole chat, every time (§ CHAT_RENAME_FIRST_AT/_EVERY,
+            # _maybe_rename_chat) — this can retitle a chat more than once as
+            # it grows, and a later title deserves to be read against
+            # everything said so far, not just how it opened.
             history = repo.list_messages(self.db, ctx.chat_id, include_dropped=False)
             # Never the greeting: it's the character card's own first_mes,
             # identical in every chat with this character, so it names the
@@ -1366,7 +1325,7 @@ class PassScheduler:
             label = assembly.speaker_label(character.name)
             transcript = "\n".join(
                 f"{'User' if m['role'] == 'user' else label}: {to_plain(m['text'])}"
-                for m in history[:12]
+                for m in history
             )
             messages = [{"role": "user", "content": f"## Conversation so far\n{transcript}"}]
             return definition.prompt, messages, self._handler_chat_rename(ctx)
@@ -1610,17 +1569,16 @@ class PassScheduler:
     def _handler_chat_rename(self, ctx: TurnContext):
         async def handle(payload: dict) -> bool:
             title = re.sub(r"\s+", " ", str(payload.get("title") or "")).strip(" \"'.")
-            # Room for ten words plus punctuation (§ registry.py's prompt) —
-            # long enough not to clip a real title, short enough it can never
-            # run away with something the model padded.
-            title = title[:90]
+            # Room for seven words plus punctuation (§ registry.py's prompt)
+            # — long enough not to clip a real title, short enough it can
+            # never run away with something the model padded.
+            title = title[:60]
             if not title:
                 return False
+            # manual=None: an auto title must never look like one someone
+            # chose by hand, or it would disable itself the moment it did
+            # its job (§ repo.rename_chat).
             repo.rename_chat(self.db, ctx.chat_id, title)
-            self.settings.rename_queue = [
-                c for c in (self.settings.rename_queue or []) if c != ctx.chat_id
-            ]
-            config.save_settings(self.settings)
             self._emit(
                 ctx.chat_id,
                 {"type": "chat_renamed", "chat_id": ctx.chat_id, "title": title},
@@ -2044,10 +2002,13 @@ class PassScheduler:
         if launched:
             yield {"type": "background_queued", "passes": launched}
         # Same reasoning as _answer's own version of this (§ scheduler.py) —
-        # a swipe is a successful prompt landing too, and the chat it ends up
-        # naming is not necessarily this one.
+        # a swipe is a successful prompt landing too, and message count is
+        # what the milestone is measured in (§ _maybe_rename_chat), not
+        # "a reply happened" — but a swipe never moves that count, which is
+        # exactly what keeps repeated swipes on the milestone message from
+        # firing a second attempt at it.
         task = asyncio.create_task(
-            self._drain_rename_queue(), name=f"chat_rename_queue:swipe:{chat['id']}:{ctx.turn}"
+            self._maybe_rename_chat(ctx), name=f"chat_rename:swipe:{chat['id']}:{ctx.turn}"
         )
         self._track(chat["id"], task)
         yield {"type": "turn_end", "turn": ctx.turn}
@@ -2334,96 +2295,53 @@ class PassScheduler:
         self._track(chat_id, task)
         return {"ok": True, "run_id": run_id, "pass_id": pass_id}
 
-    async def _drain_rename_queue(self, *, priority: bool = False) -> None:
-        """Try the chat that has been waiting longest for a name.
+    async def _maybe_rename_chat(self, ctx: TurnContext) -> None:
+        """Retitle this chat once it has grown enough to be worth titling —
+        CHAT_RENAME_FIRST_AT messages, then another attempt every
+        CHAT_RENAME_EVERY after that (10, 60, 110, ...). Skipped entirely
+        once someone has renamed the chat by hand (`chats.title_manual`) —
+        an auto title overwriting a name chosen on purpose would be worse
+        than no title at all.
 
-        One chat per call, from the front of `Settings.rename_queue` (§
-        app/chat_naming.py) — this runs once after every reply that lands
-        anywhere, which is "next successful prompt" from that module's own
-        docstring. A chat stays at the front of the queue until it is
-        actually renamed: the pass being off, or the attempt failing, both
-        just mean it is tried again next time rather than lost or pushed
-        behind newer arrivals.
-
-        Serialised on `self._rename_lock` (§ __init__, _PriorityLock) rather
-        than left to run however many of these land at once: several
-        messages sent close together each launch their own call, and
-        without this they would be that many concurrent chat_rename
-        attempts — on a slow background tier (Horde, say) several actual
-        jobs in flight together, more than one of them liable to be racing
-        for the very same front-of-queue chat. A call that arrives while
-        another is still working waits for it to finish rather than running
-        alongside it, and then acts on whatever the queue looks like by
-        then. `priority=True` (§ kick_rename_queue) cuts to the front of
-        that wait — never in front of whichever attempt is already running.
+        Milestones are *crossed*, not matched exactly: a chat almost never
+        lands on precisely 10 messages (the greeting is message 1, and every
+        turn after it adds two), so waiting for `count == 10` would nearly
+        always miss it and never fire at all. `_milestones_crossed` counts
+        how many anchors (10, 60, 110, ...) a given count has reached or
+        passed; comparing that against the same count for
+        `chats.title_auto_count` is what actually decides whether this is a
+        new milestone. `title_auto_count` is set to the *current* count
+        before the attempt even runs, win or lose — which is what stops a
+        swipe on the message that just crossed a milestone from firing a
+        second attempt at it (the count a swipe leaves behind is unchanged,
+        so it still reads as the same milestone already attempted) — and
+        what makes the next attempt the next milestone, not a retry: a
+        failed one is not chased down message by message, same as nothing
+        else in this engine is.
         """
-        await self._rename_lock.acquire(priority=priority)
+        if ctx.chat.get("title_manual"):
+            return
+        if "background" in (self.settings.tiers_off or []):
+            return
+        definition = registry.get_pass(self.db, "chat_rename")
+        if definition is None or not definition.enabled:
+            return
+        count = len(repo.list_messages(self.db, ctx.chat_id, include_dropped=False))
+        crossed = _milestones_crossed(count)
+        attempted = _milestones_crossed(ctx.chat.get("title_auto_count") or 0)
+        if crossed <= attempted:
+            return
+
+        repo.mark_title_auto_attempt(self.db, ctx.chat_id, count)
+        run_id = self._record_run(ctx, definition, "pending")
         try:
-            if "background" in (self.settings.tiers_off or []):
-                return
-            definition = registry.get_pass(self.db, "chat_rename")
-            if definition is None or not definition.enabled:
-                return
-            queue = self.settings.rename_queue or []
-            if not queue:
-                return
-            chat_id = queue[0]
-            chat = repo.get_chat(self.db, chat_id)
-            character = repo.get_character(self.db, chat["character_id"]) if chat else None
-            if chat is None or character is None:
-                # The chat, or its character, is gone — nothing left to name.
-                self.settings.rename_queue = queue[1:]
-                config.save_settings(self.settings)
-                return
-            messages = repo.list_messages(self.db, chat_id, include_dropped=False)
-            if not messages:
-                return  # nothing said yet to title from — leave it queued
-
-            ctx = TurnContext(
-                chat=chat,
-                character=character,
-                settings=self.settings,
-                turn=messages[-1]["turn"],
-                schema=state_mod.load_schema(
-                    {k: v.model_dump() for k, v in character.state_schema.items()}
-                    if character.state_schema
-                    else None
-                ),
+            await self._execute(ctx, definition, run_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # a broken pass must not take anything else with it
+            self._record_run(
+                ctx, definition, "failed", run_id=run_id, error=repr(exc), finished_at=time.time()
             )
-            run_id = self._record_run(ctx, definition, "pending")
-            try:
-                await self._execute(ctx, definition, run_id)
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:  # a broken pass must not take anything else with it
-                self._record_run(
-                    ctx, definition, "failed", run_id=run_id, error=repr(exc), finished_at=time.time()
-                )
-        finally:
-            self._rename_lock.release()
-
-    async def kick_rename_queue(self, limit: int = 5) -> None:
-        """Work through several chats right away instead of waiting on the
-        next reply that happens to land somewhere (§ /api/chats/queue-unnamed
-        below, and the "queue all unnamed chats" Settings button that calls
-        it) — pressing a button that says "queue" and then watching nothing
-        happen until you go type in an unrelated chat is not what anyone
-        pressing it wants, whatever `_drain_rename_queue`'s own usual trigger
-        is for everything else. Runs with priority (§ _PriorityLock): this
-        burst always goes first, ahead of however many ordinary message- or
-        swipe-triggered attempts happen to already be waiting their turn.
-
-        Stops early if a call makes no progress — the queue is unchanged,
-        meaning that chat is stuck (a broken backend, say) — rather than
-        hammering the same failure `limit` times in a row.
-        """
-        for _ in range(max(0, limit)):
-            before = list(self.settings.rename_queue)
-            if not before:
-                return
-            await self._drain_rename_queue(priority=True)
-            if self.settings.rename_queue == before:
-                return
 
     async def reaudit(self, message_id: str) -> dict:
         """Re-run the auditor against an edited message (§9)."""

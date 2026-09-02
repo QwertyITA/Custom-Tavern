@@ -765,12 +765,45 @@ def prompt_record(db: Database, message_id: str) -> dict | None:
 # ---------------------------------------------------------- chat management
 
 
-def rename_chat(db: Database, chat_id: str, title: str) -> None:
+def rename_chat(db: Database, chat_id: str, title: str, *, manual: bool | None = None) -> None:
     """Rename without touching `updated_at`: the chat list is ordered by when
-    the story last moved, and renaming one is not the story moving."""
+    the story last moved, and renaming one is not the story moving.
+
+    `manual`, when given, also sets `title_manual` — the flag that stops the
+    chat_rename pass (§ scheduler.py's _maybe_rename_chat) ever touching this
+    chat's title again once someone has named it themselves. Left `None` for
+    that pass's own write here: an auto title must never look like a manual
+    one, or it would disable itself the moment it did its job.
+
+    Clearing the title by hand (`manual=False`) also resets
+    `title_auto_count` to 0 — worth naming again from scratch, not just
+    eligible again at whatever count the last auto attempt already used.
+    """
+    def _update(conn: sqlite3.Connection) -> None:
+        clean = title.strip()
+        if manual is None:
+            conn.execute("UPDATE chats SET title=? WHERE id=?", (clean, chat_id))
+        elif manual:
+            conn.execute(
+                "UPDATE chats SET title=?, title_manual=1 WHERE id=?", (clean, chat_id)
+            )
+        else:
+            conn.execute(
+                "UPDATE chats SET title=?, title_manual=0, title_auto_count=0 WHERE id=?",
+                (clean, chat_id),
+            )
+
+    db.write_sync(_update)
+
+
+def mark_title_auto_attempt(db: Database, chat_id: str, count: int) -> None:
+    """Record that chat_rename has now tried this chat at this message count
+    (§ scheduler.py's _maybe_rename_chat) — set before the attempt runs, not
+    after, so a swipe on the same milestone message sees the count already
+    marked and does not fire a second attempt for it, win or lose."""
     db.write_sync(
         lambda conn: conn.execute(
-            "UPDATE chats SET title=? WHERE id=?", (title.strip(), chat_id)
+            "UPDATE chats SET title_auto_count=? WHERE id=?", (count, chat_id)
         )
     )
 

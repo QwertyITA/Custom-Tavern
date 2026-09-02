@@ -136,23 +136,6 @@ def test_saving_a_horde_backend_with_the_singular_model_field_is_accepted(client
     assert response.status_code == 200
 
 
-def test_rename_queue_max_round_trips_and_is_bounds_checked(client, isolated_settings):
-    from app import config
-
-    backends = {
-        "backends": [{"name": "echo", "kind": "echo", "model": "echo-1"}],
-        "tiers": {"blocking": "echo", "foreground": "echo", "background": "echo"},
-    }
-    ok = client.put("/api/settings", json={**backends, "rename_queue_max": 3})
-    assert ok.status_code == 200
-    assert config.SETTINGS.rename_queue_max == 3
-    assert json.loads(isolated_settings.read_text())["rename_queue_max"] == 3
-
-    bad = client.put("/api/settings", json={**backends, "rename_queue_max": 0})
-    assert bad.status_code == 400
-    assert config.SETTINGS.rename_queue_max == 3  # unchanged by the rejected save
-
-
 def test_connection_test_probes_a_backend(client):
     body = client.post("/api/settings/test", json={"name": "echo", "kind": "echo", "model": "echo-1"}).json()
     assert body["ok"] is True
@@ -201,105 +184,46 @@ def test_empty_message_is_rejected(client):
     assert client.post(f"/api/chats/{chat_id}/send", json={"text": "   "}).status_code == 400
 
 
-# ------------------------------------------------------- chat naming (§ chat_naming.py)
+# --------------------------------------------------- chat naming (§ scheduler.py)
 
 
-def test_a_new_chat_is_called_latest_chat(client, isolated_settings):
-    from app import config
-
+def test_a_new_chat_is_called_latest_chat(client):
     chat_id = new_chat(client)
     assert client.get(f"/api/chats/{chat_id}").json()["chat"]["title"] == "Latest chat"
-    assert config.SETTINGS.latest_chat_id == chat_id
 
 
-def test_creating_a_second_chat_demotes_the_first(client, isolated_settings):
-    from app import config
-
-    first = new_chat(client)
-    # Off /api/characters rather than opening `first`'s own chat detail —
-    # opening any chat other than the current latest is itself a demotion
-    # (§ the "opening a different chat" test below), and `second` does not
-    # exist to be the latest one yet.
-    character_name = client.get("/api/characters").json()[0]["name"]
-    second = new_chat(client)
-
-    # Checking on `second` first: it is the current latest, so this open
-    # has no side effect — unlike checking `first`, which would demote it.
-    assert client.get(f"/api/chats/{second}").json()["chat"]["title"] == "Latest chat"
-    assert config.SETTINGS.latest_chat_id == second
-    assert config.SETTINGS.rename_queue == [first]
-    assert client.get(f"/api/chats/{first}").json()["chat"]["title"] == character_name
-
-
-def test_opening_a_different_chat_demotes_whichever_one_is_latest(client, isolated_settings):
-    from app import config
-
-    a = new_chat(client)
-    character_name = client.get(f"/api/chats/{a}").json()["character"]["name"]
-    b = new_chat(client)  # demotes a; b is now latest
-
-    client.get(f"/api/chats/{a}")  # opening a demotes b, not a — a is already demoted
-
-    assert config.SETTINGS.latest_chat_id == ""
-    assert config.SETTINGS.rename_queue == [a, b]
-    assert client.get(f"/api/chats/{b}").json()["chat"]["title"] == character_name
-
-
-def test_reopening_the_latest_chat_does_not_demote_it(client, isolated_settings):
-    from app import config
-
+def test_reaching_the_tenth_message_gives_it_a_real_title(client):
     chat_id = new_chat(client)
-    client.get(f"/api/chats/{chat_id}")
-
-    assert config.SETTINGS.latest_chat_id == chat_id
-    assert config.SETTINGS.rename_queue == []
-    assert client.get(f"/api/chats/{chat_id}").json()["chat"]["title"] == "Latest chat"
-
-
-def test_queue_unnamed_endpoint_finds_character_named_chats(client, isolated_settings):
-    from app import config
-
-    a = new_chat(client)
-    # Something dynamic to title from — the greeting alone is never enough
-    # (§ _build_pass_input's chat_rename branch: it's identical in every
-    # chat with this character, so it's skipped rather than read).
-    send(client, a, "Cold out.")
     character_name = client.get("/api/characters").json()[0]["name"]
-    new_chat(client)  # demotes a — a is now titled after its character, and queued
+    for i in range(5):  # 5 turns = 10 messages (user + reply each)
+        send(client, chat_id, f"message {i}")
 
-    # Simulate the case this button actually exists for: a chat that fell
-    # out of the queue (the cap, or predating this feature) while still
-    # carrying the character-name fallback title.
-    config.SETTINGS.rename_queue = []
-
-    result = client.post("/api/chats/queue-unnamed")
-    assert result.status_code == 200
-    assert result.json()["queued"] == 1
-
-    # The kick that follows (§ kick_rename_queue) runs in the background —
-    # by the time this round-trips, echo has already answered and a has a
-    # real title, not just a spot in the queue.
-    detail = client.get(f"/api/chats/{a}").json()
-    assert detail["chat"]["title"] not in (character_name, "Latest chat", "")
-    assert a not in config.SETTINGS.rename_queue
-
-    # Calling it again finds nothing new — a already has a title.
-    again = client.post("/api/chats/queue-unnamed")
-    assert again.json()["queued"] == 0
+    title = client.get(f"/api/chats/{chat_id}").json()["chat"]["title"]
+    assert title not in ("Latest chat", character_name, "")
 
 
-def test_clear_rename_queue_endpoint(client, isolated_settings):
-    from app import config
+def test_renaming_a_chat_by_hand_stops_auto_rename_for_good(client):
+    chat_id = new_chat(client)
+    renamed = client.patch(f"/api/chats/{chat_id}", json={"title": "My Own Title"})
+    assert renamed.status_code == 200
 
-    config.SETTINGS.rename_queue = ["a", "b"]
+    for i in range(5):
+        send(client, chat_id, f"message {i}")
 
-    result = client.delete("/api/chats/rename-queue")
-    assert result.status_code == 200
-    assert result.json()["cleared"] == 2
-    assert config.SETTINGS.rename_queue == []
+    assert client.get(f"/api/chats/{chat_id}").json()["chat"]["title"] == "My Own Title"
 
-    again = client.delete("/api/chats/rename-queue")
-    assert again.json()["cleared"] == 0
+
+def test_clearing_a_title_by_hand_makes_it_eligible_again(client):
+    chat_id = new_chat(client)
+    client.patch(f"/api/chats/{chat_id}", json={"title": "My Own Title"})
+    client.patch(f"/api/chats/{chat_id}", json={"title": ""})
+    character_name = client.get("/api/characters").json()[0]["name"]
+
+    for i in range(5):
+        send(client, chat_id, f"message {i}")
+
+    title = client.get(f"/api/chats/{chat_id}").json()["chat"]["title"]
+    assert title not in ("", "My Own Title", character_name)
 
 
 # ------------------------------------------------------------------- turn

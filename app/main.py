@@ -20,7 +20,7 @@ from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import assembly, attachments, avatar_video, backup, card_compression, cards, chat_files, character_reactions, chat_naming, config, debug_export, groups, macros
+from . import assembly, attachments, avatar_video, backup, card_compression, cards, chat_files, character_reactions, config, debug_export, groups, macros
 from . import memory as memory_store
 from . import prompt_layout
 from . import lorebook, providers, regex_rules, repo, state as state_mod
@@ -1117,13 +1117,14 @@ async def create_chat(payload: CreateChatRequest) -> dict:
     character = repo.get_character(db, payload.character_id)
     if character is None or _vault_hidden(character):
         raise HTTPException(404, "character not found")
-    # An explicit title (no caller does this today, but the field is public
-    # API) opts out of "Latest chat" entirely — someone who named their own
-    # chat did not ask for it to be queued for a different one later.
+    # "Latest chat" until the chat_rename pass has enough to go on (§
+    # scheduler.py's _maybe_rename_chat) — an explicit title (no caller does
+    # this today, but the field is public API) counts as named on purpose,
+    # same as a PATCH rename, and is never touched by that pass either.
     explicit_title = payload.title.strip()
-    chat = repo.create_chat(db, payload.character_id, explicit_title or chat_naming.LATEST_LABEL)
-    if not explicit_title:
-        chat_naming.mark_latest(db, config.SETTINGS, chat["id"])
+    chat = repo.create_chat(db, payload.character_id, explicit_title or "Latest chat")
+    if explicit_title:
+        repo.rename_chat(db, chat["id"], explicit_title, manual=True)
     # The greeting loads at chat start (§7.4) and is a real message, so it takes
     # part in context assembly and can be swiped like any other. Its macros are
     # resolved once, here: a message is a record of something that was said, and
@@ -1148,36 +1149,9 @@ async def create_chat(payload: CreateChatRequest) -> dict:
     return chat
 
 
-# These four sit above /api/chats/{chat_id} on purpose: routes match in the
-# order they are declared, so "search", "import", "queue-unnamed" and
-# "rename-queue" would otherwise be read as chat ids and 404.
-@app.delete("/api/chats/rename-queue")
-async def clear_rename_queue() -> dict:
-    """Empty the rename queue outright (§ Settings → Chat naming's own
-    button). Every chat in it keeps whatever title it already has — this
-    only stops it waiting for a better one."""
-    cleared = chat_naming.clear_queue(config.SETTINGS)
-    return {"ok": True, "cleared": cleared}
-
-
-@app.post("/api/chats/queue-unnamed")
-async def queue_unnamed_chats() -> dict:
-    """Requeue every chat still just called after its character (§ Settings
-    → Chat naming's own button) — the ones a demotion queued and the cap
-    later dropped, or that predate this feature entirely."""
-    db = get_db()
-    added = chat_naming.queue_all_unnamed(db, config.SETTINGS)
-    # Best-effort and not awaited (§ character_reactions import, above): the
-    # response should not wait on however many model calls this takes, and
-    # whatever does not land in this burst is retried the normal way, on the
-    # next successful reply anywhere.
-    if added and SCHEDULER is not None:
-        asyncio.create_task(
-            SCHEDULER.kick_rename_queue(limit=min(added, 5)), name="chat_rename_kick"
-        )
-    return {"ok": True, "queued": added}
-
-
+# These two sit above /api/chats/{chat_id} on purpose: routes match in the
+# order they are declared, so "search" and "import" would otherwise be read
+# as chat ids and 404.
 @app.get("/api/chats/search")
 async def search_chats(q: str = "", limit: int = 40) -> list[dict]:
     """Chats matching `q` in their title or their messages (§10)."""
@@ -1212,10 +1186,6 @@ async def get_chat(chat_id: str) -> dict:
     chat = repo.get_chat(db, chat_id)
     if chat is None:
         raise HTTPException(404, "chat not found")
-    # Opening any chat other than the current "Latest chat" ends its run (§
-    # app/chat_naming.py) — a no-op whenever this chat already is the latest
-    # one, or nothing holds that status right now.
-    chat_naming.note_opened(db, config.SETTINGS, chat_id)
     character = repo.get_character(db, chat["character_id"])
     schema = state_mod.load_schema(
         {k: v.model_dump() for k, v in character.state_schema.items()}
@@ -1263,7 +1233,11 @@ async def rename_chat(chat_id: str, payload: dict = Body(...)) -> dict:
     if repo.get_chat(db, chat_id) is None:
         raise HTTPException(404, "chat not found")
     title = str(payload.get("title") or "").strip()
-    repo.rename_chat(db, chat_id, title)
+    # Named by hand, or cleared by hand (§ repo.rename_chat) — either way a
+    # deliberate choice, and the chat_rename pass (§ scheduler.py) treats
+    # them accordingly: never touches the former again, treats the latter
+    # as worth naming again from scratch.
+    repo.rename_chat(db, chat_id, title, manual=bool(title))
     return {"ok": True, "chat": repo.get_chat(db, chat_id)}
 
 

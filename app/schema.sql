@@ -12,14 +12,16 @@ CREATE TABLE IF NOT EXISTS characters (
 );
 
 CREATE TABLE IF NOT EXISTS chats (
-    id           TEXT PRIMARY KEY,
-    character_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
-    title        TEXT NOT NULL DEFAULT '',
-    version      INTEGER NOT NULL DEFAULT 1,
-    settings     TEXT NOT NULL DEFAULT '{}',   -- json: colours, toggle overrides
-    persona_id   TEXT NOT NULL DEFAULT '',     -- who {{user}} is here; '' = default
-    created_at   REAL NOT NULL,
-    updated_at   REAL NOT NULL
+    id               TEXT PRIMARY KEY,
+    character_id     TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    title            TEXT NOT NULL DEFAULT '',
+    version          INTEGER NOT NULL DEFAULT 1,
+    settings         TEXT NOT NULL DEFAULT '{}',   -- json: colours, toggle overrides
+    persona_id       TEXT NOT NULL DEFAULT '',     -- who {{user}} is here; '' = default
+    title_manual     INTEGER NOT NULL DEFAULT 0,   -- named by hand; chat_rename never touches it again
+    title_auto_count INTEGER NOT NULL DEFAULT 0,   -- message count chat_rename last attempted at
+    created_at       REAL NOT NULL,
+    updated_at       REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_chats_character ON chats(character_id);
 

@@ -1061,8 +1061,6 @@ function tavern() {
     importError: "",
     hud: false,
     debugLogBusy: false,
-    queueingUnnamed: false,
-    clearingQueue: false,
     // § brokenPfp/markPfpBroken below — which portrait URLs have 404'd.
     brokenPfps: {},
     error: "",
@@ -4791,10 +4789,9 @@ function tavern() {
           }
           break;
         case "chat_renamed": {
-          // Almost never the chat this listener is attached to — the queue
-          // it comes from (§ chat_naming.py) is the *previous* chat someone
-          // left, not this one — but on the rare chance it is, the sidebar
-          // list should not still say "Latest chat" after this arrives.
+          // Fires on whichever chat just crossed a message-count milestone
+          // (§ scheduler.py _maybe_rename_chat) — reflect it in the sidebar
+          // list if this listener happens to be attached to that chat.
           const renamed = (this.chats || []).find((c) => c.id === event.chat_id);
           if (renamed) renamed.title = event.title;
           break;
@@ -6890,46 +6887,6 @@ function tavern() {
     // other (§ togglePass just below).
     chatRenamePass() {
       return (this.passes || []).find((p) => p.id === "chat_rename");
-    },
-
-    // The catch-up button for the same section: every chat still just
-    // called after its character — dropped by the queue's cap earlier, or
-    // never queued at all because it predates this feature — goes back in.
-    async queueUnnamedChats() {
-      this.queueingUnnamed = true;
-      try {
-        const result = await api.post("/api/chats/queue-unnamed", {});
-        this.flashHint(
-          result.queued
-            ? `Queued ${result.queued} chat${result.queued === 1 ? "" : "s"} for a name`
-            : "Nothing to queue — every chat already has a name, or is waiting for one"
-        );
-      } catch (e) {
-        this.flashHint(errorText(e));
-      } finally {
-        this.queueingUnnamed = false;
-      }
-    },
-
-    // The undo for the button above — every chat in the queue keeps
-    // whatever title it already has, it just stops waiting for a better
-    // one. Doesn't touch an attempt already in flight (§ chat_naming.py's
-    // clear_queue) — that one finishes on its own.
-    async clearRenameQueue() {
-      this.clearingQueue = true;
-      try {
-        const result = await api.del("/api/chats/rename-queue");
-        this.settings.rename_queue = [];
-        this.flashHint(
-          result.cleared
-            ? `Cleared ${result.cleared} chat${result.cleared === 1 ? "" : "s"} from the queue`
-            : "Nothing queued"
-        );
-      } catch (e) {
-        this.flashHint(errorText(e));
-      } finally {
-        this.clearingQueue = false;
-      }
     },
 
     async togglePass(pass) {

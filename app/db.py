@@ -172,7 +172,7 @@ class Database:
             self._writer_thread.join(timeout=5)
 
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 def _run_migration_step(conn: sqlite3.Connection, step: str) -> None:
     """Apply one migration statement, tolerating one that has already landed.
@@ -295,6 +295,18 @@ MIGRATIONS: dict[int, list[str]] = {
     # translation/thinking/full_text/draft_text above — nothing is computed
     # retroactively for a variant that predates this.
     14: ["ALTER TABLE message_variants ADD COLUMN echoes_user TEXT NOT NULL DEFAULT ''"],
+    # The chat_rename pass's own bookkeeping (§ scheduler.py
+    # _maybe_rename_chat). title_manual, once set, stops that pass touching
+    # this chat's title ever again — someone naming a chat themselves beats
+    # any title a model would pick. title_auto_count is the message count
+    # the pass last actually attempted at (win or lose), which is what
+    # keeps a swipe on the milestone message from re-firing it: the count
+    # a swipe leaves behind is unchanged, so a repeat at the same count is
+    # recognised as the same milestone rather than a new one.
+    15: [
+        "ALTER TABLE chats ADD COLUMN title_manual INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE chats ADD COLUMN title_auto_count INTEGER NOT NULL DEFAULT 0",
+    ],
 }
 
 

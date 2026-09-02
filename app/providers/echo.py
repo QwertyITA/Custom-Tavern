@@ -142,10 +142,10 @@ class EchoProvider(Provider):
             return json.dumps({"memories": [facts[seed % len(facts)]]})
         if request.pass_id == "chat_rename":
             titles = [
-                "A Quiet Arrival on a Cold Night",
-                "Words Exchanged at the Back Bar",
-                "An Uneasy Start to Something Larger",
-                "Something Unsettled Between Two Strangers",
+                "A Quiet Arrival at Night",
+                "Words at the Back Bar",
+                "An Uneasy Start",
+                "Something Unsettled Between Them",
             ]
             return json.dumps({"title": titles[seed % len(titles)]})
         if request.pass_id == "random_event":
