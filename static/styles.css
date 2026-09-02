@@ -2319,7 +2319,11 @@ body {
    text is cleared out from under it (it collapses onto the cue in one frame),
    and a minimum alone cannot hold it in once the new reply arrives. Pinned to
    the same number they fix the box at an exact size, which is what actually
-   animates. --dur-bubble-resize is what app.js waits on. */
+   animates. --dur-bubble-resize is what app.js waits on — followGrowth there
+   re-pins on that same interval for as long as the reply keeps streaming in,
+   so the whole grow-back-out eases in short repeated steps instead of one
+   eased step followed by raw, unanimated (and so effectively linear) reflow
+   for the rest of the reply. */
 .bubble {
   /* The snap-back is a bubble travelling from wherever the finger left it
      back to its resting place, not something newly arriving — that is

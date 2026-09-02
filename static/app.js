@@ -4752,47 +4752,64 @@ function tavern() {
       // the text, so the measurement comes back as the pill's own size and the
       // pin becomes a no-op — leaving the release to do the resizing, uncapped
       // and unanimated. One frame further on the DOM holds the new reply.
-      this.$nextTick(() => requestAnimationFrame(() => {
-        const natural = this.measureNatural(bubble);
-        requestAnimationFrame(() =>
-          this.pinTo(bubble, `${natural.width}px`, `${natural.height}px`));
-        // Release entirely so streaming text can keep growing the bubble.
-        setTimeout(() => this.releaseRegenPin(message.id), BUBBLE_RESIZE_MS());
-      }));
+      this.$nextTick(() => requestAnimationFrame(() => this.followGrowth(message, bubble)));
     },
 
-    releaseRegenPin(messageId) {
-      const bubble = this.bubbleFor(messageId);
-      if (!bubble) return;
-      this.setPin(bubble, "", "");
-      bubble.classList.remove("clipping");
+    // Keeps a growing bubble's pinned size chasing the text as it streams in,
+    // each step covered by the same eased transition (§ .bubble) that the
+    // shrink-to-pill uses — rather than pinning once to the first chunk and
+    // releasing outright, which is what this replaced. Releasing that early
+    // left the rest of the growth to raw, unanimated reflow, and since the
+    // pacer (§ makePacer) reveals text at a roughly constant rate, that read
+    // as the bubble growing at one constant, linear speed for however long
+    // the reply took, not easing into its resting size the way the shrink
+    // does. Re-measured on an interval the length of the transition itself
+    // rather than every frame — retriggering the transition that often never
+    // lets a step land, which reads as a stutter, not motion; a step that
+    // does land simply keeps easing towards wherever the text has grown to
+    // by the time the next one fires. Stops once the text stops changing for
+    // two ticks running — the pacer has caught up and there is nothing left
+    // to chase — and releases the pin outright so nothing is left pinned to
+    // a size that will go stale the moment more text is edited in.
+    followGrowth(message, bubble) {
+      let lastLen = -1;
+      let stableTicks = 0;
+      const step = () => {
+        if (!bubble.isConnected) { clearInterval(timer); return; }
+        const len = message.text.length;
+        stableTicks = len === lastLen ? stableTicks + 1 : 0;
+        lastLen = len;
+        const natural = this.measureNatural(bubble);
+        this.pinTo(bubble, `${natural.width}px`, `${natural.height}px`);
+        if (stableTicks >= 2) {
+          clearInterval(timer);
+          setTimeout(() => {
+            this.setPin(bubble, "", "");
+            bubble.classList.remove("clipping");
+          }, BUBBLE_RESIZE_MS());
+        }
+      };
+      const timer = setInterval(step, BUBBLE_RESIZE_MS());
+      step();
     },
 
     // A brand-new reply has no bubble of its own to shrink into first the
     // way a regeneration does (§ endRegen) — only the cue's, snapshotted in
     // reveal() the instant before it disappeared. Pins the new bubble to
     // that same footprint the moment it exists, then grows it out to
-    // whatever the first chunk of text needs, so the cue and the reply read
-    // as one shape changing continuously rather than two elements trading
-    // places in a single frame — the same difference §5 draws between a
-    // sent message that pops into place and one that flies up from the
-    // composer.
+    // whatever the reply needs (§ followGrowth), so the cue and the reply
+    // read as one shape changing continuously rather than two elements
+    // trading places in a single frame — the same difference §5 draws
+    // between a sent message that pops into place and one that flies up
+    // from the composer.
     growFromCue(messageId, size) {
       this.$nextTick(() => {
         const bubble = this.bubbleFor(messageId);
-        if (!bubble) return;
+        const message = this.messages.find((m) => m.id === messageId);
+        if (!bubble || !message) return;
         bubble.classList.add("clipping");
         this.pinInstant(bubble, `${size.width}px`, `${size.height}px`);
-        requestAnimationFrame(() => {
-          const natural = this.measureNatural(bubble);
-          this.pinTo(bubble, `${natural.width}px`, `${natural.height}px`);
-          // Release entirely once landed, so streaming text can keep
-          // growing the bubble the way it always has, unpinned.
-          setTimeout(() => {
-            this.setPin(bubble, "", "");
-            bubble.classList.remove("clipping");
-          }, BUBBLE_RESIZE_MS());
-        });
+        requestAnimationFrame(() => this.followGrowth(message, bubble));
       });
     },
 
