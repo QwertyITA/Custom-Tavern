@@ -567,6 +567,29 @@ def test_two_turns_in_one_chat_do_not_run_at_once(sched, chat, character, monkey
 # ----------------------------------------------------------------- swipes
 
 
+def test_a_swipe_also_drains_the_rename_queue(sched, chat, character, monkeypatch):
+    """A swipe is a successful prompt landing too (§ _run_swipe's own call to
+    _drain_rename_queue) — not just a fresh turn. Regressed once already:
+    the first version only wired this into _answer, so a chat that mostly
+    got swiped/regenerated never renamed anything."""
+    other = repo.create_chat(sched.db, character.id, character.name)
+    repo.add_message(sched.db, other["id"], "assistant", "Sit wherever.")
+
+    async def scenario():
+        await turn(sched, chat["id"], "Cold out.")
+        # Queued only now — empty during the turn above, so this isolates
+        # the swipe as what actually drains it.
+        monkeypatch.setattr(sched.settings, "rename_queue", [other["id"]])
+        message = repo.list_messages(sched.db, chat["id"])[-1]
+        async for _event in sched.run_swipe(message["id"]):
+            pass
+        await sched.await_pending(chat["id"], timeout=20)
+
+    sync(scenario())
+    assert repo.get_chat(sched.db, other["id"])["title"] != character.name
+    assert sched.settings.rename_queue == []
+
+
 def test_swipe_adds_a_variant_without_a_new_message(sched, chat, character):
     async def scenario():
         await turn(sched, chat["id"], "Cold out.")

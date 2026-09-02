@@ -2390,7 +2390,12 @@
 
         <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-edit"/></svg>Chat naming</h3>
         <label class="toggle" x-show="chatRenamePass()" x-cloak>
-          <input type="checkbox" :checked="chatRenamePass().enabled"
+          <!-- x-show only hides this row — it does not stop Alpine
+               evaluating :checked below, which runs the instant the panel
+               opens, a render tick before the /api/passes fetch that fills
+               in chatRenamePass() has actually landed. Optional chaining,
+               not the x-show guard, is what keeps that from throwing. -->
+          <input type="checkbox" :checked="chatRenamePass()?.enabled"
                  @change="togglePass(chatRenamePass())">
           <span>Auto-rename chats</span>
         </label>

@@ -1974,6 +1974,13 @@ class PassScheduler:
         launched = self._launch_background(ctx)
         if launched:
             yield {"type": "background_queued", "passes": launched}
+        # Same reasoning as _answer's own version of this (§ scheduler.py) —
+        # a swipe is a successful prompt landing too, and the chat it ends up
+        # naming is not necessarily this one.
+        task = asyncio.create_task(
+            self._drain_rename_queue(), name=f"chat_rename_queue:swipe:{chat['id']}:{ctx.turn}"
+        )
+        self._track(chat["id"], task)
         yield {"type": "turn_end", "turn": ctx.turn}
 
     async def run_impersonate(self, chat_id: str) -> AsyncIterator[dict]:
