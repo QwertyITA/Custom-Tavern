@@ -593,19 +593,42 @@ function realisticPacing(text) {
 // own refresh button uses (§ refreshWorld) — a hand-forced run behaves
 // exactly like a scheduled one, same event stream, same write rules — and
 // `flag` is the matching key in `refreshing` that marks it running.
-// `name` is the noun the outcome toast uses ("Background changed from…"),
-// `describe(vm)` reads whatever "current value" that toast compares before
-// and after the run, and `label(vm, value)` turns that raw value into the
-// word shown — kept per-command since a future command's value will not
-// always be a background filename.
+// `describe(vm)` reads whatever "current value" the outcome toast compares
+// before and after the run, `label(vm, value)` turns that raw value into
+// the word shown, and `outcome(vm, run, before)` builds the toast's actual
+// text — all three live here rather than generic in resolveSlashRun, since
+// what changed (and what "no change" even means) is different for every
+// pass this table might someday cover.
 const SLASH_COMMANDS = {
   background: {
     passId: "background_swap",
     flag: "background",
     hint: "Checking the background…",
-    name: "Background",
     describe: (vm) => vm.sceneBackgroundFile || vm.backgroundFile(),
     label: (vm, file) => (file ? vm.bgLabel(file) : "no backdrop"),
+    outcome(vm, run, before) {
+      if (run.status === "failed") return `Error: ${run.error || "the pass failed"}`;
+      const after = this.describe(vm);
+      if (after !== before) {
+        return `Background changed from ${this.label(vm, before)} to ${this.label(vm, after)}`;
+      }
+      // Same picture either way — but "unchanged" alone says nothing about
+      // why, and that why is exactly what someone reaching for this command
+      // wants to know (§ ISSUES-TRIAGE.md-style feedback: a status this app
+      // already tracks, just not shown). "skipped" means the pass never
+      // even had a handler to run (§ _build_pass_input, scheduler.py) —
+      // worth telling apart from "stale", where it ran and answered but the
+      // answer didn't stick (an invalid pick, or — per its own prompt — the
+      // model choosing to keep the current one on purpose).
+      if (run.status === "skipped") {
+        if (!vm.backdrops.length) return "Background: nothing uploaded yet (Theme → Backdrop)";
+        const eligible = vm.backdrops.some((b) => vm.bgMeta(b.name).auto !== false);
+        if (!eligible) return "Background: every image is excluded from auto-pick (Theme → Backdrop)";
+        return "Background unchanged";
+      }
+      if (run.status === "stale") return "Background unchanged — nothing else fit";
+      return "Background unchanged — already showing that one";
+    },
   },
 };
 
@@ -1717,21 +1740,12 @@ function tavern() {
       const pending = this.pendingSlashRuns[run.id];
       if (!pending) return;
       delete this.pendingSlashRuns[run.id];
-      const { command, before } = pending;
-      if (run.status === "failed") {
-        this.flashHint(`Error: ${run.error || "the pass failed"}`);
-        return;
-      }
-      // A panel event for this same run, if the pick was valid, arrives
-      // over the same SSE connection strictly before this terminal status
-      // does — so by now `describe` already reads whatever it changed to,
-      // with nothing here needing to read the panel event itself.
-      const after = command.describe(this);
-      this.flashHint(
-        after === before
-          ? `${command.name} unchanged`
-          : `${command.name} changed from ${command.label(this, before)} to ${command.label(this, after)}`
-      );
+      // A panel event for this same run, if the pick was valid, arrives over
+      // the same SSE connection strictly before this terminal status does —
+      // so by the time command.outcome calls describe() again, it already
+      // reads whatever changed, with nothing here needing to read the panel
+      // event itself.
+      this.flashHint(pending.command.outcome(this, run, pending.before));
     },
 
     // Opening the roster from the header is about *this* character, so theirs
