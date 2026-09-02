@@ -15,6 +15,14 @@
     "surprised": "mira/surprised.png",
     "thoughtful": "mira/thoughtful.png"
   },
+  "expression_meta": {
+    "neutral": { "description": "Even, unhurried — her default while working." },
+    "happy": { "description": "A small, real smile, eyes creased — she doesn't fake this one." },
+    "sad": { "description": "Eyes low, mouth drawn down — something's landed on her." },
+    "angry": { "description": "Brows drawn in tight, mouth a flat line — she's gone short with someone." },
+    "surprised": { "description": "Eyes wide, mouth open — caught off guard, which doesn't happen often." },
+    "thoughtful": { "description": "Weighing something, half-listening — turning a thought over before she answers." }
+  },
   "backgrounds": [
     { "id": "tavern_interior", "img": "backgrounds/tavern_interior.jpg",
       "metadata": { "place": "tavern", "time": "any", "weather": "any" } },
