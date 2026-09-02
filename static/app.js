@@ -978,6 +978,11 @@ function tavern() {
     hueEditorOpen: false,
     draftHue: {},
     customHues: [],
+    // The "Other expressions" editor — a fold that grew too long to sit
+    // inline once a character had several, so it's a full-screen sheet
+    // like Picture effect above rather than a wide.length grid of textareas
+    // pushing the rest of the character form down.
+    expressionsOpen: false,
     armedHue: "",
     armedHueTimer: 0,
     // The system prompt / stop strings / final instruction — technical
@@ -2853,6 +2858,14 @@ function tavern() {
       this.pfpEffectOpen = false;
       this.pfpEffectGrown = false;
       this.hueEditorOpen = false;
+    },
+
+    openExpressions() {
+      this.expressionsOpen = true;
+    },
+
+    closeExpressions() {
+      this.expressionsOpen = false;
     },
 
     // What the big preview at the top of the sheet actually shows — the

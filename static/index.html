@@ -2980,77 +2980,18 @@
               <span class="p-count" x-show="pfpEffectActive()">on</span>
             </button>
           </div>
-          <button class="wide pfp-remove-btn" x-show="draftPortrait()" @click="clearCharacterPfp()">
-            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-delete"/></svg>
-            <span>Remove picture</span>
-          </button>
+          <div class="btn-row pfp-remove-row">
+            <button class="wide" x-show="draftPortrait()" @click="openExpressions()">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-layers"/></svg>
+              <span>Expressions</span>
+              <span class="p-count" x-show="emotionPfpEntries().length" x-text="emotionPfpEntries().length"></span>
+            </button>
+            <button class="wide pfp-remove-btn" x-show="draftPortrait()" @click="clearCharacterPfp()">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-delete"/></svg>
+              <span>Remove picture</span>
+            </button>
+          </div>
         </div>
-
-        <!-- A card's other emotion sprites (happy/sad/angry/…), each shown
-             by the header and every message the moment the tracked
-             expression names it. Each gets its own crop, same as neutral
-             above and locked to its shape, because a square `happy` sprite
-             framed by plain object-fit under a portrait `neutral` is a
-             picture of the wrong third of somebody's face (§KNOWN-ISSUES.md,
-             "Emotion sprites don't go through the cropper").
-             Named and described here, the same "id + description beats a
-             bare name" reasoning the Theme panel's backdrop library uses —
-             except this stays per-character (§ Character.expression_meta):
-             the expression pass reads it alongside the recent exchange to
-             pick a fitting portrait on its own (§ registry.py), and the eye
-             excludes one from that pick without removing it, same idea as
-             the backdrop's own toggle. Renaming edits the pfp_set key
-             itself rather than a separate label — that key *is* the id
-             both the pass and the tracked `expression` state match against,
-             so there is nothing else to keep in sync (§ renameExpression). -->
-        <div class="pfp-emotion-list" x-show="emotionPfpEntries().length">
-          <span class="row-label wide-label">Other expressions</span>
-          <template x-for="e in emotionPfpEntries()" :key="e.key">
-            <div class="pfp-emotion-row">
-              <div class="pfp-emotion-thumb-col">
-                <span class="pfp-slot pfp-slot-mini"
-                      :class="'shape-' + (draftCharacter.pfp_shape || 'portrait')">
-                  <span class="pfp pfp-blank" aria-hidden="true">
-                    <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
-                  </span>
-                  <img class="pfp pfp-over" :src="e.url" alt="" @error="$el.remove()">
-                </span>
-                <label class="link file-link">
-                  <span>Replace</span>
-                  <input type="file" accept="image/*"
-                         @change="uploadCharacterPfp($event, e.key)" hidden>
-                </label>
-              </div>
-              <div class="pfp-emotion-fields">
-                <input :value="e.key" placeholder="Name" maxlength="60"
-                       @change="renameExpression(e.key, $event.target.value)">
-                <textarea :value="exprMeta(e.key).description || ''" rows="2" maxlength="400"
-                          placeholder="What this expression conveys — helps the AI pick it automatically."
-                          @input="setExprMeta(e.key, 'description', $event.target.value)"></textarea>
-              </div>
-              <div class="pfp-emotion-actions">
-                <button class="icon-btn" :class="{ on: exprMeta(e.key).auto !== false }"
-                        @click="setExprMeta(e.key, 'auto', exprMeta(e.key).auto === false)"
-                        :aria-pressed="exprMeta(e.key).auto !== false"
-                        :title="exprMeta(e.key).auto === false
-                          ? 'Excluded from the AI\'s automatic pick — tap to include'
-                          : 'Eligible for the AI\'s automatic pick — tap to exclude'">
-                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                    <use :href="exprMeta(e.key).auto === false ? '#i-eye-off' : '#i-eye'"></use>
-                  </svg>
-                </button>
-                <button class="icon-btn danger" @click="clearCharacterPfp(e.key)" title="Remove">
-                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-delete"/></svg>
-                </button>
-              </div>
-            </div>
-          </template>
-        </div>
-        <label class="wide file-btn">
-          <input type="file" accept="image/*" @change="addCharacterExpression($event)" hidden>
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-image"/></svg>
-          <span>Add an expression</span>
-        </label>
 
         <label class="row col-row"><span class="row-label wide-label">Name</span>
           <input x-model="draftCharacter.name" placeholder="Name"></label>
@@ -3307,6 +3248,97 @@
             <button class="wide primary" @click="addCustomHue()">Add hue</button>
           </div>
         </template>
+      </div>
+    </div>
+
+    <!-- A card's other emotion sprites (happy/sad/angry/…), each shown
+         by the header and every message the moment the tracked
+         expression names it. Full-screen behind its own open rather than
+         inline in the character form — the row list plus a textarea per
+         entry was the longest fold on the page and pushed every field
+         below it out of easy reach for characters that had none of this
+         yet. Each gets its own crop, same as neutral above and locked to
+         its shape, because a square `happy` sprite framed by plain
+         object-fit under a portrait `neutral` is a picture of the wrong
+         third of somebody's face (§KNOWN-ISSUES.md, "Emotion sprites
+         don't go through the cropper").
+         Named and described here, the same "id + description beats a
+         bare name" reasoning the Theme panel's backdrop library uses —
+         except this stays per-character (§ Character.expression_meta):
+         the expression pass reads it alongside the recent exchange to
+         pick a fitting portrait on its own (§ registry.py), and the eye
+         excludes one from that pick without removing it, same idea as
+         the backdrop's own toggle. Renaming edits the pfp_set key
+         itself rather than a separate label — that key *is* the id
+         both the pass and the tracked `expression` state match against,
+         so there is nothing else to keep in sync (§ renameExpression). -->
+    <div class="sheet-modal" x-show="expressionsOpen" x-cloak
+         @keydown.escape.window="closeExpressions()"
+         x-transition:enter="sheet-modal-enter" x-transition:enter-start="sheet-modal-from"
+         x-transition:enter-end="sheet-modal-to"
+         x-transition:leave="sheet-modal-leave" x-transition:leave-start="sheet-modal-to"
+         x-transition:leave-end="sheet-modal-from">
+      <div class="sheet-modal-card" @click.stop>
+        <div class="crop-head">
+          <span class="sheet-modal-title">Expressions</span>
+        </div>
+        <div class="sheet-modal-body">
+          <p class="note" x-show="!emotionPfpEntries().length">
+            No other expressions yet. Add a picture for each one this character
+            should switch to — happy, sad, angry, whatever fits — and describe
+            what it shows so the AI can pick it on its own.
+          </p>
+          <div class="pfp-emotion-list" x-show="emotionPfpEntries().length">
+            <template x-for="e in emotionPfpEntries()" :key="e.key">
+              <div class="pfp-emotion-row">
+                <div class="pfp-emotion-thumb-col">
+                  <span class="pfp-slot pfp-slot-mini"
+                        :class="'shape-' + (draftCharacter.pfp_shape || 'portrait')">
+                    <span class="pfp pfp-blank" aria-hidden="true">
+                      <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
+                    </span>
+                    <img class="pfp pfp-over" :src="e.url" alt="" @error="$el.remove()">
+                  </span>
+                  <label class="link file-link">
+                    <span>Replace</span>
+                    <input type="file" accept="image/*"
+                           @change="uploadCharacterPfp($event, e.key)" hidden>
+                  </label>
+                </div>
+                <div class="pfp-emotion-fields">
+                  <input :value="e.key" placeholder="Name" maxlength="60"
+                         @change="renameExpression(e.key, $event.target.value)">
+                  <textarea :value="exprMeta(e.key).description || ''" rows="2" maxlength="400"
+                            placeholder="What this expression conveys — helps the AI pick it automatically."
+                            @input="setExprMeta(e.key, 'description', $event.target.value)"></textarea>
+                </div>
+                <div class="pfp-emotion-actions">
+                  <button class="icon-btn" :class="{ on: exprMeta(e.key).auto !== false }"
+                          @click="setExprMeta(e.key, 'auto', exprMeta(e.key).auto === false)"
+                          :aria-pressed="exprMeta(e.key).auto !== false"
+                          :title="exprMeta(e.key).auto === false
+                            ? 'Excluded from the AI\'s automatic pick — tap to include'
+                            : 'Eligible for the AI\'s automatic pick — tap to exclude'">
+                    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                      <use :href="exprMeta(e.key).auto === false ? '#i-eye-off' : '#i-eye'"></use>
+                    </svg>
+                  </button>
+                  <button class="icon-btn danger" @click="clearCharacterPfp(e.key)" title="Remove">
+                    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-delete"/></svg>
+                  </button>
+                </div>
+              </div>
+            </template>
+          </div>
+          <label class="wide file-btn">
+            <input type="file" accept="image/*" @change="addCharacterExpression($event)" hidden>
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-image"/></svg>
+            <span>Add an expression</span>
+          </label>
+        </div>
+        <div class="btn-row crop-actions">
+          <button class="wide primary" @click="closeExpressions()">Done</button>
+        </div>
       </div>
     </div>
 
