@@ -2860,8 +2860,10 @@
                     <!-- Rename, export and delete used to be three separate
                          targets crowding a row that only has room for a
                          title and a time — folded behind this one glyph
-                         instead (§ .chat-row-fold below). -->
-                    <button class="glyph-btn" x-show="renamingChat !== chat.id"
+                         instead, as an actual compact menu list (§
+                         .chat-row-menu below), not the same three buttons
+                         merely hidden until tapped. -->
+                    <button class="chat-kebab-btn" x-show="renamingChat !== chat.id"
                             @click="chatMenuFor = chatMenuFor === chat.id ? '' : chat.id"
                             :aria-expanded="chatMenuFor === chat.id"
                             title="Chat options" aria-label="Chat options">
@@ -2870,18 +2872,18 @@
                   </div>
                   <div class="fold chat-row-fold" :class="{ open: chatMenuFor === chat.id }">
                     <div class="fold-clip">
-                      <div class="chat-row-actions">
-                        <button class="chat-row-action" @click="chatMenuFor = ''; startRenameChat(chat, $el)">
+                      <div class="chat-row-menu">
+                        <button class="chat-row-menu-item" @click="chatMenuFor = ''; startRenameChat(chat, $el)">
                           <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-edit"/></svg>
                           <span>Rename</span>
                         </button>
-                        <a class="chat-row-action" :href="`/api/chats/${chat.id}/export?download=true`"
+                        <a class="chat-row-menu-item" :href="`/api/chats/${chat.id}/export?download=true`"
                            :download="`${chat.title || 'chat'}.json`"
                            @click="chatMenuFor = ''">
                           <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-export"/></svg>
                           <span>Export</span>
                         </a>
-                        <button class="chat-row-action danger" :class="{ armed: confirmChat === chat.id }"
+                        <button class="chat-row-menu-item danger" :class="{ armed: confirmChat === chat.id }"
                                 @click="deleteChat(chat)"
                                 :aria-label="confirmChat === chat.id ? 'Tap again to delete' : 'Delete chat'">
                           <span class="glyph" x-text="confirmChat === chat.id ? '⚠&#xFE0E;' : '✕&#xFE0E;'"></span>
