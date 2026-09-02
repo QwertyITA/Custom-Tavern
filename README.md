@@ -34,7 +34,8 @@ cd Custom-Tavern
 ```
 
 `start.sh` installs the Python dependencies on first run, then starts the
-server and prints `http://localhost:8787`. Open that in Chrome.
+server and opens `http://localhost:8787` in your browser once it's actually
+up.
 
 **If pip fails on `pydantic-core`:** PyPI ships no Android wheel for it, so it
 compiles from Rust source. Install the toolchain and run the script again —
@@ -845,6 +846,10 @@ see is one whose errors you find out about much later.
 down — worth it once you are just *using* the app rather than changing it.
 Reattach with `tmux attach -t tavern`. Either mode stops the other first, so
 the two can never fight over the port.
+
+Either way, a browser tab opens on its own once the port actually answers —
+not at the moment `start.sh` is tapped, which would be a blank page more
+often than not. `TAVERN_NO_BROWSER=1 ./start.sh` skips it, for a headless run.
 
 `start.sh` pulls the latest version before starting, and reinstalls
 dependencies only when `requirements.txt` actually changed. Three things it

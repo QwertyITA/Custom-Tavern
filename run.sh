@@ -17,6 +17,9 @@
 #         ./run.sh background   detach into tmux instead
 #         ./run.sh stop         stop it
 #         ./run.sh logs         follow the log
+#
+# Opens a browser tab on the running app once the port answers.
+# TAVERN_NO_BROWSER=1 skips that.
 
 set -euo pipefail
 
@@ -57,26 +60,69 @@ HOST="${HOST:-127.0.0.1}"
 
 STARTUP_TIMEOUT="${TAVERN_STARTUP_TIMEOUT:-25}"
 
-wait_for_port() {
+port_open() {
   # Python rather than curl or nc: python is guaranteed present here, those are not.
-  local waited=0
-  while [ "$waited" -lt "$STARTUP_TIMEOUT" ]; do
-    if "$PYTHON" - "$HOST" "$PORT" <<'PY' 2>/dev/null
+  "$PYTHON" - "$HOST" "$PORT" <<'PY' 2>/dev/null
 import socket, sys
 host, port = sys.argv[1], int(sys.argv[2])
 with socket.socket() as s:
     s.settimeout(1.5)
     sys.exit(0 if s.connect_ex((host, port)) == 0 else 1)
 PY
-    then
-      return 0
-    fi
+}
+
+wait_for_port() {
+  local waited=0
+  while [ "$waited" -lt "$STARTUP_TIMEOUT" ]; do
+    port_open && return 0
     # A session that has already gone means the server died; stop waiting.
     tmux has-session -t "$SESSION" 2>/dev/null || return 1
     sleep 1
     waited=$((waited + 1))
   done
   return 1
+}
+
+# Runs a command detached and time-capped, the same caution termux_try takes
+# with the Termux:API app — xdg-open has been known to block when it falls
+# through to a helper that itself waits on something. Never let opening a
+# browser tab be the reason startup hangs.
+bg_try() {
+  if have timeout; then
+    ( timeout 5 "$@" >/dev/null 2>&1 & )
+  else
+    ( "$@" >/dev/null 2>&1 & )
+  fi
+}
+
+# One tab, opened once the port actually answers — not at spawn, which would
+# be a blank page half the time. termux-open-url hands the URL to whatever
+# browser is set as default on the phone; xdg-open/open cover a desktop
+# checkout run the same way for testing. TAVERN_NO_BROWSER=1 skips this for
+# a headless run (CI, SSH, a second start.sh already watched).
+open_browser() {
+  [ "${TAVERN_NO_BROWSER:-}" = "1" ] && return 0
+  local url="http://localhost:$PORT"
+  if have termux-open-url; then
+    termux_try termux-open-url "$url"
+  elif have xdg-open; then
+    bg_try xdg-open "$url"
+  elif have open; then
+    bg_try open "$url"
+  fi
+}
+
+# For the plain-foreground path (no tmux involved, so nothing else is going
+# to notice the port come up): poll the same way wait_for_port does, minus
+# the tmux-session liveness check that path needs and this one has no
+# session to make.
+open_when_ready() {
+  local waited=0
+  while [ "$waited" -lt "$STARTUP_TIMEOUT" ]; do
+    port_open && { open_browser; return 0; }
+    sleep 1
+    waited=$((waited + 1))
+  done
 }
 
 server_alive() {
@@ -170,6 +216,10 @@ case "${1:-start}" in
         sleep 1
       fi
       trap shutdown_foreground INT TERM
+      # Only the outer process opens the tab — inside tmux, the outer
+      # invocation below already does it once wait_for_port confirms the
+      # server is up.
+      [ "${TAVERN_INNER:-}" != "1" ] && open_when_ready &
       start_server
     else
       # Re-exec inside tmux so closing the terminal does not take the server.
@@ -180,6 +230,7 @@ case "${1:-start}" in
       # would refuse to ever start again.
       if tmux has-session -t "$SESSION" 2>/dev/null; then
         if server_alive; then
+          open_browser
           echo "already running — attach with: tmux attach -t $SESSION"
           exit 0
         fi
@@ -195,6 +246,7 @@ case "${1:-start}" in
       # "started" printed over a server that died on import is worse than
       # useless, because it sends you looking in the wrong place.
       if wait_for_port; then
+        open_browser
         echo "running → http://localhost:$PORT"
         echo "attach: tmux attach -t $SESSION   stop: $0 stop"
       else

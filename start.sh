@@ -15,6 +15,9 @@
 #     the version you already have.
 #   * Local edits are never discarded silently. A dirty worktree skips the pull
 #     and says so, rather than stashing or resetting behind your back.
+#
+# Opens a browser tab on the app once it's actually up (see run.sh). Set
+# TAVERN_NO_BROWSER=1 to skip that.
 
 set -uo pipefail
 
