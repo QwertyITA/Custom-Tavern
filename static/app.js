@@ -548,12 +548,20 @@ function makePacer(apply) {
 // starts composing an answer before anything of theirs shows up at all —
 // sized to how much there was to read; then the typing cue itself holds for
 // at least a floor of its own, however fast the reply actually arrives.
-const REALISTIC_SILENCE_BASE_MS = [800, 1800];
-const REALISTIC_SILENCE_PER_WORD_MS = [40, 80];
+//
+// The per-word cost is deliberately close to a real silent-reading pace
+// (~230-400 words/minute, i.e. 150-260ms/word) rather than a token-budget
+// guess — the previous 40-80ms/word implied reading at over 700 words a
+// minute, which is why a short question got answered before a person could
+// plausibly have finished it. The base and cap moved up to match: a short
+// message still lands quickly, but a longer one now visibly earns its
+// pause instead of being swallowed by a floor tuned for one-liners.
+const REALISTIC_SILENCE_BASE_MS = [1200, 2400];
+const REALISTIC_SILENCE_PER_WORD_MS = [150, 260];
 // A very long message still gets an answer in a bounded time — the point is
 // pacing, not making someone wait minutes for a paragraph.
-const REALISTIC_SILENCE_CAP_MS = 6000;
-const REALISTIC_TYPING_MIN_MS = [1000, 2000];
+const REALISTIC_SILENCE_CAP_MS = 8000;
+const REALISTIC_TYPING_MIN_MS = [1400, 2600];
 
 function randRange([min, max]) {
   return min + Math.random() * (max - min);
