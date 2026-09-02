@@ -333,6 +333,7 @@ def test_chat_rename_writes_the_title_and_dequeues(sched, chat, character, monke
     """The front of the queue gets a real title (§ echo's own "chat_rename"
     case) and is popped off on success (§ _handler_chat_rename)."""
     repo.add_message(sched.db, chat["id"], "assistant", "Sit wherever. The fire's better on the left.")
+    repo.add_message(sched.db, chat["id"], "user", "Cold out there.")
     repo.rename_chat(sched.db, chat["id"], "Latest chat")
     monkeypatch.setattr(sched.settings, "rename_queue", [chat["id"]])
 
@@ -357,6 +358,7 @@ def test_concurrent_drain_calls_never_run_at_the_same_time(
     other = repo.create_chat(sched.db, character.id, character.name)
     for cid in (chat["id"], other["id"]):
         repo.add_message(sched.db, cid, "assistant", "Sit wherever.")
+        repo.add_message(sched.db, cid, "user", "Cold out there.")
     monkeypatch.setattr(sched.settings, "rename_queue", [chat["id"], other["id"]])
 
     in_flight = 0
@@ -396,6 +398,7 @@ def test_priority_drain_cuts_ahead_of_a_waiting_normal_one(
     chats = [repo.create_chat(sched.db, character.id, character.name) for _ in range(3)]
     for c in chats:
         repo.add_message(sched.db, c["id"], "assistant", "Sit wherever.")
+        repo.add_message(sched.db, c["id"], "user", "Cold out there.")
     monkeypatch.setattr(sched.settings, "rename_queue", [c["id"] for c in chats])
 
     order: list[str] = []
@@ -436,6 +439,7 @@ def test_kick_rename_queue_drains_several_in_one_go(sched, chat, character, monk
     other = repo.create_chat(sched.db, character.id, character.name)
     for cid in (chat["id"], other["id"]):
         repo.add_message(sched.db, cid, "assistant", "Sit wherever. The fire's better on the left.")
+        repo.add_message(sched.db, cid, "user", "Cold out there.")
     monkeypatch.setattr(sched.settings, "rename_queue", [chat["id"], other["id"]])
 
     sync(sched.kick_rename_queue(limit=5))
@@ -526,6 +530,33 @@ def test_chat_rename_reads_the_opening_messages_not_the_most_recent_ones(
     assert handler is not None
     assert "filler message 0" in body
     assert "filler message 19" not in body
+
+
+def test_chat_rename_never_shows_the_greeting(sched, chat, character):
+    """The card's first_mes is identical in every chat with this character —
+    reading it back would only ever name what every one of this character's
+    titles has in common, not what sets this conversation apart (§
+    _build_pass_input's chat_rename branch)."""
+    repo.add_message(sched.db, chat["id"], "assistant", "The unmistakable greeting line.")
+    repo.add_message(sched.db, chat["id"], "user", "The actual opening line.")
+    definition = next(d for d in registry.all_passes(sched.db) if d.id == "chat_rename")
+
+    task, messages, handler = sched._build_pass_input(context(chat, character), definition)
+    body = " ".join(m["content"] for m in messages)
+    assert handler is not None
+    assert "The unmistakable greeting line" not in body
+    assert "The actual opening line" in body
+
+
+def test_chat_rename_skips_a_chat_with_only_a_greeting(sched, chat, character):
+    """Nothing dynamic to title from yet — the pass has nothing to do this
+    time, same as an empty chat, rather than titling every fresh chat off
+    the one line every chat with this character starts on."""
+    repo.add_message(sched.db, chat["id"], "assistant", "The unmistakable greeting line.")
+    definition = next(d for d in registry.all_passes(sched.db) if d.id == "chat_rename")
+
+    task, messages, handler = sched._build_pass_input(context(chat, character), definition)
+    assert handler is None
 
 
 def test_a_failing_pass_does_not_break_the_turn(db, sched, chat, character):
@@ -656,6 +687,7 @@ def test_a_swipe_also_drains_the_rename_queue(sched, chat, character, monkeypatc
     got swiped/regenerated never renamed anything."""
     other = repo.create_chat(sched.db, character.id, character.name)
     repo.add_message(sched.db, other["id"], "assistant", "Sit wherever.")
+    repo.add_message(sched.db, other["id"], "user", "Cold out there.")
 
     async def scenario():
         await turn(sched, chat["id"], "Cold out.")

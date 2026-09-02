@@ -1351,6 +1351,16 @@ class PassScheduler:
             # have grown well past what a title needs to be read from — the
             # premise is what the title is about, and that is stated early.
             history = repo.list_messages(self.db, ctx.chat_id, include_dropped=False)
+            # Never the greeting: it's the character card's own first_mes,
+            # identical in every chat with this character, so it names the
+            # one thing every title would otherwise share rather than what
+            # sets this conversation apart. Cut by position, not by turn
+            # number — an imported chat's numbering is not this engine's own
+            # — so only ever the very first message, and only when it is
+            # actually the character's, not a chat that happens to open on
+            # the user's own line.
+            if history and history[0]["role"] == "assistant":
+                history = history[1:]
             if not history:
                 return "", [], None
             label = assembly.speaker_label(character.name)

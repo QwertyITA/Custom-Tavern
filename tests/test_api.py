@@ -260,6 +260,10 @@ def test_queue_unnamed_endpoint_finds_character_named_chats(client, isolated_set
     from app import config
 
     a = new_chat(client)
+    # Something dynamic to title from — the greeting alone is never enough
+    # (§ _build_pass_input's chat_rename branch: it's identical in every
+    # chat with this character, so it's skipped rather than read).
+    send(client, a, "Cold out.")
     character_name = client.get("/api/characters").json()[0]["name"]
     new_chat(client)  # demotes a — a is now titled after its character, and queued
 
