@@ -2310,6 +2310,27 @@ class PassScheduler:
                 ctx, definition, "failed", run_id=run_id, error=repr(exc), finished_at=time.time()
             )
 
+    async def kick_rename_queue(self, limit: int = 5) -> None:
+        """Work through several chats right away instead of waiting on the
+        next reply that happens to land somewhere (§ /api/chats/queue-unnamed
+        below, and the "queue all unnamed chats" Settings button that calls
+        it) — pressing a button that says "queue" and then watching nothing
+        happen until you go type in an unrelated chat is not what anyone
+        pressing it wants, whatever `_drain_rename_queue`'s own usual trigger
+        is for everything else.
+
+        Stops early if a call makes no progress — the queue is unchanged,
+        meaning that chat is stuck (a broken backend, say) — rather than
+        hammering the same failure `limit` times in a row.
+        """
+        for _ in range(max(0, limit)):
+            before = list(self.settings.rename_queue)
+            if not before:
+                return
+            await self._drain_rename_queue()
+            if self.settings.rename_queue == before:
+                return
+
     async def reaudit(self, message_id: str) -> dict:
         """Re-run the auditor against an edited message (§9)."""
         message = repo.get_message(self.db, message_id)

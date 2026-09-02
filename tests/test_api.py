@@ -271,10 +271,15 @@ def test_queue_unnamed_endpoint_finds_character_named_chats(client, isolated_set
     result = client.post("/api/chats/queue-unnamed")
     assert result.status_code == 200
     assert result.json()["queued"] == 1
-    assert config.SETTINGS.rename_queue == [a]
-    assert client.get(f"/api/chats/{a}").json()["chat"]["title"] == character_name
 
-    # Calling it again finds nothing new — a is already queued.
+    # The kick that follows (§ kick_rename_queue) runs in the background —
+    # by the time this round-trips, echo has already answered and a has a
+    # real title, not just a spot in the queue.
+    detail = client.get(f"/api/chats/{a}").json()
+    assert detail["chat"]["title"] not in (character_name, "Latest chat", "")
+    assert a not in config.SETTINGS.rename_queue
+
+    # Calling it again finds nothing new — a already has a title.
     again = client.post("/api/chats/queue-unnamed")
     assert again.json()["queued"] == 0
 

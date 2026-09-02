@@ -347,6 +347,40 @@ def test_chat_rename_writes_the_title_and_dequeues(sched, chat, character, monke
     assert row["status"] == "done"
 
 
+def test_kick_rename_queue_drains_several_in_one_go(sched, chat, character, monkeypatch):
+    """The "queue all unnamed chats" button's own reason to exist (§
+    kick_rename_queue's docstring) — several chats get a title without
+    waiting on a reply landing somewhere else first."""
+    other = repo.create_chat(sched.db, character.id, character.name)
+    for cid in (chat["id"], other["id"]):
+        repo.add_message(sched.db, cid, "assistant", "Sit wherever. The fire's better on the left.")
+    monkeypatch.setattr(sched.settings, "rename_queue", [chat["id"], other["id"]])
+
+    sync(sched.kick_rename_queue(limit=5))
+
+    assert sched.settings.rename_queue == []
+    assert repo.get_chat(sched.db, chat["id"])["title"] != character.name
+    assert repo.get_chat(sched.db, other["id"])["title"] != character.name
+
+
+def test_kick_rename_queue_stops_early_when_a_chat_makes_no_progress(
+    sched, chat, character, monkeypatch
+):
+    """A chat with nothing said yet stays queued rather than being renamed
+    (§ _drain_rename_queue) — kick_rename_queue reads that as "no progress"
+    and stops instead of spinning through its whole `limit` on the same
+    stuck entry, leaving whatever is queued behind it untouched."""
+    empty = repo.create_chat(sched.db, character.id, character.name)  # no messages
+    other = repo.create_chat(sched.db, character.id, character.name)
+    repo.add_message(sched.db, other["id"], "assistant", "Hello.")
+    monkeypatch.setattr(sched.settings, "rename_queue", [empty["id"], other["id"]])
+
+    sync(sched.kick_rename_queue(limit=5))
+
+    assert sched.settings.rename_queue == [empty["id"], other["id"]]
+    assert repo.get_chat(sched.db, other["id"])["title"] == character.name
+
+
 def test_chat_rename_does_nothing_with_an_empty_queue(sched, chat, character):
     original = repo.get_chat(sched.db, chat["id"])["title"]
 

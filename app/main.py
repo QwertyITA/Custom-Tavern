@@ -1158,6 +1158,14 @@ async def queue_unnamed_chats() -> dict:
     later dropped, or that predate this feature entirely."""
     db = get_db()
     added = chat_naming.queue_all_unnamed(db, config.SETTINGS)
+    # Best-effort and not awaited (§ character_reactions import, above): the
+    # response should not wait on however many model calls this takes, and
+    # whatever does not land in this burst is retried the normal way, on the
+    # next successful reply anywhere.
+    if added and SCHEDULER is not None:
+        asyncio.create_task(
+            SCHEDULER.kick_rename_queue(limit=min(added, 5)), name="chat_rename_kick"
+        )
     return {"ok": True, "queued": added}
 
 
