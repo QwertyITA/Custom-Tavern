@@ -132,6 +132,13 @@
       <path d="M4 20h4l10-10a2.6 2.6 0 0 0-3.7-3.7L4.3 16.3z"/>
       <path d="M14 6.6 17.4 10"/>
     </g>
+    <!-- A row's own overflow — rename/export/delete folded behind this one
+         glyph instead of three separate targets down the row. -->
+    <g id="i-kebab" fill="currentColor" stroke="none">
+      <circle cx="12" cy="6" r="1.7"/>
+      <circle cx="12" cy="12" r="1.7"/>
+      <circle cx="12" cy="18" r="1.7"/>
+    </g>
     <g id="i-delete">
       <path d="M4.8 7h14.4"/>
       <path d="M9.4 7V5.2A1.2 1.2 0 0 1 10.6 4h2.8a1.2 1.2 0 0 1 1.2 1.2V7"/>
@@ -2839,33 +2846,50 @@
             <ul class="chat-list" x-show="historyFor === c.id" x-cloak>
               <template x-for="chat in chatsFor(c.id)" :key="chat.id">
                 <li :class="{ active: chat.id === chatId }">
-                  <button class="chat-open" x-show="renamingChat !== chat.id"
-                          @click="openChat(chat.id); closePanel()">
-                    <span class="chat-title" x-text="chat.title || 'untitled'"></span>
-                    <span class="chat-when" x-text="whenLabel(chat)"></span>
-                  </button>
-                  <input class="chat-rename" x-show="renamingChat === chat.id" x-cloak
-                         :value="chat.title" @keydown.enter="saveChatName(chat, $event.target.value)"
-                         @keydown.escape="renamingChat = ''"
-                         @blur="saveChatName(chat, $event.target.value)"
-                         placeholder="Untitled" aria-label="Chat name">
-                  <button class="glyph-btn" @click="startRenameChat(chat, $el)"
-                          x-show="renamingChat !== chat.id"
-                          title="Rename chat" aria-label="Rename chat">
-                    <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-edit"/></svg>
-                  </button>
-                  <a class="glyph-btn" :href="`/api/chats/${chat.id}/export?download=true`"
-                     :download="`${chat.title || 'chat'}.json`"
-                     x-show="renamingChat !== chat.id"
-                     title="Export chat" aria-label="Export chat">
-                    <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-export"/></svg>
-                  </a>
-                  <button class="glyph-btn danger" :class="{ armed: confirmChat === chat.id }"
-                          x-show="renamingChat !== chat.id"
-                          @click="deleteChat(chat)"
-                          :title="confirmChat === chat.id ? 'Tap again to delete' : 'Delete chat'"
-                          aria-label="Delete chat"
-                          x-text="confirmChat === chat.id ? '⚠&#xFE0E;' : '✕&#xFE0E;'"></button>
+                  <div class="chat-row">
+                    <button class="chat-open" x-show="renamingChat !== chat.id"
+                            @click="openChat(chat.id); closePanel()">
+                      <span class="chat-title" x-text="chat.title || 'untitled'"></span>
+                      <span class="chat-when" x-text="whenLabel(chat)"></span>
+                    </button>
+                    <input class="chat-rename" x-show="renamingChat === chat.id" x-cloak
+                           :value="chat.title" @keydown.enter="saveChatName(chat, $event.target.value)"
+                           @keydown.escape="renamingChat = ''"
+                           @blur="saveChatName(chat, $event.target.value)"
+                           placeholder="Untitled" aria-label="Chat name">
+                    <!-- Rename, export and delete used to be three separate
+                         targets crowding a row that only has room for a
+                         title and a time — folded behind this one glyph
+                         instead (§ .chat-row-fold below). -->
+                    <button class="glyph-btn" x-show="renamingChat !== chat.id"
+                            @click="chatMenuFor = chatMenuFor === chat.id ? '' : chat.id"
+                            :aria-expanded="chatMenuFor === chat.id"
+                            title="Chat options" aria-label="Chat options">
+                      <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-kebab"/></svg>
+                    </button>
+                  </div>
+                  <div class="fold chat-row-fold" :class="{ open: chatMenuFor === chat.id }">
+                    <div class="fold-clip">
+                      <div class="chat-row-actions">
+                        <button class="chat-row-action" @click="chatMenuFor = ''; startRenameChat(chat, $el)">
+                          <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-edit"/></svg>
+                          <span>Rename</span>
+                        </button>
+                        <a class="chat-row-action" :href="`/api/chats/${chat.id}/export?download=true`"
+                           :download="`${chat.title || 'chat'}.json`"
+                           @click="chatMenuFor = ''">
+                          <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-export"/></svg>
+                          <span>Export</span>
+                        </a>
+                        <button class="chat-row-action danger" :class="{ armed: confirmChat === chat.id }"
+                                @click="deleteChat(chat)"
+                                :aria-label="confirmChat === chat.id ? 'Tap again to delete' : 'Delete chat'">
+                          <span class="glyph" x-text="confirmChat === chat.id ? '⚠&#xFE0E;' : '✕&#xFE0E;'"></span>
+                          <span x-text="confirmChat === chat.id ? 'Tap again to delete' : 'Delete'"></span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 </li>
               </template>
               <li class="chat-empty" x-show="!chatsFor(c.id).length">No chats yet</li>

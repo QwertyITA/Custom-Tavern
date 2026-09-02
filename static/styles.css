@@ -2002,13 +2002,11 @@ body {
 
 .chat-list { list-style: none; margin: 8px 0 0; padding: 0; }
 .chat-list li {
-  display: flex;
-  align-items: center;
-  gap: 4px;
   border-radius: 8px;
   font-size: 13px;
 }
 .chat-list li.active { background: var(--panel); color: var(--accent); }
+.chat-row { display: flex; align-items: center; gap: 4px; }
 .chat-open {
   flex: 1;
   min-width: 0;
@@ -2025,6 +2023,40 @@ body {
 .chat-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-when { color: var(--muted); font-size: 11px; flex: none; }
 .chat-empty { color: var(--muted); font-size: 12px; padding: 8px; }
+
+/* Rename/export/delete, folded under the row's own kebab button (§
+   index.html "Recent chats") rather than three separate targets down the
+   row. Same .fold/.fold-clip grid-rows trick as everywhere else this app
+   expands something inline. */
+.chat-row-actions {
+  display: flex;
+  gap: 4px;
+  padding: 0 8px 8px;
+}
+.chat-row-action {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  padding: 7px 6px;
+  min-height: 36px;
+  transition: background 140ms var(--ease-out);
+}
+.chat-row-action:active { background: var(--panel); }
+.chat-row-action.danger { color: var(--error); }
+.chat-row-action.armed {
+  background: var(--error);
+  border-color: var(--error);
+  color: var(--on-accent);
+}
+.chat-row-action .icon-btn-glyph { width: 15px; height: 15px; flex: none; }
 
 /* The offer to answer a message whose reply never came. It sits where the
    reply would have been and is quiet about it — a failed turn is already one

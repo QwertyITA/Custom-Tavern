@@ -941,6 +941,11 @@ function tavern() {
     chatHits: [],
     searching: false,
     renamingChat: "",
+    // Which chat's row-actions fold is open, if any — rename/export/delete
+    // tucked behind the one glyph a chat-history row needs by default (§
+    // index.html "Recent chats"), so the row itself is just a name and a
+    // time instead of four tap targets fighting for a narrow phone screen.
+    chatMenuFor: "",
     importingChat: false,
     armedRule: "",
     ruleSample: "The cat sat on the mat... twice.",
@@ -1609,6 +1614,7 @@ function tavern() {
           // Every history starts closed: a roster of characters is the thing
           // being looked at, and one of them unrolled pushes the rest down.
           this.historyFor = "";
+          this.chatMenuFor = "";
         } else if (name === "settings") {
           await Promise.all([
             this.loadSettings(),
