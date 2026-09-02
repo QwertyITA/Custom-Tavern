@@ -261,6 +261,18 @@ class Character(BaseModel):
     # writing, a scene break they overuse.
     stop_strings: list[str] = Field(default_factory=list)
     pfp_set: dict[str, str] = Field(default_factory=dict)  # emotion -> image
+    # Per-emotion metadata for pfp_set, keyed by the same emotion name:
+    # {"description": str, "auto": bool}. Read by the expression pass (§
+    # app/passes/registry.py) alongside the name itself, the same "id +
+    # description beats a bare name" reasoning background_swap already
+    # uses for the shared backdrop library — except this one stays
+    # per-character and per-chat, since a character's expression is their
+    # own portraits and their mood is a property of one conversation, not
+    # something every chat should share the way a backdrop does. `auto`
+    # (default True when the key or field is absent) is the same eye-toggle
+    # idea: pulls a portrait out of the automatic pick without removing it
+    # or losing it as a slot to reference by hand.
+    expression_meta: dict[str, dict[str, Any]] = Field(default_factory=dict)
     # How the picture is framed, and it belongs to the character rather than to
     # the app: a card drawn as a standing figure is ruined by a square crop, and
     # a face shot is wasted in a tall one. Cropped to this on the way in, drawn

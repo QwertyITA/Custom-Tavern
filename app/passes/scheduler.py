@@ -1228,10 +1228,28 @@ class PassScheduler:
         extra = ""
 
         if definition.id == "expression":
-            emotions = sorted(character.pfp_set.keys()) or [
+            # id — description, one per line, same reasoning as
+            # background_swap below: the name alone is often enough
+            # ("happy") but not always ("smug_half_smile"), and a
+            # description is where that gets clarified. Per character (§
+            # Character.expression_meta) rather than global — an
+            # expression is a specific portrait belonging to this one
+            # character, nothing shared the way a backdrop is. Falls back
+            # to a generic vocabulary when the character has nothing set
+            # up beyond neutral, since pfp_set alone would otherwise offer
+            # nothing else to pick from.
+            slots = sorted(character.pfp_set.keys()) or [
                 "neutral", "happy", "sad", "angry", "surprised", "thoughtful"
             ]
-            extra = f"Allowed emotions: {', '.join(emotions)}"
+            meta = character.expression_meta or {}
+            eligible = [name for name in slots if (meta.get(name) or {}).get("auto") is not False]
+            if not eligible:
+                return "", [], None
+            lines = []
+            for name in eligible:
+                desc = ((meta.get(name) or {}).get("description") or "").strip()
+                lines.append(f"- {name}: {desc}" if desc else f"- {name}")
+            extra = "Allowed emotions (id: description):\n" + "\n".join(lines)
         elif definition.id == "background_swap":
             # filename — description, one per line, so the pass has
             # something to reason with instead of guessing from a bare
@@ -1357,6 +1375,26 @@ class PassScheduler:
                 # instruction that gives "Rainy" nine times gives "Rainy, with
                 # the wind picking up" on the tenth.
                 value = worldline.shorten(value)
+            if definition.id == "expression":
+                # A name outside today's eligible set — hallucinated, or
+                # excluded since the prompt was built earlier this same
+                # turn — must change nothing rather than snap the portrait
+                # to a made-up emotion (§ background_swap's own guard
+                # below, same reasoning). Re-read fresh for the same
+                # anti-race reason too: this is what actually decides
+                # whether the write below happens, not the list
+                # _build_pass_input handed the model.
+                slots = sorted(ctx.character.pfp_set.keys()) or [
+                    "neutral", "happy", "sad", "angry", "surprised", "thoughtful"
+                ]
+                meta = ctx.character.expression_meta or {}
+                allowed = {
+                    name for name in slots if (meta.get(name) or {}).get("auto") is not False
+                }
+                chosen = str(value.get("emotion") or "").strip()
+                if chosen not in allowed:
+                    return False
+                value = {"emotion": chosen}
             if definition.id == "background_swap":
                 # The backdrop is global (§ Settings.background, config.py),
                 # the same field the Theme panel's manual picker writes —

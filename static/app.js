@@ -630,6 +630,31 @@ const SLASH_COMMANDS = {
       return "Background unchanged — already showing that one";
     },
   },
+  emotion: {
+    passId: "expression",
+    flag: "expression",
+    hint: "Checking expression…",
+    describe: (vm) => vm.expression || "",
+    label: (vm, key) => (key ? key.charAt(0).toUpperCase() + key.slice(1) : "none"),
+    outcome(vm, run, before) {
+      if (run.status === "failed") return `Error: ${run.error || "the pass failed"}`;
+      const after = this.describe(vm);
+      if (after !== before) {
+        return `Expression changed from ${this.label(vm, before)} to ${this.label(vm, after)}`;
+      }
+      // Unlike the backdrop library, a character always has at least a
+      // generic six-word vocabulary to fall back on (§ _build_pass_input's
+      // expression branch, scheduler.py) even with zero pictures of their
+      // own, so "skipped" here only ever means every one of their real
+      // slots is excluded — there is no "nothing uploaded yet" case to
+      // tell apart from it the way backgrounds has.
+      if (run.status === "skipped") {
+        return "Expression: every portrait is excluded from auto-pick (character editor)";
+      }
+      if (run.status === "stale") return "Expression unchanged — nothing else fit";
+      return "Expression unchanged — already this one";
+    },
+  },
 };
 
 // Only a whole "/word" line counts — "/" mid-sentence is just punctuation,
@@ -1083,6 +1108,14 @@ function tavern() {
     // "/" runs still resolving (§ runSlashCommand, resolveSlashRun), keyed
     // by the pass_runs id the server handed back when each was launched.
     pendingSlashRuns: {},
+    // True once an automatic background_swap change has landed while a
+    // settings-family panel (theme/brain/settings — one shared editing
+    // session, § panelDirty) was open, and not yet acknowledged (§
+    // settingsLocked, discardBackgroundChange). An ordinary background
+    // edit made by hand in Theme already reads as dirty through
+    // panelDirty() on its own; this is only for a change nobody in the
+    // panel actually asked for.
+    backgroundAutoChanged: false,
     cost: { per_pass: [], per_turn: [], totals: {} },
     totals: { tokens_in: 0, tokens_out: 0 },
 
@@ -1622,8 +1655,39 @@ function tavern() {
       return false;
     },
 
+    // Whether a settings-family panel should hold off on further edits: an
+    // automatic background change either still running or sitting
+    // unacknowledged (§ backgroundAutoChanged) — either way, nothing in the
+    // panel body should be touched until it is dealt with, since the next
+    // Save would otherwise fold the AI's own pick in alongside whatever the
+    // person actually meant to change.
+    get settingsLocked() {
+      return (this.refreshing.background || this.backgroundAutoChanged)
+        && (this.panel === "brain" || this.panel === "theme" || this.panel === "settings");
+    },
+
     snapshotSettings() {
       this._settingsSnapshot = JSON.stringify(this.settings);
+      // A fresh baseline absorbs whatever background value is current —
+      // nothing left to discard against once the panel has (re)started
+      // from here, whether that's a normal Save or a freshly opened panel.
+      this.backgroundAutoChanged = false;
+    },
+
+    // "Unlock changes and discard current background change": puts
+    // settings.background back to what it was when this editing session's
+    // own snapshot was last taken, so the automatic pick that landed
+    // mid-edit does not count as something to save — the same "preview
+    // only, Save keeps it" rule every other field on this panel already
+    // follows, just reached from the opposite direction. Purely local
+    // until the panel's own Save is pressed, same as any other field here:
+    // the server keeps whatever background_swap actually persisted unless
+    // and until that happens.
+    discardBackgroundChange() {
+      const before = JSON.parse(this._settingsSnapshot || "{}").background;
+      if (before !== undefined) this.settings.background = before;
+      this.applyBackground();
+      this.snapshotSettings();
     },
 
     snapshotCharacter() {
@@ -2607,6 +2671,63 @@ function tavern() {
       const set = { ...(this.draftCharacter.pfp_set || {}) };
       delete set[slot];
       this.draftCharacter.pfp_set = set;
+      if (slot in (this.draftCharacter.expression_meta || {})) {
+        const meta = { ...this.draftCharacter.expression_meta };
+        delete meta[slot];
+        this.draftCharacter.expression_meta = meta;
+      }
+    },
+
+    // Per-emotion description/auto-pick metadata (§ Character.
+    // expression_meta) — what the expression pass reads alongside the
+    // slot's own name (scheduler.py). Live-edited here like every other
+    // field on this panel (immutable replace, not a deep mutation, same
+    // as setBgMeta in the Theme panel) and only persisted on Save.
+    exprMeta(key) {
+      return (this.draftCharacter.expression_meta || {})[key] || {};
+    },
+    setExprMeta(key, field, value) {
+      const all = { ...(this.draftCharacter.expression_meta || {}) };
+      all[key] = { ...(all[key] || {}), [field]: value };
+      this.draftCharacter.expression_meta = all;
+    },
+
+    // Renaming a slot means rebuilding pfp_set with a different key
+    // holding the same image — the dict key *is* the id, both for the
+    // pass that picks by it (scheduler.py) and for whatever matches
+    // `expression` against it to choose a portrait (§ get portrait), so
+    // there is no separate label field the way a background has one.
+    // Refused silently rather than erroring: a blank name reverts to
+    // what it was, and a name colliding with an existing slot — "neutral"
+    // included, the hero picture's own reserved key — would otherwise
+    // quietly overwrite it instead of renaming anything.
+    renameExpression(oldKey, rawNewKey) {
+      const newKey = String(rawNewKey || "").trim().slice(0, 60);
+      if (!newKey || newKey === oldKey) return;
+      const set = { ...(this.draftCharacter.pfp_set || {}) };
+      if (!(oldKey in set) || newKey in set) return;
+      set[newKey] = set[oldKey];
+      delete set[oldKey];
+      this.draftCharacter.pfp_set = set;
+
+      const meta = { ...(this.draftCharacter.expression_meta || {}) };
+      if (oldKey in meta) {
+        meta[newKey] = meta[oldKey];
+        delete meta[oldKey];
+        this.draftCharacter.expression_meta = meta;
+      }
+    },
+
+    // A blank slot to crop a picture into (§ uploadCharacterPfp), same
+    // upload path "Replace" on an existing slot already uses — the only
+    // difference is the key is new rather than one already in pfp_set.
+    // Left for the person to rename afterward (§ renameExpression), same
+    // as a freshly uploaded background defaults to its filename.
+    addCharacterExpression(event) {
+      const set = this.draftCharacter.pfp_set || {};
+      let n = 1;
+      while (`expression-${n}` in set) n += 1;
+      this.uploadCharacterPfp(event, `expression-${n}`);
     },
 
     draftPortrait() {
@@ -4150,6 +4271,7 @@ function tavern() {
           alternate_greetings: this.altGreetings,
           stop_strings: this.stopStrings,
           pfp_set: draft.pfp_set || {},
+          expression_meta: draft.expression_meta || {},
           pfp_shape: draft.pfp_shape || "portrait",
           pfp_effect: draft.pfp_effect || {},
           reactions: draft.reactions || {},
@@ -4603,6 +4725,7 @@ function tavern() {
               : this.ambient.filter((a) => a !== event.run.label);
             if (event.run.pass_id === "scene") this.refreshing.scene = running;
             if (event.run.pass_id === "background_swap") this.refreshing.background = running;
+            if (event.run.pass_id === "expression") this.refreshing.expression = running;
           }
           // A "/" run reaching done/stale/failed/skipped — reported as a
           // toast (§ resolveSlashRun) independent of the branches above,
@@ -4622,6 +4745,12 @@ function tavern() {
             // picker writes, so this just mirrors what the server already
             // persisted rather than tracking a separate chat-local value.
             this.settings.background = event.value.background;
+            // Flagged only while someone is actually looking at a settings
+            // panel to reconcile it against (§ settingsLocked,
+            // discardBackgroundChange) — no one there, nothing to flag.
+            if (this.panelOpen && (this.panel === "brain" || this.panel === "theme" || this.panel === "settings")) {
+              this.backgroundAutoChanged = true;
+            }
             this.applyBackground();
           }
           break;

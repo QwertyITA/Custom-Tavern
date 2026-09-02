@@ -1485,14 +1485,42 @@ body {
    of one large picture. */
 .pfp-slot-mini { --pfp-w: 40px; }
 .pfp-emotion-list { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 12px; }
-.pfp-emotion-row { display: flex; align-items: center; gap: 10px; }
-.pfp-emotion-name {
-  flex: 1;
-  color: var(--muted);
-  font-size: 13px;
-  /* Arrives as an identifier — "happy", "surprised" — read as a word. */
-  text-transform: capitalize;
+/* A bordered row rather than the bare flex line this used to be: naming and
+   describing a slot (§ Character.expression_meta) needs the same shape the
+   Theme panel's backdrop rows already settled on — thumbnail, two stacked
+   fields, actions — not just a thumbnail and a read-only label. */
+.pfp-emotion-row {
+  display: flex;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: var(--panel);
 }
+.pfp-emotion-thumb-col {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.pfp-emotion-fields { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.pfp-emotion-fields input, .pfp-emotion-fields textarea {
+  width: 100%;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 8px;
+  font: inherit;
+  font-size: 13px;
+  resize: vertical;
+  min-height: 0;
+}
+.pfp-emotion-actions { flex: none; display: flex; flex-direction: column; gap: 2px; }
+.pfp-emotion-actions .icon-btn { min-width: 32px; min-height: 32px; padding: 4px; }
+.pfp-emotion-actions .icon-btn .icon { width: 17px; height: 17px; }
+.pfp-emotion-actions .icon-btn.danger { color: var(--error); }
 
 /* An assistant reply gets more of the row than a user line does: the
    portrait beside it already carries the "who said this" cue a right-aligned
@@ -2148,6 +2176,31 @@ body {
   flex: 1;
   overflow-y: auto;
   padding: 12px 12px calc(20px + var(--safe-bottom));
+}
+/* Locked (§ settingsLocked, app.js): every direct child but the banner
+   itself goes inert and dims, rather than each of Brain/Theme/Settings'
+   own root divs needing the same two lines repeated three times. Only one
+   of those `<template x-if>` roots is ever mounted at once, so this never
+   has more than the banner and one other child to tell apart. */
+.sheet-body.settings-locked > div:not(.settings-lock-banner) {
+  pointer-events: none;
+  opacity: .5;
+  transition: opacity var(--dur-base) var(--ease-out);
+}
+.settings-lock-banner {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 10px 12px;
+  margin: -12px -12px 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
 }
 .sheet-body h3 {
   display: flex;

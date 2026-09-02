@@ -24,7 +24,6 @@ from .base import GenRequest, GenResult, Provider, ReasoningDelta, _copy_into, e
 _WEATHER = ["clear", "overcast", "light rain", "windy", "still and cold"]
 _TIME = ["early morning", "late morning", "early afternoon", "dusk", "late night"]
 _PLACES = ["the tavern common room", "a quiet back room", "the road outside"]
-_EMOTIONS = ["neutral", "happy", "sad", "angry", "surprised", "thoughtful"]
 _EVENTS = [
     "Someone knocks twice at the door and does not wait to be asked in.",
     "The rain starts, hard enough to be heard on the roof.",
@@ -52,16 +51,28 @@ def _allowed(request: GenRequest, label: str) -> str:
     return match.group(1).split("\n")[0].split(",")[0].strip()
 
 
-def _first_background_id(request: GenRequest) -> str:
-    """The first id out of background_swap's 'Allowed backgrounds
-    (id: description):' block (§ registry.py) — one '- id[: description]'
-    per line, unlike the single-line comma list `_allowed` reads."""
-    body = "\n".join(m["content"] for m in request.messages)
-    match = re.search(r"Allowed backgrounds[^\n]*:\n((?:-[^\n]*\n?)+)", body)
+def _first_listed_id(body: str, label: str) -> str:
+    """The first id out of a '<label> (id: description):' block (§
+    registry.py's background_swap and expression prompts, the same shape
+    for both) — one '- id[: description]' per line, unlike the single-line
+    comma list `_allowed` reads."""
+    match = re.search(rf"{label}[^\n]*:\n((?:-[^\n]*\n?)+)", body)
     if not match:
         return ""
     first_line = match.group(1).strip().split("\n")[0]
     return first_line.lstrip("- ").split(":")[0].strip()
+
+
+def _first_background_id(request: GenRequest) -> str:
+    """The first id out of background_swap's 'Allowed backgrounds
+    (id: description):' block."""
+    return _first_listed_id("\n".join(m["content"] for m in request.messages), "Allowed backgrounds")
+
+
+def _first_expression_id(request: GenRequest) -> str:
+    """The first id out of expression's 'Allowed emotions
+    (id: description):' block — same shape as background_swap's own."""
+    return _first_listed_id("\n".join(m["content"] for m in request.messages), "Allowed emotions")
 
 
 class EchoProvider(Provider):
@@ -114,7 +125,7 @@ class EchoProvider(Provider):
                 }
             )
         if request.pass_id == "expression":
-            return json.dumps({"emotion": _EMOTIONS[seed % len(_EMOTIONS)]})
+            return json.dumps({"emotion": _first_expression_id(request)})
         if request.pass_id == "background_swap":
             return json.dumps({"background": _first_background_id(request)})
         if request.pass_id == "summary":

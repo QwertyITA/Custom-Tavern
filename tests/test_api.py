@@ -607,6 +607,30 @@ def test_a_backdrop_can_be_excluded_from_the_automatic_pick(client):
     assert meta["tavern.svg"]["auto"] is False
 
 
+def test_a_characters_expressions_can_be_named_and_described(client):
+    """§ Character.expression_meta — per character, unlike background_meta,
+    since a portrait belongs to one character and its own pfp_set."""
+    character_id = client.get("/api/characters").json()[0]["id"]
+    response = client.put(
+        f"/api/characters/{character_id}",
+        json={
+            "pfp_set": {"neutral": "n.png", "delighted": "d.png"},
+            "expression_meta": {
+                "delighted": {"description": "Eyes crinkled, genuinely pleased."},
+                # not a real pfp_set key any more — must be dropped, not
+                # kept dangling for the expression pass to describe a
+                # portrait that does not exist.
+                "made-up": {"description": "x"},
+            },
+        },
+    )
+    assert response.status_code == 200
+    after = client.get(f"/api/characters/{character_id}").json()
+    assert after["expression_meta"] == {
+        "delighted": {"description": "Eyes crinkled, genuinely pleased."}
+    }
+
+
 def test_a_character_cannot_be_left_nameless(client):
     character_id = client.get("/api/characters").json()[0]["id"]
     assert client.put(f"/api/characters/{character_id}", json={"name": "   "}).status_code == 400

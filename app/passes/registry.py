@@ -157,9 +157,12 @@ CANONICAL_PASSES: list[PassDef] = [
         output=PassOutput(type="gui_panel", target="expression"),
         writes_slice=SLICE_EXPRESSION,
         prompt=(
-            "You choose which portrait expression fits the character's last reply.\n"
-            'Reply with JSON only: {"emotion": "<one label from the allowed list>"}\n'
-            "Choose only from the allowed list given in the context."
+            "You choose which portrait expression best fits the character's last "
+            "reply, using each option's description where one is given — not just "
+            "the emotion name, which is sometimes too broad on its own.\n"
+            'Reply with JSON only: {"emotion": "<one id from the allowed list>"}\n'
+            "Choose only an id from the allowed list given in the context, exactly "
+            "as written there."
         ),
     ),
     PassDef(

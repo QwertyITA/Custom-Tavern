@@ -275,6 +275,57 @@ def test_background_swap_writes_the_global_backdrop_not_a_chat_slice(
     assert json.loads(isolated_settings.read_text())["background"] == "tavern.svg"
 
 
+def test_expression_picks_by_description_not_just_a_bare_name(sched, chat, character):
+    """§ _build_pass_input's expression branch — the prompt carries each
+    slot's own description, not just its name. Per character (§
+    Character.expression_meta), unlike the backdrop library."""
+    character.expression_meta = {"happy": {"description": "A wide, easy grin."}}
+    definition = next(d for d in registry.all_passes(sched.db) if d.id == "expression")
+
+    task, messages, handler = sched._build_pass_input(context(chat, character), definition)
+    assert handler is not None
+    body = task + " " + " ".join(m["content"] for m in messages)
+    assert "happy" in body
+    assert "A wide, easy grin." in body
+
+
+def test_expression_excludes_a_portrait_marked_auto_false(sched, chat, character):
+    """The eye toggle (character editor) pulls a portrait out of the
+    automatic pick without touching anything else about it."""
+    character.expression_meta = {"happy": {"auto": False}}
+    definition = next(d for d in registry.all_passes(sched.db) if d.id == "expression")
+
+    task, messages, handler = sched._build_pass_input(context(chat, character), definition)
+    body = (task + " " + " ".join(m["content"] for m in messages)) if handler else ""
+    assert "- happy" not in body
+    assert "neutral" in body
+
+
+def test_expression_makes_no_change_on_an_invalid_pick(sched, chat, character, monkeypatch):
+    """A name outside today's eligible set — hallucinated, or excluded
+    since the prompt was built — must change nothing (§ scheduler.py,
+    _handler_generic's expression branch), same as background_swap."""
+    from app.providers import echo as echo_provider
+
+    monkeypatch.setattr(
+        echo_provider, "_first_expression_id", lambda request: "not-a-real-emotion"
+    )
+    definition = next(d for d in registry.all_passes(sched.db) if d.id == "expression")
+
+    async def scenario():
+        ctx = context(chat, character, signals={"emotional_shift": "minor"})
+        launched = sched._launch_background(ctx)
+        assert "expression" in launched
+        await sched.await_pending(chat["id"])
+
+    sync(scenario())
+    row = sched.db.query_one(
+        "SELECT status FROM pass_runs WHERE chat_id=? AND pass_id='expression'",
+        (chat["id"],),
+    )
+    assert row["status"] == "stale"
+
+
 def test_a_failing_pass_does_not_break_the_turn(db, sched, chat, character):
     broken = PassDef(
         id="broken",

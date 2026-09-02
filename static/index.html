@@ -1204,7 +1204,24 @@
     </div>
   </header>
 
-  <div class="sheet-body">
+  <div class="sheet-body" :class="{ 'settings-locked': settingsLocked }">
+
+    <!-- Brain/Theme/Settings share one editing session (§ panelDirty), and
+         an automatic background change is exactly the kind of edit nobody
+         here actually asked for — locking the body (§ .settings-locked,
+         styles.css) keeps it from silently mixing into whatever *is* being
+         changed on purpose until it is dealt with, one way or the other.
+         Sticky rather than fixed: it only has to stay at the top of this
+         one scroller, not the whole sheet, so the close button above it
+         stays reachable throughout. -->
+    <div class="settings-lock-banner" x-show="settingsLocked" x-cloak>
+      <span x-text="refreshing.background
+        ? 'Checking the background — editing is paused…'
+        : 'The background changed automatically while you were editing.'"></span>
+      <button class="link" x-show="!refreshing.background" @click="discardBackgroundChange()">
+        Unlock changes and discard current background change
+      </button>
+    </div>
 
     <!-- ----------------------------------------------------------- brain -->
     <template x-if="panel === 'brain'">
@@ -2962,22 +2979,28 @@
           </button>
         </div>
 
-        <!-- A card's other emotion sprites (happy/sad/angry/…) — read, not
-             written, by anything today (roadmap 35-37 is the toggle that
-             will actually choose between them), but shown by the header and
-             every message already the moment the tracked expression names
-             one. Each gets its own crop, same as neutral above and locked to
-             its shape, because a square `happy` sprite framed by plain
-             object-fit under a portrait `neutral` is a picture of the wrong
-             third of somebody's face (§KNOWN-ISSUES.md, "Emotion sprites
-             don't go through the cropper"). Only shown once there is at
-             least one — nothing here invents new slots, only fixes the
-             framing on the ones a card already brought. -->
-        <template x-if="emotionPfpEntries().length">
-          <div class="pfp-emotion-list">
-            <span class="row-label wide-label">Other expressions</span>
-            <template x-for="e in emotionPfpEntries()" :key="e.key">
-              <div class="pfp-emotion-row">
+        <!-- A card's other emotion sprites (happy/sad/angry/…), each shown
+             by the header and every message the moment the tracked
+             expression names it. Each gets its own crop, same as neutral
+             above and locked to its shape, because a square `happy` sprite
+             framed by plain object-fit under a portrait `neutral` is a
+             picture of the wrong third of somebody's face (§KNOWN-ISSUES.md,
+             "Emotion sprites don't go through the cropper").
+             Named and described here, the same "id + description beats a
+             bare name" reasoning the Theme panel's backdrop library uses —
+             except this stays per-character (§ Character.expression_meta):
+             the expression pass reads it alongside the recent exchange to
+             pick a fitting portrait on its own (§ registry.py), and the eye
+             excludes one from that pick without removing it, same idea as
+             the backdrop's own toggle. Renaming edits the pfp_set key
+             itself rather than a separate label — that key *is* the id
+             both the pass and the tracked `expression` state match against,
+             so there is nothing else to keep in sync (§ renameExpression). -->
+        <div class="pfp-emotion-list" x-show="emotionPfpEntries().length">
+          <span class="row-label wide-label">Other expressions</span>
+          <template x-for="e in emotionPfpEntries()" :key="e.key">
+            <div class="pfp-emotion-row">
+              <div class="pfp-emotion-thumb-col">
                 <span class="pfp-slot pfp-slot-mini"
                       :class="'shape-' + (draftCharacter.pfp_shape || 'portrait')">
                   <span class="pfp pfp-blank" aria-hidden="true">
@@ -2985,17 +3008,42 @@
                   </span>
                   <img class="pfp pfp-over" :src="e.url" alt="" @error="$el.remove()">
                 </span>
-                <span class="pfp-emotion-name" x-text="e.key"></span>
                 <label class="link file-link">
                   <span>Replace</span>
                   <input type="file" accept="image/*"
                          @change="uploadCharacterPfp($event, e.key)" hidden>
                 </label>
-                <button class="link danger" @click="clearCharacterPfp(e.key)">Remove</button>
               </div>
-            </template>
-          </div>
-        </template>
+              <div class="pfp-emotion-fields">
+                <input :value="e.key" placeholder="Name" maxlength="60"
+                       @change="renameExpression(e.key, $event.target.value)">
+                <textarea :value="exprMeta(e.key).description || ''" rows="2" maxlength="400"
+                          placeholder="What this expression conveys — helps the AI pick it automatically."
+                          @input="setExprMeta(e.key, 'description', $event.target.value)"></textarea>
+              </div>
+              <div class="pfp-emotion-actions">
+                <button class="icon-btn" :class="{ on: exprMeta(e.key).auto !== false }"
+                        @click="setExprMeta(e.key, 'auto', exprMeta(e.key).auto === false)"
+                        :aria-pressed="exprMeta(e.key).auto !== false"
+                        :title="exprMeta(e.key).auto === false
+                          ? 'Excluded from the AI\'s automatic pick — tap to include'
+                          : 'Eligible for the AI\'s automatic pick — tap to exclude'">
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <use :href="exprMeta(e.key).auto === false ? '#i-eye-off' : '#i-eye'"></use>
+                  </svg>
+                </button>
+                <button class="icon-btn danger" @click="clearCharacterPfp(e.key)" title="Remove">
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-delete"/></svg>
+                </button>
+              </div>
+            </div>
+          </template>
+        </div>
+        <label class="wide file-btn">
+          <input type="file" accept="image/*" @change="addCharacterExpression($event)" hidden>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-image"/></svg>
+          <span>Add an expression</span>
+        </label>
 
         <label class="row col-row"><span class="row-label wide-label">Name</span>
           <input x-model="draftCharacter.name" placeholder="Name"></label>

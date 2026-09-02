@@ -654,6 +654,31 @@ async def update_character(character_id: str, payload: dict = Body(...)) -> dict
             for key, value in raw.items()
             if isinstance(value, str) and _safe_pfp(value)
         }
+    if "expression_meta" in payload:
+        # Keyed by the same emotion name pfp_set uses, so a slot renamed in
+        # the same request (§ pfp_set just above, which already ran)
+        # carries its description along automatically as long as the
+        # editor sends both under the new key. An entry naming an emotion
+        # that isn't a real slot any more — renamed away, or removed — is
+        # dropped rather than kept dangling.
+        raw = payload["expression_meta"]
+        if not isinstance(raw, dict):
+            raise HTTPException(400, "expression_meta must be an object")
+        slots = set(character.pfp_set)
+        cleaned_expr: dict[str, dict[str, Any]] = {}
+        for key, entry in raw.items():
+            key = str(key)
+            if key not in slots or not isinstance(entry, dict):
+                continue
+            item: dict[str, Any] = {}
+            description = str(entry.get("description") or "").strip()[:400]
+            if description:
+                item["description"] = description
+            if entry.get("auto") is False:
+                item["auto"] = False
+            if item:
+                cleaned_expr[key] = item
+        character.expression_meta = cleaned_expr
     if "stop_strings" in payload:
         try:
             character.stop_strings = config.parse_stop_strings(payload["stop_strings"])
