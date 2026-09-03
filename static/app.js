@@ -5114,6 +5114,10 @@ function tavern() {
     // to chase — and releases the pin outright so nothing is left pinned to
     // a size that will go stale the moment more text is edited in.
     followGrowth(message, bubble) {
+      // A chase step's target moves again next tick, unlike the one-shot
+      // collapse/snap-back .bubble is otherwise built for (§ .bubble.chasing
+      // in styles.css) — swapped in for exactly the ticks this drives.
+      bubble.classList.add("chasing");
       let lastLen = -1;
       let stableTicks = 0;
       const step = () => {
@@ -5127,7 +5131,7 @@ function tavern() {
           clearInterval(timer);
           setTimeout(() => {
             this.setPin(bubble, "", "");
-            bubble.classList.remove("clipping");
+            bubble.classList.remove("clipping", "chasing");
           }, BUBBLE_RESIZE_MS());
         }
       };

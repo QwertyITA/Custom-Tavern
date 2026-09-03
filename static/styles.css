@@ -2447,6 +2447,23 @@ body {
               min-height var(--dur-bubble-resize) var(--ease-in-out),
               max-height var(--dur-bubble-resize) var(--ease-in-out);
 }
+/* followGrowth (§ app.js) re-pins the box on every tick while a reply keeps
+   streaming in, each pin its own fresh transition rather than one animation
+   running the whole time. --ease-in-out fits the one-shot travel above —
+   collapse to the pill, snap back from a drag — because both ends are
+   already known. A chase step is not that: its target moves again next
+   tick, so restarting --ease-in-out's slow wind-up every time reads as the
+   box hesitating and lurching rather than following the text, and the box
+   catching up late is what read as the reply not streaming at all — just
+   arriving in bursts. --ease-out has no wind-up, so each step starts moving
+   the instant the text does. */
+.bubble.chasing {
+  transition: transform .18s var(--ease-in-out),
+              min-width var(--dur-bubble-resize) var(--ease-out),
+              max-width var(--dur-bubble-resize) var(--ease-out),
+              min-height var(--dur-bubble-resize) var(--ease-out),
+              max-height var(--dur-bubble-resize) var(--ease-out);
+}
 /* Used to commit a start size before arming the transition (pinInstant). */
 .bubble.no-anim { transition: none !important; }
 /* Only while the box is animating: text that no longer fits must be clipped
