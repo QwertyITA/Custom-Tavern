@@ -4003,7 +4003,14 @@ function tavern() {
         const r = await api.post(path, body);
         onOk(r);
         this.closeVaultModal();
-        if (refreshRoster) await this.loadCharacters();
+        // The roster and the chat list are both filtered server-side by the
+        // same lock (§ _vault_locked, app/main.py) — refreshing only the
+        // roster left `this.chats` holding whatever it had at the last
+        // fetch, so a chat belonging to a card unlocked just now still read
+        // as "No chats yet" until something else happened to reload it.
+        if (refreshRoster) {
+          await Promise.all([this.loadCharacters(), this.reloadChats()]);
+        }
       } catch (e) {
         this.vaultError = errorText(e);
         this.vaultPinDigits = "";
@@ -4021,7 +4028,7 @@ function tavern() {
         return;
       }
       this.settings.vault_unlocked = false;
-      await this.loadCharacters();
+      await Promise.all([this.loadCharacters(), this.reloadChats()]);
     },
 
     // The roster's one true order: whoever is open right now first — see
@@ -4044,6 +4051,10 @@ function tavern() {
     async loadCharacters() {
       this.characters = (await api.get("/api/characters")).sort((a, b) => this.compareCharacters(a, b));
       this.loadCardBudget();
+    },
+
+    async reloadChats() {
+      this.chats = await api.get("/api/chats");
     },
 
     // Fire-and-forget, deliberately not awaited by loadCharacters: it needs
