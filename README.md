@@ -828,6 +828,50 @@ overwrites `data/tavern.db`, `data/settings.json` and the asset folders with
 whatever the backup holds; anything written since that backup was taken is
 gone, same as restoring any other backup.
 
+## Install on Windows
+
+The phone is still the install that matters day to day (§CLAUDE.md), but a
+desktop is a perfectly good second one — same repo, same `data/` (copy it
+over, or point `TAVERN_DATA_DIR` at a shared folder), same auto-update.
+
+Install [Python 3.11+](https://python.org/downloads/) (tick **Add python.exe
+to PATH** in the installer) and [Git for Windows](https://git-scm.com/download/win),
+then in a terminal (PowerShell or `cmd`):
+
+```bat
+git clone https://github.com/QwertyITA/Custom-Tavern
+cd Custom-Tavern
+start.bat
+```
+
+`start.bat` is `start.sh`'s Windows twin: it pulls the latest version,
+installs dependencies only when `requirements.txt` actually changed, then
+starts the server and opens `http://localhost:8787` once it's actually up —
+same three rules as the phone (never touches `data\`, a failed pull never
+stops the app, local edits are never discarded silently). No Rust toolchain
+needed here — `pydantic-core` ships a prebuilt wheel for Windows, unlike on
+Termux.
+
+```bat
+start.bat              :: update, then run in this window   ← the one to double-click
+start.bat --no-update  :: start without pulling
+start.bat stop         :: stop a server left running in another window
+start.bat logs         :: follow the log
+```
+
+The server runs in the console window; closing it (or Ctrl+C) stops it —
+there is no tmux-equivalent detach mode, since Windows does not kill a
+background process the way Android does, so leaving the window open (even
+minimised) is already the "keep it running" story. `TAVERN_NO_BROWSER=1`
+(set before running, or `set TAVERN_NO_BROWSER=1` in the same session) skips
+the auto-opened tab. `TAVERN_HOST`/`TAVERN_PORT` override `data\settings.json`
+the same way they do on the phone.
+
+For a shortcut you can pin to the Start menu or taskbar: right-click
+`start.bat` → **Show more options** → **Create shortcut**, then drag that
+shortcut wherever's convenient — running it still pulls and updates first,
+same as tapping it directly.
+
 ## Everyday use
 
 ```bash
