@@ -1124,6 +1124,12 @@ function tavern() {
     turn: 0,
     hudRuns: [],
     ambient: [],
+    // music_select running (§ handleEvent's pass_status case) — shown as an
+    // in-character line rather than an ambient chip, since "the character
+    // is looking for a song" reads as something happening in the room, not
+    // as ambient bookkeeping the way scene/expression/background refreshing
+    // does.
+    musicSearching: false,
     refreshing: { scene: false, expression: false, background: false },
     // "/" runs still resolving (§ runSlashCommand, resolveSlashRun), keyed
     // by the pass_runs id the server handed back when each was launched.
@@ -4909,6 +4915,12 @@ function tavern() {
               this.composingLabel =
                 event.run.animation === "typing" ? this.cueLabel("typing") : event.run.label;
             }
+          } else if (event.run.pass_id === "music_select") {
+            // A line in the flow, not an ambient chip (§ musicSearching,
+            // the cue row in index.html) — "the character is looking for a
+            // song" is something happening in the room, unlike the other
+            // background passes below.
+            this.musicSearching = running;
           } else if (event.run.tier !== "blocking") {
             // ambient: a subtle indicator, never a character-thinking cue
             this.ambient = running

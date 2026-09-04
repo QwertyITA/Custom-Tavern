@@ -886,6 +886,26 @@
     </div>
   </article>
 
+  <!-- music_select running (§ musicSearching, app.js) — reads as the
+       character doing something in the room, not as engine bookkeeping,
+       so it takes the same shape a reply does rather than an ambient
+       chip. No cue dots: there is nothing to wait on the way a reply is
+       waited on, just a line that appears and, once the pass answers,
+       disappears in favour of the proposal card or nothing at all. -->
+  <article class="msg assistant" x-show="musicSearching && !composing" x-cloak>
+    <span class="pfp-slot">
+      <span class="pfp pfp-blank" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
+      </span>
+      <template x-if="portrait && !brokenPfp(portrait)">
+        <img class="pfp pfp-over" :src="portrait" alt="" @error="markPfpBroken(portrait)">
+      </template>
+    </span>
+    <div class="bubble">
+      <span class="mk-action" x-text="`${character ? character.name : 'They'} is searching for music to play…`"></span>
+    </div>
+  </article>
+
   <!-- Choosing what part of a picture becomes the portrait. A card is a whole
        drawing and the app shows a small frame of it; which frame is a decision
        nobody should have to make in an image editor first. -->
