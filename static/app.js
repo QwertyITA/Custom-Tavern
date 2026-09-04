@@ -814,6 +814,13 @@ function tavern() {
     toggleStates: {},
     expression: "neutral",
     background: "",
+    // Music controls (ROADMAP #39). Mirrors state.music server-side:
+    // status "none"|"proposed"|"playing", track a filename or null,
+    // character who proposed/is playing it or null (null for the user's
+    // own manual pick). "proposed" is a pending action_card (§ musicRespond)
+    // shown in the message flow; "playing" drives the <audio> element.
+    music: { status: "none", track: null, character: null },
+    musicLibrary: [],
     // The one talking-avatar clip currently live, if any (AVATAR-VIDEO-
     // CONTRACT.md) — { messageId, url } for the single message it was
     // rendered for, or null. Never more than one at a time (§ liveVideoFor).
@@ -1061,6 +1068,9 @@ function tavern() {
     uploadingBg: false,
     bgMsg: "",
     confirmBg: "",
+    uploadingMusic: false,
+    musicMsg: "",
+    confirmMusic: "",
     importing: false,
     importMsg: "",
     importError: "",
@@ -1526,6 +1536,9 @@ function tavern() {
       // membership is known, and a speaker label appearing a beat later is
       // better than a blank chat while one request finishes.
       this.loadCast();
+      // Same reasoning — the library only matters once someone opens the
+      // picker, which is never before the chat itself is on screen.
+      this.loadMusicLibrary();
 
       // Cleared before being refilled. Merging onto whatever the last chat
       // left behind meant a brand-new conversation opened showing the previous
@@ -1536,6 +1549,11 @@ function tavern() {
       if (sceneSlice) this.scene = { ...this.scene, ...sceneSlice.value };
       const expr = (data.slices || {})["state.expression"];
       if (expr && expr.value.emotion) this.expression = expr.value.emotion;
+      // Same reasoning as scene/expression above: a chat that was never told
+      // to play anything must not show whatever the last one left playing.
+      this.music = { status: "none", track: null, character: null };
+      const musicSlice = (data.slices || {})["state.music"];
+      if (musicSlice) this.music = { ...this.music, ...musicSlice.value };
 
       const toggleData = await api.get(`/api/toggles?character_id=${this.characterId}&chat_id=${id}`);
       this.toggles = toggleData.toggles;
@@ -1605,6 +1623,9 @@ function tavern() {
         } else if (name === "theme") {
           this.bgMsg = "";
           await Promise.all([this.loadSettings(), this.loadBackdrops()]);
+        } else if (name === "music") {
+          this.musicMsg = "";
+          await Promise.all([this.loadSettings(), this.loadMusicLibrary()]);
         } else if (name === "chats") {
           await Promise.all([
             this.loadCharacters(),
@@ -1774,6 +1795,7 @@ function tavern() {
         story: "Story state",
         sent: "What was sent",
         thought: "What it thought",
+        music: "Music library",
       }[this.panel] || "";
     },
 
@@ -3277,6 +3299,12 @@ function tavern() {
           note: "An image, or a text file to read",
           run: () => this.pickAttachment(),
         },
+        {
+          id: "music", label: "Music", icon: "#i-music",
+          note: this.music.status === "playing" ? "Playing now — change or add a track" : "Play something from the library",
+          disabled: !this.chatId,
+          run: () => this.openPanel("music"),
+        },
       ];
     },
 
@@ -3687,6 +3715,118 @@ function tavern() {
       const all = { ...(this.settings.background_meta || {}) };
       all[name] = { ...(all[name] || {}), [key]: value };
       this.settings.background_meta = all;
+    },
+
+    // ---- music (ROADMAP #39) ----
+    //
+    // Same shape as the backdrop trio above: load/upload/delete against the
+    // shared library, plus a live meta editor. What's different is the
+    // per-chat playback state (this.music) and the three ways it changes —
+    // the person's own pick, answering a proposed card, and the <audio>
+    // element itself reporting a track ended — which all write-then-listen
+    // for the "panel"/"music" SSE echo (§ handleEvent) rather than mutating
+    // this.music optimistically, the same pattern saveChatName/deleteChat
+    // already use elsewhere.
+
+    async loadMusicLibrary() {
+      try {
+        this.musicLibrary = (await api.get("/api/music")).tracks;
+      } catch (e) {
+        this.musicMsg = errorText(e);
+      }
+    },
+
+    // Posted as a raw body, same reasoning as uploadBackdrop above.
+    async uploadMusicTrack(event) {
+      const file = (event.target.files || [])[0];
+      if (!file) return;
+      this.uploadingMusic = true;
+      this.musicMsg = "";
+      try {
+        const response = await fetch(
+          `/api/music?filename=${encodeURIComponent(file.name)}`,
+          { method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file },
+        );
+        if (!response.ok) throw await apiError(response);
+        const added = await response.json();
+        await this.loadMusicLibrary();
+        this.musicMsg = `Added ${added.name}`;
+      } catch (e) {
+        this.musicMsg = errorText(e);
+      } finally {
+        this.uploadingMusic = false;
+        event.target.value = "";   // so the same file can be picked again
+      }
+    },
+
+    async deleteMusicTrack(track) {
+      if (this.confirmMusic !== track.name) {
+        this.confirmMusic = track.name;
+        clearTimeout(this._musicTimer);
+        this._musicTimer = setTimeout(() => { this.confirmMusic = ""; }, CONFIRM_MS);
+        return;
+      }
+      this.confirmMusic = "";
+      try {
+        await api.del(`/api/music/${encodeURIComponent(track.name)}`);
+        await this.loadMusicLibrary();
+        // The server already drops its own copy of this track's meta on
+        // delete (§ remove_music, main.py) — same harmless local mirror as
+        // deleteBackdrop's own meta cleanup above.
+        const meta = { ...(this.settings.music_meta || {}) };
+        delete meta[track.name];
+        this.settings.music_meta = meta;
+        this.musicMsg = `Removed ${track.name}`;
+      } catch (e) {
+        this.musicMsg = errorText(e);
+      }
+    },
+
+    musicMeta(name) {
+      return (this.settings.music_meta || {})[name] || {};
+    },
+    setMusicMeta(name, key, value) {
+      const all = { ...(this.settings.music_meta || {}) };
+      all[name] = { ...(all[name] || {}), [key]: value };
+      this.settings.music_meta = all;
+    },
+
+    // What the player/card shows for a track — its description if one was
+    // written, the bare filename otherwise. Same fallback as pending_music
+    // on the server (§ assembly.py), so the two never disagree.
+    musicLabel(name) {
+      if (!name) return "";
+      return this.musicMeta(name).description || name;
+    },
+
+    // The person's own pick — no card, no permission needed.
+    async pickMusic(name) {
+      if (!this.chatId) return;
+      try {
+        await api.post(`/api/chats/${this.chatId}/music`, { track: name });
+      } catch (e) {
+        this.error = errorText(e);
+      }
+    },
+
+    // Answers a pending action_card (§ music_select, registry.py).
+    async musicRespond(choice) {
+      if (!this.chatId) return;
+      try {
+        await api.post(`/api/chats/${this.chatId}/music/respond`, { choice });
+      } catch (e) {
+        this.error = errorText(e);
+      }
+    },
+
+    // The <audio> element's own `ended` event.
+    async reportMusicEnded() {
+      if (!this.chatId) return;
+      try {
+        await api.post(`/api/chats/${this.chatId}/music/ended`, {});
+      } catch (e) {
+        this.error = errorText(e);
+      }
     },
 
     // ---- theme presets ----
@@ -4803,6 +4943,11 @@ function tavern() {
               this.backgroundAutoChanged = true;
             }
             this.applyBackground();
+          } else if (event.panel === "music") {
+            // A full replace, not a merge (§ pending_music, assembly.py) —
+            // the slice is small and always sent whole, whoever changed it:
+            // music_select proposing, or a manual pick/respond/ended call.
+            this.music = { ...event.value };
           }
           break;
         case "chat_renamed": {

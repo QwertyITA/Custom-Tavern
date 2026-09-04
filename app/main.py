@@ -2018,6 +2018,177 @@ async def remove_background(filename: str) -> dict:
     return {"ok": True, "background": config.SETTINGS.background}
 
 
+# ----------------------------------------------------------------- music
+
+
+@app.get("/api/music")
+async def list_music() -> dict:
+    """The shared library (ROADMAP #39). Every track is removable — unlike
+    backdrops there is no bundled set, so the field is kept only for shape
+    parity with what the frontend's library-list component already expects
+    from /api/backgrounds."""
+    return {
+        "tracks": [
+            {"name": name, "url": f"/music/{name}", "removable": True}
+            for name in config.available_music_tracks()
+        ]
+    }
+
+
+@app.get("/music/{filename}")
+async def serve_music(filename: str) -> FileResponse:
+    path = config.music_path(filename)
+    if path is None:
+        raise HTTPException(404, "track not found")
+    return FileResponse(path)
+
+
+@app.post("/api/music")
+async def upload_music(request: Request, filename: str = Query(...)) -> dict:
+    """Add a track. Body is the raw audio file — no multipart needed. Same
+    shape as upload_background above."""
+    suffix = Path(filename).suffix.lower()
+    if suffix not in config.MUSIC_SUFFIXES:
+        allowed = ", ".join(config.MUSIC_SUFFIXES)
+        raise HTTPException(400, f"unsupported audio type {suffix or '(none)'} — use {allowed}")
+
+    limit = config.MAX_MUSIC_BYTES // (1024 * 1024)
+    _reject_oversized(request, config.MAX_MUSIC_BYTES, f"track is larger than {limit} MB")
+    payload = await request.body()
+    if not payload:
+        raise HTTPException(400, "empty upload")
+    if len(payload) > config.MAX_MUSIC_BYTES:
+        raise HTTPException(400, f"track is larger than {limit} MB")
+
+    directory = config.USER_MUSIC_DIR
+    directory.mkdir(parents=True, exist_ok=True)
+    name = _safe_upload_name(filename, set(config.available_music_tracks()), "track")
+
+    try:
+        (directory / name).write_bytes(payload)
+    except OSError as exc:
+        raise HTTPException(500, f"could not save track: {exc}") from exc
+    return {"name": name, "url": f"/music/{name}"}
+
+
+@app.delete("/api/music/{filename}")
+async def remove_music(filename: str) -> dict:
+    if filename not in config.available_music_tracks():
+        raise HTTPException(404, "track not found")
+    (config.USER_MUSIC_DIR / filename).unlink(missing_ok=True)
+
+    # Not chasing every chat's state.music for a now-dangling reference —
+    # unlike background_meta's single global field above, that would mean
+    # scanning every chat. A chat still pointing at a deleted track simply
+    # 404s on GET /music/{filename} and the player shows it as removed.
+    if filename in config.SETTINGS.music_meta:
+        meta = dict(config.SETTINGS.music_meta)
+        del meta[filename]
+        config.SETTINGS.music_meta = meta
+        try:
+            config.save_settings(config.SETTINGS)
+        except OSError:
+            pass
+    return {"ok": True}
+
+
+def _music_state(db, chat_id: str) -> dict:
+    stored = state_mod.read_slice(db, chat_id, state_mod.SLICE_MUSIC)
+    value = stored["value"] if stored and isinstance(stored["value"], dict) else {}
+    return {
+        "status": value.get("status") or "none",
+        "track": value.get("track"),
+        "character": value.get("character"),
+    }
+
+
+async def _write_music(db, chat_id: str, value: dict, *, source_pass: str) -> dict:
+    write = await state_mod.write_slice(
+        db, chat_id, state_mod.SLICE_MUSIC, value,
+        source_turn=repo.next_turn(db, chat_id), source_pass=source_pass,
+    )
+    BUS.publish(chat_id, {"type": "panel", "panel": "music", "value": write.value, "source": source_pass})
+    return write.value
+
+
+@app.post("/api/chats/{chat_id}/music")
+async def pick_music(chat_id: str, payload: dict = Body(...)) -> dict:
+    """The person's own pick — no permission needed, it's their own action.
+    Skips "proposed" entirely and goes straight to playing."""
+    db = get_db()
+    if repo.get_chat(db, chat_id) is None:
+        raise HTTPException(404, "chat not found")
+    track = str(payload.get("track") or "").strip()
+    if track not in config.available_music_tracks():
+        raise HTTPException(404, "track not found")
+    value = await _write_music(
+        db, chat_id, {"status": "playing", "track": track, "character": None},
+        source_pass="manual",
+    )
+    return {"ok": True, "music": value}
+
+
+@app.post("/api/chats/{chat_id}/music/respond")
+async def respond_music(chat_id: str, payload: dict = Body(...)) -> dict:
+    """Answers a pending action_card from music_select (§ scheduler.py).
+    A no-op — current state unchanged — when nothing is actually proposed,
+    which covers two tabs on the same chat both showing the card and one
+    having already answered it."""
+    db = get_db()
+    if repo.get_chat(db, chat_id) is None:
+        raise HTTPException(404, "chat not found")
+    choice = str(payload.get("choice") or "").strip()
+    if choice not in ("allow", "decline", "roleplay"):
+        raise HTTPException(400, "choice must be allow, decline or roleplay")
+
+    current = _music_state(db, chat_id)
+    if current["status"] != "proposed":
+        return {"ok": True, "music": current}
+
+    if choice == "allow":
+        value = await _write_music(
+            db, chat_id,
+            {"status": "playing", "track": current["track"], "character": current["character"]},
+            source_pass="manual",
+        )
+        return {"ok": True, "music": value}
+
+    value = await _write_music(
+        db, chat_id, {"status": "none", "track": None, "character": None}, source_pass="manual",
+    )
+    if choice == "roleplay":
+        meta = config.SETTINGS.music_meta or {}
+        label = ((meta.get(current["track"] or "") or {}).get("description") or "").strip() \
+            or current["track"]
+        character = current["character"] or "The character"
+        note = (
+            f"{character} starts playing {label} — no real audio, but "
+            "continue the scene as though it is playing."
+        )
+        await state_mod.write_slice(
+            db, chat_id, state_mod.SLICE_MUSIC_ROLEPLAY,
+            {"note": note, "used": False},
+            source_turn=repo.next_turn(db, chat_id), source_pass="manual",
+        )
+    return {"ok": True, "music": value}
+
+
+@app.post("/api/chats/{chat_id}/music/ended")
+async def music_ended(chat_id: str) -> dict:
+    """The client's <audio> element reports natural completion. A no-op
+    when nothing is playing — a stale/duplicate report, or a track someone
+    already stopped by picking a different one."""
+    db = get_db()
+    if repo.get_chat(db, chat_id) is None:
+        raise HTTPException(404, "chat not found")
+    if _music_state(db, chat_id)["status"] != "playing":
+        return {"ok": True, "music": _music_state(db, chat_id)}
+    value = await _write_music(
+        db, chat_id, {"status": "none", "track": None, "character": None}, source_pass="manual",
+    )
+    return {"ok": True, "music": value}
+
+
 @app.post("/api/chats/{chat_id}/passes/{pass_id}/run")
 async def run_pass(chat_id: str, pass_id: str) -> dict:
     """Run one pass now, without waiting for its trigger to fire.

@@ -2892,6 +2892,92 @@ body {
 .bg-row-actions .icon-btn.danger { color: var(--error); }
 .bg-row-actions .icon-btn.danger.armed { background: var(--error); color: var(--on-accent); }
 
+/* The music library (ROADMAP #39) — same row/fields/actions shape as the
+   backdrop list above, minus the thumbnail: a track has no picture, so a
+   play button takes that slot instead. */
+.music-list { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 10px; }
+.music-row {
+  display: flex;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: var(--panel);
+}
+.music-row.on { border-color: var(--accent); }
+.music-row-play {
+  flex: none;
+  width: 44px;
+  min-height: 44px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.music-row-fields { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.music-row-fields input {
+  width: 100%;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 8px;
+  font: inherit;
+  font-size: 13px;
+}
+.music-row-name { font-size: 13px; font-weight: 600; }
+.music-row-actions { flex: none; display: flex; flex-direction: column; gap: 2px; }
+.music-row-actions .icon-btn { min-width: 32px; min-height: 32px; padding: 4px; }
+.music-row-actions .icon-btn .icon { width: 17px; height: 17px; }
+.music-row-actions .icon-btn.danger { color: var(--error); }
+.music-row-actions .icon-btn.danger.armed { background: var(--error); color: var(--on-accent); }
+
+/* The compact player beside the composer, and the proposal card in the
+   message flow. Collapsed to nothing (§ x-show below) when there is
+   nothing playing and nothing proposed — silence is the default look. */
+.music-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 12px;
+}
+.music-bar-track { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.music-bar .icon-btn { min-width: 36px; min-height: 36px; padding: 6px; }
+
+.music-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px auto;
+  padding: 10px 12px;
+  max-width: var(--bubble-max, 86%);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-ai);
+  font-size: 13px;
+}
+.music-card-actions { display: flex; gap: 6px; }
+.music-card-actions .wide { padding: 8px; font-size: 12px; }
+.music-card-resolved { color: var(--muted); font-size: 12px; }
+
+/* Same shape as .scrolldown-enter/leave — a small thing arriving/leaving,
+   not travelling between two known places. */
+.music-bar-enter, .music-card-enter {
+  transition: opacity var(--dur-base) var(--ease-back), transform var(--dur-base) var(--ease-back);
+}
+.music-bar-leave, .music-card-leave {
+  transition: opacity var(--dur-fast) var(--ease-in-out), transform var(--dur-fast) var(--ease-in-out);
+}
+.music-bar-from, .music-card-from { opacity: 0; transform: translateY(10px) scale(.96); }
+.music-bar-to, .music-card-to { opacity: 1; transform: translateY(0) scale(1); }
+
 /* The "no backdrop" choice — a slim row of its own rather than a tile among
    the images, since it has no picture and no metadata to carry. */
 .bg-row-none {

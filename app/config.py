@@ -220,12 +220,12 @@ MAX_CARD_IMPORT_BYTES = 16 * 1024 * 1024
 MAX_CHAT_IMPORT_BYTES = 16 * 1024 * 1024
 
 
-def _listing(directory: Path) -> list[str]:
+def _listing(directory: Path, suffixes: tuple[str, ...] = BACKGROUND_SUFFIXES) -> list[str]:
     if not directory.is_dir():
         return []
     return [
         f.name for f in directory.iterdir()
-        if f.is_file() and f.suffix.lower() in BACKGROUND_SUFFIXES
+        if f.is_file() and f.suffix.lower() in suffixes
     ]
 
 
@@ -311,6 +311,50 @@ def avatar_path(name: str) -> Path | None:
         return None
     path = AVATAR_DIR / name
     return path if path.is_file() else None
+
+
+# The shared music library (ROADMAP #39). User-uploaded only — unlike
+# backdrops there is no bundled counterpart to union with; nothing to ship
+# license-free. Same gitignored-data-dir reasoning as backgrounds/avatars.
+USER_MUSIC_DIR = DATA_DIR / "music"
+MUSIC_SUFFIXES = (".mp3", ".ogg", ".wav", ".m4a", ".flac")
+MAX_MUSIC_BYTES = 20 * 1024 * 1024
+
+
+def available_music_tracks() -> list[str]:
+    return sorted(_listing(USER_MUSIC_DIR, MUSIC_SUFFIXES))
+
+
+def music_path(name: str) -> Path | None:
+    """Resolve a track name to a file. Matched against the listing rather
+    than joined onto a path, so a name is only ever a name."""
+    if name not in available_music_tracks():
+        return None
+    path = USER_MUSIC_DIR / name
+    return path if path.is_file() else None
+
+
+def validate_music_meta(raw: Any) -> dict[str, dict[str, Any]]:
+    """Same shape and same reasoning as validate_background_meta above —
+    only entries for tracks that still exist, trimmed to what actually
+    differs from the defaults."""
+    if not isinstance(raw, dict):
+        return {}
+    pool = set(available_music_tracks())
+    out: dict[str, dict[str, Any]] = {}
+    for name, entry in raw.items():
+        name = str(name)
+        if name not in pool or not isinstance(entry, dict):
+            continue
+        cleaned: dict[str, Any] = {}
+        description = str(entry.get("description") or "").strip()[:400]
+        if description:
+            cleaned["description"] = description
+        if entry.get("auto") is False:
+            cleaned["auto"] = False
+        if cleaned:
+            out[name] = cleaned
+    return out
 
 
 def user_avatar_idles() -> list[str]:
@@ -519,6 +563,14 @@ class Settings:
     # picker — a background someone keeps around but never wants the AI reaching
     # for on its own.
     background_meta: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    # Same shape and reasoning as background_meta, for the shared music
+    # library (data/music/, § available_music_tracks): {"description": str,
+    # "auto": bool}, keyed by filename. `description` is what music_select
+    # (app/passes/registry.py) reads to pick a fitting track; `auto`
+    # (default True) pulls a track out of that automatic pick without
+    # removing it from the manual library picker.
+    music_meta: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     # How much of the motion to run, 0–100. `prefers-reduced-motion` is a
     # switch and this is a dial: someone who finds the interface busy but does
@@ -850,6 +902,10 @@ def build_settings(payload: dict[str, Any], current: Settings) -> Settings:
     settings.background_meta = (
         validate_background_meta(payload["background_meta"])
         if "background_meta" in payload else dict(current.background_meta)
+    )
+    settings.music_meta = (
+        validate_music_meta(payload["music_meta"])
+        if "music_meta" in payload else dict(current.music_meta)
     )
     try:
         motion = int(payload.get("motion", current.motion))

@@ -1099,6 +1099,10 @@ class PassScheduler:
         # pending. Marked rather than deleted: a swipe on this same turn should
         # see the same intrusion, and the write only loses to a *newer* turn.
         await self._consume_event(ctx)
+        # Same one-shot shape for "just roleplay" (§ _consume_music_roleplay,
+        # SLICE_MUSIC_ROLEPLAY) — the nudge has now been narrated, so it
+        # stops appearing in the next reply's prompt too.
+        await self._consume_music_roleplay(ctx)
 
         yield {
             "type": "reply",
@@ -1304,6 +1308,23 @@ class PassScheduler:
                 "Allowed backgrounds (id: description):\n" + "\n".join(lines) +
                 f"\nCurrent scene: {scene or 'unknown'}"
             )
+        elif definition.id == "music_select":
+            # filename — description, one per line, same shape as
+            # background_swap above. Shared library (§ available_music_tracks,
+            # config.py; settings.music_meta, edited wherever the library
+            # panel lives) rather than per-character. A track whose `auto`
+            # flag is off is left out entirely — still choosable by hand from
+            # the library panel, just never proposed by this pass.
+            meta = settings.music_meta or {}
+            listed = [
+                (name, ((meta.get(name) or {}).get("description") or "").strip())
+                for name in config.available_music_tracks()
+                if (meta.get(name) or {}).get("auto") is not False
+            ]
+            if not listed:
+                return "", [], None
+            lines = [f"- {name}: {desc}" if desc else f"- {name}" for name, desc in listed]
+            extra = "Allowed tracks (id: description):\n" + "\n".join(lines)
         elif definition.id == "chat_rename":
             # The whole chat, every time (§ CHAT_RENAME_FIRST_AT/_EVERY,
             # _maybe_rename_chat) — this can retitle a chat more than once as
@@ -1384,6 +1405,11 @@ class PassScheduler:
         task, messages = assembly.build_pass_context(
             self.db, ctx.chat, character, settings, task=definition.prompt, extra=extra
         )
+        if definition.id == "music_select":
+            # Proposes rather than commits (§ output.type == "action_card") —
+            # a different write shape than _handler_generic's gui_panel path,
+            # so its own handler rather than another branch jammed in there.
+            return task, messages, self._handler_music_select(ctx)
         return task, messages, self._handler_generic(ctx, definition)
 
     def _handler_generic(self, ctx: TurnContext, definition: PassDef):
@@ -1517,6 +1543,67 @@ class PassScheduler:
             return write.accepted
 
         return handle
+
+    def _handler_music_select(self, ctx: TurnContext):
+        async def handle(payload: dict) -> bool:
+            # Re-read fresh rather than trusting the list _build_pass_input
+            # handed the model — same anti-race reasoning as
+            # expression/background_swap: a track excluded or deleted after
+            # the prompt was built this same turn must not be proposed.
+            meta = self.settings.music_meta or {}
+            allowed = {
+                name for name in config.available_music_tracks()
+                if (meta.get(name) or {}).get("auto") is not False
+            }
+            chosen = str(payload.get("track") or "").strip()
+            if chosen not in allowed:
+                # "none", a hallucinated name, or one dropped out from under
+                # it this turn: nothing to propose, not a bug — silence is a
+                # legitimate answer here, unlike a backdrop that always keeps
+                # showing something.
+                return False
+            write = await state_mod.write_slice(
+                self.db,
+                ctx.chat_id,
+                state_mod.SLICE_MUSIC,
+                {"status": "proposed", "track": chosen, "character": ctx.character.name},
+                source_turn=ctx.turn,
+                source_pass="music_select",
+                variant_id=ctx.variant_id,
+            )
+            if write.accepted:
+                self._emit(
+                    ctx.chat_id,
+                    {
+                        "type": "panel",
+                        "panel": "music",
+                        "value": write.value,
+                        "turn": ctx.turn,
+                        "source": "music_select",
+                    },
+                )
+            return write.accepted
+
+        return handle
+
+    async def _consume_music_roleplay(self, ctx: TurnContext) -> None:
+        """Mark a pending "just roleplay" nudge as spent, once a reply has
+        used it. Same shape as _consume_event above, against the music
+        library's own one-shot slice instead of the world's."""
+        stored = state_mod.read_slice(self.db, ctx.chat_id, state_mod.SLICE_MUSIC_ROLEPLAY)
+        if not stored or not isinstance(stored["value"], dict):
+            return
+        value = stored["value"]
+        if value.get("used") or not str(value.get("note") or "").strip():
+            return
+        await state_mod.write_slice(
+            self.db,
+            ctx.chat_id,
+            state_mod.SLICE_MUSIC_ROLEPLAY,
+            {**value, "used": True},
+            source_turn=ctx.turn,
+            source_pass="consumed",
+        )
 
     def _handler_summary(self, ctx: TurnContext, covered_turn: int):
         async def handle(payload: dict) -> bool:

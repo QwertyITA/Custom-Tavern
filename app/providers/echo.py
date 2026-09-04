@@ -75,6 +75,12 @@ def _first_expression_id(request: GenRequest) -> str:
     return _first_listed_id("\n".join(m["content"] for m in request.messages), "Allowed emotions")
 
 
+def _first_music_id(request: GenRequest) -> str:
+    """The first id out of music_select's 'Allowed tracks
+    (id: description):' block — same shape as background_swap's own."""
+    return _first_listed_id("\n".join(m["content"] for m in request.messages), "Allowed tracks")
+
+
 class EchoProvider(Provider):
     kind = "echo"
     native_chat = True
@@ -128,6 +134,8 @@ class EchoProvider(Provider):
             return json.dumps({"emotion": _first_expression_id(request)})
         if request.pass_id == "background_swap":
             return json.dumps({"background": _first_background_id(request)})
+        if request.pass_id == "music_select":
+            return json.dumps({"track": _first_music_id(request)})
         if request.pass_id == "summary":
             return json.dumps(
                 {"summary": "They spoke at length; nothing was settled, but the mood shifted."}

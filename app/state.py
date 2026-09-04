@@ -36,13 +36,27 @@ SLICE_EVENT = "state.event"
 # whoever in the room happens to be answering.
 SLICE_SEARCH = "state.search"
 
+# Music controls (roadmap 39). Shared, like the room's own weather — one
+# thing plays for the room, not one per character. Value shape:
+# {"status": "none"|"proposed"|"playing", "track": <filename>|None,
+# "character": <name>|None}. A "proposed" status is a pending action_card
+# (§ music_select, app/passes/registry.py) that has not been answered yet.
+SLICE_MUSIC = "state.music"
+# A one-shot nudge for "Just roleplay" — no real track plays, but the next
+# reply should narrate as though it did. Same consumed-once shape as
+# SLICE_EVENT/_consume_event: {"note": str, "used": bool}.
+SLICE_MUSIC_ROLEPLAY = "state.music_roleplay"
+
 # Which slices belong to one character rather than to the conversation (§15).
 # Trust and mood are held *by someone*; the weather is not. Getting this split
 # right is the prerequisite for group chats — without it, two characters in one
 # room would share a single opinion of you and overwrite each other's turn by
 # turn.
 PER_CHARACTER_SLICES = frozenset({SLICE_VARS, SLICE_EXPRESSION, SLICE_SIGNALS})
-SHARED_SLICES = frozenset({SLICE_SCENE, SLICE_BACKGROUND, SLICE_EVENT, SLICE_SEARCH})
+SHARED_SLICES = frozenset({
+    SLICE_SCENE, SLICE_BACKGROUND, SLICE_EVENT, SLICE_SEARCH,
+    SLICE_MUSIC, SLICE_MUSIC_ROLEPLAY,
+})
 
 NAMESPACE_SEPARATOR = ":"
 

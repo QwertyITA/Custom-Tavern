@@ -211,20 +211,25 @@ and folders (part of 11).
 Image generation (20), TTS (21), speech to text (22), slash commands and
 STscript (26).
 
-- [ ] **39. Music manager.** The character plays music, the way a person in
-      the room with a speaker would — not a background-music toggle for the
-      app itself. A library of tracks lives on the server (`data/`,
-      alongside portraits and avatars); the character can start, stop or
-      switch a track, and it plays on the device actually in the chat, the
-      same room a talking avatar or a scene reading is happening in. Open
-      questions before this is buildable: how the character *decides* to
-      play something (a tool call from the reply pass? a regex-rule-style
-      trigger on its own text? a manual picker beside the composer?), how a
-      track is picked out of a library rather than named exactly, whether
-      per-character libraries make sense the way `pfp_set` is per-character,
-      and how it behaves across the multi-device case group chats already
-      raise (§8) — whichever device the reply lands on, or all of them.
-      Recorded on request; not started, not designed.
+- [x] **39. Music controls.** A shared library (`data/music/`, alongside
+      portraits and avatars) the person picks from by hand beside the
+      composer, plus an automatic side: `music_select` (canonical,
+      background tier, gated on the same `emotional_shift >= major`
+      signal `expression` already uses) proposes a track — never plays it
+      outright. The chat shows an `action_card` ("*Mira* wants to play
+      *track*.") with **Allow** / **Decline** / **Just roleplay**; this is
+      the first real implementation of `PassOutput.type == "action_card"`,
+      sketched but unbuilt since §15/DESIGN.md. Allow starts real playback
+      and, for the rest of that track, the reply pass is told a song is
+      playing (`state.music`, volatile band) so the character can react to
+      it; the client's own `ended` report clears that the moment it's
+      over. Just roleplay plays nothing but leaves a one-shot narrative
+      nudge (`state.music_roleplay`, consumed the same way `random_event`'s
+      own intrusion is). One shared library, not per-character — settled on
+      request rather than left open. The multi-device case: exactly one
+      now-playing state per chat, so whichever device's `ended` fires first
+      is what ends it everywhere, the same answer group chats' shared state
+      already gives everything else.
 - [ ] **40. Time-in-chat timer, per character.** Tracks how long the user has
       actually been engaged with a character, not just how long the tab has
       sat open. Counts while active, then holds for a 5-minute window from

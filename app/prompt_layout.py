@@ -84,6 +84,9 @@ STRUCTURAL: list[dict[str, Any]] = [
      "note": "Place, weather and time, as the scene pass last saw them."},
     {"id": "event", "band": "volatile", "label": "Something happening",
      "note": "An unplanned intrusion the world made, waiting to be used once."},
+    {"id": "music", "band": "volatile", "label": "Music",
+     "note": "A track actually playing right now, or a one-shot 'just "
+             "roleplay' nudge, waiting to be used once."},
     {"id": "search", "band": "volatile", "label": "Looked up just now",
      "note": "What the web search found for this message. Nothing when it is off."},
     {"id": "toggles", "band": "volatile", "label": "Toggle injections",

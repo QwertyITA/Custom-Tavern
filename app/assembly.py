@@ -34,7 +34,9 @@ from . import websearch
 from . import worldline
 from .models import AuthorsNote, Character, VariableSchema
 from .providers.base import estimate_tokens
-from .state import SLICE_EVENT, SLICE_SCENE, SLICE_SEARCH, SLICE_VARS
+from .state import (
+    SLICE_EVENT, SLICE_MUSIC, SLICE_MUSIC_ROLEPLAY, SLICE_SCENE, SLICE_SEARCH, SLICE_VARS,
+)
 from .state import initial_values, load_schema, read_slice
 from .state import slice_for
 from .state import render_bands
@@ -208,6 +210,33 @@ def pending_event(db: Database, chat_id: str) -> str:
     if value.get("used"):
         return ""
     return str(value.get("event") or "").strip()
+
+
+def pending_music(db: Database, chat_id: str, settings: Settings) -> str:
+    """What the character currently knows about music, if anything.
+
+    Two mutually exclusive sources, each consumed its own way. A real
+    "playing" state.music lasts the whole song — cleared only when the
+    client reports it ended (§ POST /api/chats/{id}/music/ended) — so this
+    keeps returning the same line every turn for as long as that lasts,
+    unlike pending_event below. "Just roleplay" is a one-shot nudge
+    (state.music_roleplay), used by the very next reply exactly the way
+    pending_event's own intrusion is, then marked used.
+    """
+    playing = read_slice(db, chat_id, SLICE_MUSIC)
+    if playing and isinstance(playing["value"], dict) and playing["value"].get("status") == "playing":
+        track = str(playing["value"].get("track") or "").strip()
+        if track:
+            meta = settings.music_meta or {}
+            label = ((meta.get(track) or {}).get("description") or "").strip() or track
+            return f"Currently playing: {label}."
+
+    roleplay = read_slice(db, chat_id, SLICE_MUSIC_ROLEPLAY)
+    if roleplay and isinstance(roleplay["value"], dict) and not roleplay["value"].get("used"):
+        note = str(roleplay["value"].get("note") or "").strip()
+        if note:
+            return note
+    return ""
 
 
 def search_block(db: Database, chat_id: str, turn: int) -> str:
@@ -510,6 +539,9 @@ def build_reply_context(
         "event": f"## Something is happening\n{event}\n"
         "Work it into your reply as it happens. Do not resolve it in one line."
         if (event := pending_event(db, chat["id"]))
+        else "",
+        "music": f"## Music\n{music}"
+        if (music := pending_music(db, chat["id"], settings))
         else "",
         # The card's own last word. It belongs after the history — that is the
         # whole point of the field, and where a card puts the instruction it

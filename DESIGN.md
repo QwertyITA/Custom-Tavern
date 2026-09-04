@@ -132,7 +132,9 @@ Resolution: `canonical ? own : (blocking ? cogs : ambient)`; overlaid by run sta
 ### 5.4 Output targets
 
 `none` (prompt influence only) · `state_modifier(slice)` · `gui_panel(id)` (renders to
-a panel, never the message stream) · `action_card(type)` (confirmation card in chat; future).
+a panel, never the message stream) · `action_card(type)` (a card in the message flow
+asking permission before something happens, rather than a value already committed —
+first built for `music_select`, §15/ROADMAP #39).
 
 ### 5.5 Concurrency, ordering & safety
 
@@ -782,9 +784,11 @@ observability instinct as a GPU overlay, applied to token spend.
 
 ## 15. Future features (after basics)
 
-- **Proactive actions.** A pass emits an `action_card`: *"ABC asks you to play Def.
-  Listen?"* → accept plays a local file from `data/music/`. Generalizes to any
-  proactive action.
+- **Proactive actions.** Built for music (ROADMAP #39): `music_select` emits an
+  `action_card` — *"Mira wants to play Def."* — Allow plays the file from
+  `data/music/`, Decline does nothing, Just roleplay narrates it without real
+  playback. The mechanism generalizes to any proactive action; nothing else uses
+  it yet.
 - **Image generation.** ComfyUI at `:8188` over Tailscale as a pass output; images
   inline or in panels.
 - **Group chats.** Turn-taking (who replies), per-character state slices, whose

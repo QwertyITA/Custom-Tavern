@@ -112,6 +112,7 @@ def test_a_relocated_id_lands_right_before_final_not_its_old_position():
         {"id": "state", "enabled": True},
         {"id": "setting", "enabled": True},
         {"id": "event", "enabled": True},
+        {"id": "music", "enabled": True},
         {"id": "search", "enabled": True},
         {"id": "toggles", "enabled": True},
         {"id": "craft:format", "enabled": True},

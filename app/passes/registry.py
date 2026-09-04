@@ -192,6 +192,38 @@ CANONICAL_PASSES: list[PassDef] = [
         ),
     ),
     PassDef(
+        id="music_select",
+        kind="canonical",
+        label="Music",
+        blocking=False,
+        model_tier="background",
+        # Same signal expression already keys off — a mood swing is a
+        # reasonable proxy for "the character would react to this," and
+        # reusing it means no new signal added to the reply pass's own
+        # suffix contract (§ contract.py, sent on every turn regardless of
+        # tier). Retune the threshold, or swap to scene_change, if this
+        # reads wrong once it's running — not a reason to add a signal.
+        trigger=Trigger(type="on_signal", signal="emotional_shift", op=">=", threshold="major"),
+        sampling=Sampling(temp=0.3, top_p=0.9, max_tokens=60),
+        # A proposal, not a committed value (ROADMAP #39) — the chat shows
+        # "<character> wants to play <track>," and nothing plays until the
+        # person answers. Its own handler (_handler_music_select,
+        # scheduler.py) writes state.music with status "proposed" rather
+        # than going through the generic gui_panel write path, so no
+        # writes_slice here either — same reasoning as background_swap
+        # above, different destination.
+        output=PassOutput(type="action_card", target="music"),
+        prompt=(
+            "You pick the track that best fits how the character would react "
+            "to this moment, using each option's description — not just its "
+            "filename. This proposes playing it; it does not start it.\n"
+            'Reply with JSON only: {"track": "<one id from the allowed list>"}\n'
+            "Choose only an id from the allowed list given in the context, "
+            'exactly as written there. Reply {"track": "none"} if nothing '
+            "fits — silence is a fine answer."
+        ),
+    ),
+    PassDef(
         id="random_event",
         kind="canonical",
         label="Something happens",
