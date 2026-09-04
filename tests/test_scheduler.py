@@ -21,13 +21,17 @@ from app.state import SLICE_BACKGROUND, SLICE_VARS, read_slice, slice_for
 from .conftest import drain, events_of, sync, turn
 
 
-def context(chat, character, *, turn_no=1, signals=None) -> TurnContext:
+def context(
+    chat, character, *, turn_no=1, signals=None, user_text="", reply_text=""
+) -> TurnContext:
     return TurnContext(
         chat=chat,
         character=character,
         settings=SETTINGS,
         turn=turn_no,
         signals=signals or {},
+        user_text=user_text,
+        reply_text=reply_text,
         schema=state_mod.load_schema(None),
     )
 
@@ -61,6 +65,40 @@ def test_signal_trigger_gates_on_the_rubric(sched, chat, character):
     assert not sched.trigger_fires(definition, context(chat, character, signals={"scene_change": "none"}))
     assert sched.trigger_fires(definition, context(chat, character, signals={"scene_change": "minor"}))
     assert sched.trigger_fires(definition, context(chat, character, signals={"scene_change": "major"}))
+
+
+def test_on_text_trigger_matches_either_side_of_the_turn(sched, chat, character):
+    """The cheapest gate there is — no rubric, no model call, just whether
+    the story itself said the trigger word (§ music_select, registry.py)."""
+    definition = PassDef(id="p", trigger=Trigger(type="on_text", pattern=r"\bjukebox\b"))
+    assert not sched.trigger_fires(
+        definition, context(chat, character, user_text="a quiet evening", reply_text="she nods")
+    )
+    assert sched.trigger_fires(
+        definition, context(chat, character, user_text="I switch on the jukebox", reply_text="")
+    )
+    assert sched.trigger_fires(
+        definition, context(chat, character, user_text="", reply_text="she flips the jukebox on")
+    )
+
+
+def test_on_text_trigger_is_case_insensitive(sched, chat, character):
+    definition = PassDef(id="p", trigger=Trigger(type="on_text", pattern=r"\bjukebox\b"))
+    assert sched.trigger_fires(definition, context(chat, character, user_text="the JUKEBOX crackles"))
+
+
+def test_on_text_trigger_never_fires_with_no_pattern(sched, chat, character):
+    definition = PassDef(id="p", trigger=Trigger(type="on_text"))
+    assert not sched.trigger_fires(
+        definition, context(chat, character, user_text="anything at all")
+    )
+
+
+def test_on_text_trigger_survives_a_bad_pattern(sched, chat, character):
+    """A malformed regex must not crash the turn (§ same reasoning as
+    apply_nudges' own re.error guard, state.py)."""
+    definition = PassDef(id="p", trigger=Trigger(type="on_text", pattern="(unclosed"))
+    assert not sched.trigger_fires(definition, context(chat, character, user_text="anything"))
 
 
 def test_missing_signal_reads_as_none(sched, chat, character):

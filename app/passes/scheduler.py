@@ -444,6 +444,15 @@ class PassScheduler:
             if isinstance(threshold, (int, float)):
                 threshold = "minor" if threshold <= 0.5 else "major"
             return _compare(signal_rank(level), trigger.op, signal_rank(str(threshold)))
+        if trigger.type == "on_text":
+            if not trigger.pattern:
+                return False
+            try:
+                return bool(
+                    re.search(trigger.pattern, f"{ctx.user_text}\n{ctx.reply_text}", re.IGNORECASE)
+                )
+            except re.error:
+                return False  # a bad pattern must not crash the turn
         if trigger.type == "timer":
             row = self.db.query_one(
                 "SELECT MAX(finished_at) AS last FROM pass_runs "

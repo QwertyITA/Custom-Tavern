@@ -18,7 +18,7 @@ class Trigger(BaseModel):
     """When a pass is eligible to run (§5.2)."""
 
     type: Literal[
-        "every_turn", "every_n", "on_signal", "timer", "manual", "chance", "over_budget"
+        "every_turn", "every_n", "on_signal", "on_text", "timer", "manual", "chance", "over_budget"
     ] = "every_turn"
     n: int = 1
     signal: str = ""
@@ -29,6 +29,12 @@ class Trigger(BaseModel):
     # way to switch a pass like this off — the alternative is a second flag
     # that has to agree with the frequency.
     probability: float = 0.0
+    # For `on_text`: a case-insensitive regex checked against this turn's user
+    # message and reply together (§ TurnContext.user_text/reply_text) — the
+    # cheapest gate there is, cheaper even than on_signal: no rubric, no model
+    # judgment call, just whether the story itself said the trigger word.
+    # Empty never fires.
+    pattern: str = ""
 
 
 class Sampling(BaseModel):

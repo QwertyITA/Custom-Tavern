@@ -168,12 +168,14 @@ def test_ended_is_a_no_op_when_nothing_is_playing(client, chat):
 # ------------------------------------------------------------- music_select
 
 
-def test_music_select_fires_on_a_major_emotional_shift(sched, chat, character, tmp_path, monkeypatch):
+def test_music_select_fires_when_the_story_mentions_a_music_source(
+    sched, chat, character, tmp_path, monkeypatch
+):
     name = _seed_track(tmp_path, monkeypatch)
     monkeypatch.setattr(sched.settings, "music_meta", {})
 
     async def scenario():
-        ctx = context(chat, character, signals={"emotional_shift": "major"})
+        ctx = context(chat, character, user_text="I walk over and switch on the jukebox.")
         launched = sched._launch_background(ctx)
         assert "music_select" in launched
         await sched.await_pending(chat["id"])
@@ -188,10 +190,18 @@ def test_music_select_fires_on_a_major_emotional_shift(sched, chat, character, t
     assert value == {"status": "proposed", "track": name, "character": character.name}
 
 
-def test_music_select_does_not_fire_below_the_threshold(sched, chat, character, tmp_path, monkeypatch):
+def test_music_select_fires_on_a_verb_near_music_too(sched, chat, character):
+    """Not just the object names — "puts on some music" etc. (§ the
+    trigger's own pattern, registry.py)."""
+    definition = next(d for d in registry.all_passes(sched.db) if d.id == "music_select")
+    ctx = context(chat, character, reply_text="She puts on some music before sitting down.")
+    assert sched.trigger_fires(definition, ctx)
+
+
+def test_music_select_does_not_fire_on_an_unrelated_turn(sched, chat, character, tmp_path, monkeypatch):
     _seed_track(tmp_path, monkeypatch)
     definition = next(d for d in registry.all_passes(sched.db) if d.id == "music_select")
-    ctx = context(chat, character, signals={"emotional_shift": "minor"})
+    ctx = context(chat, character, user_text="Tell me about the weather outside.")
     assert not sched.trigger_fires(definition, ctx)
 
 
@@ -214,7 +224,7 @@ def test_music_select_makes_no_proposal_on_an_invalid_pick(sched, chat, characte
     definition = next(d for d in registry.all_passes(sched.db) if d.id == "music_select")
 
     async def scenario():
-        ctx = context(chat, character, signals={"emotional_shift": "major"})
+        ctx = context(chat, character, user_text="I switch on the jukebox.")
         launched = sched._launch_background(ctx)
         assert "music_select" in launched
         await sched.await_pending(chat["id"])
@@ -243,7 +253,7 @@ def test_music_select_re_validates_against_a_fresh_library_read(
     real_available = config.available_music_tracks
 
     async def scenario():
-        ctx = context(chat, character, signals={"emotional_shift": "major"})
+        ctx = context(chat, character, user_text="I switch on the jukebox.")
         # The prompt still lists it (built before the exclusion below), but
         # the handler re-reads settings fresh once the model answers.
         monkeypatch.setattr(sched.settings, "music_meta", {name: {"auto": False}})

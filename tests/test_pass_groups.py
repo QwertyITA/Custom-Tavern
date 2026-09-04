@@ -215,6 +215,47 @@ def test_an_unedited_shipped_prompt_is_brought_up_to_date(db):
     assert "premise" in fresh.prompt
 
 
+def test_an_unedited_shipped_trigger_is_brought_up_to_date(db):
+    """Same mechanism as the prompt migration above, checked independently
+    (§ SUPERSEDED_TRIGGERS, registry.py) — music_select's trigger changed
+    with its prompt left untouched, so the prompt-matching check alone
+    would never catch an install seeded on the old one."""
+    from app.models import Trigger
+    from app.passes import registry
+
+    stored = registry.get_pass(db, "music_select")
+    stored.trigger = registry.SUPERSEDED_TRIGGERS["music_select"][0]
+    db.write_sync(
+        lambda conn: conn.execute(
+            "UPDATE pass_defs SET data=? WHERE id='music_select'", (stored.model_dump_json(),)
+        )
+    )
+
+    registry.seed(db)
+
+    fresh = registry.get_pass(db, "music_select")
+    assert fresh.trigger.type == "on_text"
+    assert fresh.trigger.pattern
+
+
+def test_a_hand_picked_trigger_is_left_alone(db):
+    """A trigger that happens to differ from every superseded shape — the
+    same "unedited" test as prompts get — is trusted as a deliberate
+    choice, not migrated out from under it."""
+    from app.models import Trigger
+    from app.passes import registry
+
+    mine = registry.get_pass(db, "music_select")
+    mine.trigger = Trigger(type="every_n", n=5)
+    sync(registry.save_pass(db, mine))
+
+    registry.seed(db)
+
+    kept = registry.get_pass(db, "music_select")
+    assert kept.trigger.type == "every_n"
+    assert kept.trigger.n == 5
+
+
 def test_a_prompt_someone_has_written_is_left_alone(db):
     from app.passes import registry
 

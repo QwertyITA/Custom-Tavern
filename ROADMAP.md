@@ -214,9 +214,15 @@ STscript (26).
 - [x] **39. Music controls.** A shared library (`data/music/`, alongside
       portraits and avatars) the person picks from by hand beside the
       composer, plus an automatic side: `music_select` (canonical,
-      background tier, gated on the same `emotional_shift >= major`
-      signal `expression` already uses) proposes a track — never plays it
-      outright. The chat shows an `action_card` ("*Mira* wants to play
+      background tier, gated on `on_text` — a new trigger type, a plain
+      regex against this turn's user message and reply, cheaper than a
+      signal and the thing that actually matters here: did the story say a
+      jukebox/radio/stereo turned on, not whether the model scored the
+      turn as emotionally intense, which the first version tried and a
+      real chat proved wrong — a card's own jukebox, switched on in the
+      roleplay, did nothing because nothing about that is an emotional
+      shift) proposes a track — never plays it outright. The chat shows an
+      `action_card` ("*Mira* wants to play
       *track*.") with **Allow** / **Decline** / **Just roleplay**; this is
       the first real implementation of `PassOutput.type == "action_card"`,
       sketched but unbuilt since §15/DESIGN.md. Allow starts real playback

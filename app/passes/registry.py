@@ -197,13 +197,26 @@ CANONICAL_PASSES: list[PassDef] = [
         label="Music",
         blocking=False,
         model_tier="background",
-        # Same signal expression already keys off — a mood swing is a
-        # reasonable proxy for "the character would react to this," and
-        # reusing it means no new signal added to the reply pass's own
-        # suffix contract (§ contract.py, sent on every turn regardless of
-        # tier). Retune the threshold, or swap to scene_change, if this
-        # reads wrong once it's running — not a reason to add a signal.
-        trigger=Trigger(type="on_signal", signal="emotional_shift", op=">=", threshold="major"),
+        # Text-matched, not signal-gated (§ on_text, models.py/scheduler.py)
+        # — the first version keyed off emotional_shift (reusing an existing
+        # rubric rather than adding a new signal to the reply pass's own
+        # suffix contract), but a mood swing has nothing to do with whether
+        # the *story* just introduced something that plays music. Reported
+        # against a real chat: a card's own scenario mentioned a jukebox,
+        # the person narrated switching it on, and nothing happened — no
+        # emotional_shift, so no proposal, regardless of how directly the
+        # text asked for one. on_text is cheaper anyway (no rubric, no
+        # model judgment call at all) and actually answers the thing that
+        # matters: did the story say a music source turned on. Broad by
+        # design — false positives cost one proposal someone declines;
+        # false negatives cost the feature not firing at all, which is the
+        # bug just described.
+        trigger=Trigger(
+            type="on_text",
+            pattern=r"\b(jukebox|radio|stereo|record player|turntable|boombox|speakers?)\b"
+                    r"|\b(plays?|puts? on|turns? on|switches? on|starts?|queues? up)\b"
+                    r".{0,25}\b(music|song|track|tune|playlist|record)\b",
+        ),
         sampling=Sampling(temp=0.3, top_p=0.9, max_tokens=60),
         # A proposal, not a committed value (ROADMAP #39) — the chat shows
         # "<character> wants to play <track>," and nothing plays until the
@@ -508,30 +521,72 @@ SUPERSEDED_PROMPTS: dict[str, tuple[str, ...]] = {
 }
 
 
+# Passes whose *trigger* changed shape after they had already been seeded,
+# independent of the prompt — same reasoning as SUPERSEDED_PROMPTS above, a
+# separate check since a trigger can change with the prompt left untouched.
+# Keyed by pass id, to the trigger shape(s) this engine used to ship.
+SUPERSEDED_TRIGGERS: dict[str, tuple[Trigger, ...]] = {
+    # music_select's first version gated on emotional_shift — reused an
+    # existing rubric signal to avoid touching the reply pass's own suffix
+    # contract, but a mood swing has nothing to do with whether the story
+    # just introduced something that plays music. Reported against a real
+    # chat: a card's own jukebox, switched on in the roleplay, proposed
+    # nothing, because nothing about that reads as an emotional shift. An
+    # install seeded before this fix keeps that trigger forever otherwise —
+    # seeding never clobbers a stored row, this is the same upgrade path
+    # SUPERSEDED_PROMPTS gives an unedited prompt.
+    "music_select": (
+        Trigger(type="on_signal", signal="emotional_shift", op=">=", threshold="major"),
+    ),
+}
+
+
 def _resupersede(db: Database) -> None:
     """Bring an unedited canonical pass up to its current shipped version.
 
-    Only the prompt and the trigger, and only when the stored prompt is one this
-    engine used to ship: those two are the engine's own workings rather than
-    settings, and an install that had already been seeded would otherwise keep
-    a prompt that has since been found to be wrong. `enabled` is deliberately
-    not touched — a switch is the user's, however it came to be where it is.
+    Only the prompt and the trigger, and only when the stored prompt (§
+    SUPERSEDED_PROMPTS) or the stored trigger (§ SUPERSEDED_TRIGGERS,
+    checked independently — a trigger can change with the prompt left
+    untouched, as music_select's did) is one this engine used to ship:
+    those two are the engine's own workings rather than settings, and an
+    install that had already been seeded would otherwise keep a prompt or
+    a trigger that has since been found to be wrong. `enabled` is
+    deliberately not touched — a switch is the user's, however it came to
+    be where it is.
     """
     shipped = {p.id: p for p in CANONICAL_PASSES}
 
     def _fix(conn: sqlite3.Connection) -> None:
+        def _load(pass_id: str) -> PassDef | None:
+            row = conn.execute("SELECT data FROM pass_defs WHERE id=?", (pass_id,)).fetchone()
+            if row is None:
+                return None
+            try:
+                return PassDef.model_validate_json(row["data"])
+            except ValueError:
+                return None
+
         for pass_id, old_prompts in SUPERSEDED_PROMPTS.items():
             current = shipped.get(pass_id)
-            row = conn.execute("SELECT data FROM pass_defs WHERE id=?", (pass_id,)).fetchone()
-            if current is None or row is None:
-                continue
-            try:
-                definition = PassDef.model_validate_json(row["data"])
-            except ValueError:
+            definition = _load(pass_id)
+            if current is None or definition is None:
                 continue
             if definition.prompt.strip() not in {p.strip() for p in old_prompts}:
                 continue
             definition.prompt = current.prompt
+            definition.trigger = current.trigger
+            conn.execute(
+                "UPDATE pass_defs SET data=? WHERE id=?",
+                (definition.model_dump_json(), pass_id),
+            )
+
+        for pass_id, old_triggers in SUPERSEDED_TRIGGERS.items():
+            current = shipped.get(pass_id)
+            definition = _load(pass_id)
+            if current is None or definition is None:
+                continue
+            if definition.trigger not in old_triggers:
+                continue
             definition.trigger = current.trigger
             conn.execute(
                 "UPDATE pass_defs SET data=? WHERE id=?",
