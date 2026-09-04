@@ -2755,7 +2755,8 @@
                 <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-play"/></svg>
               </button>
               <div class="music-row-fields">
-                <span class="music-row-name" x-text="t.name"></span>
+                <input class="music-row-name" :value="musicLabel(t.name)" placeholder="Name" maxlength="60"
+                       @input="setMusicMeta(t.name, 'label', $event.target.value)">
                 <input :value="musicMeta(t.name).description || ''" maxlength="400"
                        placeholder="What this sounds like — helps the AI pick it automatically."
                        @input="setMusicMeta(t.name, 'description', $event.target.value)">

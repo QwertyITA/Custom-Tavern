@@ -15,6 +15,27 @@ from .test_scheduler import context
 TRACK_BYTES = b"not really audio, just bytes with the right extension"
 
 
+# ------------------------------------------------------------ music_title
+
+
+def test_music_title_prefers_the_label():
+    assert config.music_title("song.mp3", {"song.mp3": {"label": "Evening Waltz"}}) == "Evening Waltz"
+
+
+def test_music_title_falls_back_to_the_stem_with_no_label():
+    assert config.music_title("my song.mp3", {}) == "my song"
+    assert config.music_title("my song.mp3", None) == "my song"
+
+
+def test_validate_music_meta_keeps_the_label(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "USER_MUSIC_DIR", tmp_path / "music")
+    config.USER_MUSIC_DIR.mkdir(parents=True, exist_ok=True)
+    (config.USER_MUSIC_DIR / "song.mp3").write_bytes(TRACK_BYTES)
+
+    cleaned = config.validate_music_meta({"song.mp3": {"label": "  Evening Waltz  "}})
+    assert cleaned == {"song.mp3": {"label": "Evening Waltz"}}
+
+
 # --------------------------------------------------------------- library
 
 
@@ -135,7 +156,11 @@ def test_respond_roleplay_plays_nothing_but_leaves_a_one_shot_note(
     assert note is not None
     assert note["value"]["used"] is False
     assert "Mira" in note["value"]["note"]
-    assert name in note["value"]["note"]
+    # The title (extension-stripped filename, with no label set), not the
+    # raw filename — same "nobody needs to read a file format" reasoning
+    # as the card and the "Currently playing" line.
+    assert "song" in note["value"]["note"]
+    assert name not in note["value"]["note"]
 
 
 def test_respond_is_a_no_op_when_nothing_is_proposed(client, chat):
@@ -287,25 +312,33 @@ def test_consume_music_roleplay_marks_a_note_used_exactly_once(sched, chat, char
 # ------------------------------------------------------- the volatile band
 
 
-def test_a_playing_track_reaches_the_prompt(db, chat, character):
+def test_a_playing_track_reaches_the_prompt_by_its_title(db, chat, character):
+    """The title, not the description — a person recognises a song by its
+    name, not by the mood note written to help the AI pick it."""
     sync(state_mod.write_slice(
         db, chat["id"], SLICE_MUSIC,
         {"status": "playing", "track": "waltz.mp3", "character": "Mira"},
         source_turn=1, source_pass="manual",
     ))
-    settings = Settings(music_meta={"waltz.mp3": {"description": "A slow waltz."}})
+    settings = Settings(music_meta={
+        "waltz.mp3": {"label": "An Old Waltz", "description": "Slow, melancholy strings."}
+    })
     out = assembly.build_reply_context(db, chat, character, settings)
-    assert "Currently playing: A slow waltz." in out.volatile
+    assert "Currently playing: An Old Waltz." in out.volatile
+    assert "melancholy" not in out.volatile
 
 
-def test_a_playing_track_falls_back_to_its_filename_with_no_description(db, chat, character):
+def test_a_playing_track_falls_back_to_its_filename_with_the_extension_stripped(
+    db, chat, character
+):
     sync(state_mod.write_slice(
         db, chat["id"], SLICE_MUSIC,
         {"status": "playing", "track": "waltz.mp3", "character": "Mira"},
         source_turn=1, source_pass="manual",
     ))
     out = assembly.build_reply_context(db, chat, character, Settings())
-    assert "Currently playing: waltz.mp3" in out.volatile
+    assert "Currently playing: waltz." in out.volatile
+    assert ".mp3" not in out.volatile
 
 
 def test_a_proposed_but_unanswered_track_does_not_reach_the_prompt(db, chat, character):

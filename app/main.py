@@ -2157,12 +2157,10 @@ async def respond_music(chat_id: str, payload: dict = Body(...)) -> dict:
         db, chat_id, {"status": "none", "track": None, "character": None}, source_pass="manual",
     )
     if choice == "roleplay":
-        meta = config.SETTINGS.music_meta or {}
-        label = ((meta.get(current["track"] or "") or {}).get("description") or "").strip() \
-            or current["track"]
+        title = config.music_title(current["track"] or "", config.SETTINGS.music_meta)
         character = current["character"] or "The character"
         note = (
-            f"{character} starts playing {label} — no real audio, but "
+            f"{character} starts playing {title} — no real audio, but "
             "continue the scene as though it is playing."
         )
         await state_mod.write_slice(

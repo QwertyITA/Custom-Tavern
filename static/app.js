@@ -3802,7 +3802,11 @@ function tavern() {
     // on the server (§ assembly.py), so the two never disagree.
     musicLabel(name) {
       if (!name) return "";
-      return this.musicMeta(name).description || name;
+      // The title, not the description (§ Settings.music_meta, config.py) —
+      // same split as bgLabel/bgMeta above. Extension stripped in the
+      // fallback for the same reason bgLabel strips it: nobody asking
+      // permission to play something needs to read its file format.
+      return this.musicMeta(name).label || name.replace(/\.[^.]+$/, "");
     },
 
     // The person's own pick — no card, no permission needed.

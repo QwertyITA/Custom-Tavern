@@ -347,6 +347,9 @@ def validate_music_meta(raw: Any) -> dict[str, dict[str, Any]]:
         if name not in pool or not isinstance(entry, dict):
             continue
         cleaned: dict[str, Any] = {}
+        label = str(entry.get("label") or "").strip()[:60]
+        if label:
+            cleaned["label"] = label
         description = str(entry.get("description") or "").strip()[:400]
         if description:
             cleaned["description"] = description
@@ -355,6 +358,16 @@ def validate_music_meta(raw: Any) -> dict[str, dict[str, Any]]:
         if cleaned:
             out[name] = cleaned
     return out
+
+
+def music_title(name: str, meta: dict[str, dict[str, Any]] | None = None) -> str:
+    """A track's display title — never the bare filename someone is asking
+    permission to play, extension and all. Mirrors app.js's musicLabel:
+    the `label` a person set, or the filename with its extension stripped."""
+    label = ((meta or {}).get(name) or {}).get("label")
+    if label:
+        return str(label)
+    return Path(name).stem
 
 
 def user_avatar_idles() -> list[str]:
@@ -565,9 +578,15 @@ class Settings:
     background_meta: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     # Same shape and reasoning as background_meta, for the shared music
-    # library (data/music/, § available_music_tracks): {"description": str,
-    # "auto": bool}, keyed by filename. `description` is what music_select
-    # (app/passes/registry.py) reads to pick a fitting track; `auto`
+    # library (data/music/, § available_music_tracks): {"label": str,
+    # "description": str, "auto": bool}, keyed by filename. `label` is the
+    # title shown everywhere a track is displayed — the raw filename,
+    # extension and all, is not fit to show someone asking permission to
+    # play something — falling back to the filename with its extension
+    # stripped when unset (§ app.js's musicLabel). `description` is what
+    # music_select (app/passes/registry.py) reads to pick a fitting track,
+    # a separate field on purpose: what a person calls a track and what
+    # tells the model which mood it fits are not the same sentence. `auto`
     # (default True) pulls a track out of that automatic pick without
     # removing it from the manual library picker.
     music_meta: dict[str, dict[str, Any]] = field(default_factory=dict)

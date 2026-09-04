@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .config import Settings
+from .config import Settings, music_title
 from .db import Database
 from .lorebook import render as render_lore
 from .lorebook import scan as scan_lore
@@ -227,9 +227,11 @@ def pending_music(db: Database, chat_id: str, settings: Settings) -> str:
     if playing and isinstance(playing["value"], dict) and playing["value"].get("status") == "playing":
         track = str(playing["value"].get("track") or "").strip()
         if track:
-            meta = settings.music_meta or {}
-            label = ((meta.get(track) or {}).get("description") or "").strip() or track
-            return f"Currently playing: {label}."
+            # The title, not the description (§ Settings.music_meta,
+            # config.py) — a person recognises a song by its name, not by
+            # the mood note written to help the AI pick it.
+            title = music_title(track, settings.music_meta)
+            return f"Currently playing: {title}."
 
     roleplay = read_slice(db, chat_id, SLICE_MUSIC_ROLEPLAY)
     if roleplay and isinstance(roleplay["value"], dict) and not roleplay["value"].get("used"):
