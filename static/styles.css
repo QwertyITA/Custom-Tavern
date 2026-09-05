@@ -1342,10 +1342,27 @@ body {
 .pfp-full-layer.leaving { animation: pfp-layer-in var(--dur-panel-leave) var(--ease-in-out) reverse both; }
 @keyframes pfp-layer-in { from { opacity: 0; } to { opacity: 1; } }
 
+/* Registered so calc() against them animates rather than swapping between
+   two literal strings — same reason --reveal below gets this, and the same
+   reason it lives right here rather than in the shared block up top: it is
+   this one feature's own pair, read nowhere else. Plain numbers, -1..1 per
+   axis (how far off-centre the drag is), not degrees or percentages: the
+   rotation and the sheen's sweep below are each their own calc() off the
+   same pair, so the two can never drift out of lockstep. */
+@property --tilt-x { syntax: "<number>"; inherits: true; initial-value: 0; }
+@property --tilt-y { syntax: "<number>"; inherits: true; initial-value: 0; }
+
 /* Its own box so .pfp-glow-full has something to ring that is not the image
    element itself — see the note on .pfp-glow above. Sized like the image
    used to be sized directly, so wrapping it changed nothing about the
-   layout. */
+   layout.
+
+   Full screen reads as a physical card, not just a bigger picture (§
+   onCardTiltMove, app.js): perspective() in the same transform as the
+   rotate gives the card its own vanishing point, so it turns rather than
+   just squashing sideways. No transition here at all by default — a drag
+   has to track the touch exactly — .settling is the one moment one exists,
+   the same idiom .reveal.settling below uses for the pull-to-reveal panel. */
 .pfp-full-wrap {
   position: relative;
   width: 100%;
@@ -1353,6 +1370,15 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  touch-action: none;
+  transform: perspective(900px)
+             rotateX(calc(var(--tilt-y) * -14deg))
+             rotateY(calc(var(--tilt-x) * 14deg));
+  transform-style: preserve-3d;
+}
+.pfp-full-wrap.settling {
+  transition: --tilt-x var(--dur-slow) var(--ease-spring),
+              --tilt-y var(--dur-slow) var(--ease-spring);
 }
 .pfp-full-image {
   /* Fills the screen rather than merely fitting on it: a portrait stored at
@@ -1371,6 +1397,33 @@ body {
 @keyframes pfp-image-in {
   from { opacity: 0; transform: scale(.86); }
   to   { opacity: 1; transform: none; }
+}
+
+/* The plastic-look reflection: a diagonal glossy band, wider than the card
+   itself, that pans across the face as it tilts — a fixed gradient sliding
+   under a moving window reads as light on a surface far more convincingly
+   than a gradient whose own stops move would. mix-blend-mode: overlay is
+   what keeps it looking like a coating on the picture rather than a milky
+   layer sitting over it. */
+.pfp-full-sheen {
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  pointer-events: none;
+  background: linear-gradient(
+    115deg,
+    transparent 35%,
+    color-mix(in srgb, #fff 60%, transparent) 48%,
+    color-mix(in srgb, #fff 25%, transparent) 52%,
+    transparent 65%
+  );
+  background-size: 220% 220%;
+  background-position: calc(50% + var(--tilt-x) * 45%) calc(50% + var(--tilt-y) * 45%);
+  mix-blend-mode: overlay;
+  opacity: .45;
+}
+.pfp-full-wrap.settling .pfp-full-sheen {
+  transition: background-position var(--dur-slow) var(--ease-spring);
 }
 
 .pfp-full-close {

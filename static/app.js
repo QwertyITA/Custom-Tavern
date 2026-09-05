@@ -1185,6 +1185,14 @@ function tavern() {
     },
     pfpFull: { src: "", shape: "portrait" },
     pfpFullLeaving: false,
+    // The full-screen card's own tilt (§ onCardTiltMove) — plain numbers,
+    // -1..1 per axis, not degrees: styles.css turns them into both the
+    // rotation and the sheen's sweep off the same pair with calc(), so the
+    // two never drift out of lockstep. cardTiltDragId is the pointer
+    // currently holding it, null once nothing is.
+    cardTilt: { x: 0, y: 0 },
+    cardTiltDragId: null,
+    cardTiltSettling: false,
     // How much reasoning has arrived this turn. Only ever a count: the
     // reasoning itself is not for the message stream (§5.6).
     thinkChars: 0,
@@ -1474,6 +1482,9 @@ function tavern() {
       if (!src) return;
       this.pfpFullLeaving = false;
       this.pfpFull = { src, shape: shape || "portrait", effect: effect || null };
+      this.cardTilt = { x: 0, y: 0 };
+      this.cardTiltDragId = null;
+      this.cardTiltSettling = false;
       buzz(6);
     },
 
@@ -1482,10 +1493,53 @@ function tavern() {
     closePfpFull() {
       if (!this.pfpFull.src || this.pfpFullLeaving) return;
       this.pfpFullLeaving = true;
+      this.cardTilt = { x: 0, y: 0 };
+      this.cardTiltDragId = null;
+      this.cardTiltSettling = false;
       setTimeout(() => {
         this.pfpFull = { src: "", shape: "portrait", effect: null };
         this.pfpFullLeaving = false;
       }, PANEL_LEAVE_MS());
+    },
+
+    // ---- full-screen card tilt ----
+    //
+    // The rotation follows where the finger actually is on the card, not how
+    // far it has dragged from where it started — closer to how tilting a
+    // real card in your hand works, and it means a single tap-and-hold
+    // without any movement still cants the card slightly rather than
+    // requiring a drag to do anything at all.
+    onCardTiltDown(event) {
+      if (!event.isPrimary) return;
+      this.cardTiltDragId = event.pointerId;
+      this.cardTiltSettling = false;
+      try { event.currentTarget.setPointerCapture(event.pointerId); } catch (_) { /* mouse */ }
+    },
+
+    onCardTiltMove(event) {
+      if (this.cardTiltDragId !== event.pointerId) return;
+      const rect = event.currentTarget.getBoundingClientRect();
+      const nx = ((event.clientX - rect.left) / rect.width - 0.5) * 2;
+      const ny = ((event.clientY - rect.top) / rect.height - 0.5) * 2;
+      this.cardTilt = {
+        x: Math.max(-1, Math.min(1, nx)),
+        y: Math.max(-1, Math.min(1, ny)),
+      };
+    },
+
+    // Let go and it springs back flat rather than staying turned where the
+    // finger left it. `settling` is the only time the tilt is allowed a
+    // transition — while the finger is down it has to track the touch
+    // exactly, the same reasoning as the pull-to-reveal panel's own
+    // settleReveal above.
+    onCardTiltUp(event) {
+      if (this.cardTiltDragId !== event.pointerId) return;
+      this.cardTiltDragId = null;
+      this.cardTiltSettling = true;
+      clearTimeout(this._cardTiltSettleTimer);
+      this._cardTiltSettleTimer = setTimeout(() => { this.cardTiltSettling = false; },
+                                              dur("slow", 340) + 60);
+      this.cardTilt = { x: 0, y: 0 };
     },
 
     // A portrait `<img>` that has 404'd, keyed by its own src (§ brokenPfps

@@ -1035,12 +1035,27 @@
        @keydown.escape.window="closePfpFull()"
        x-transition:enter="pfp-full-enter" x-transition:enter-start="pfp-full-from"
        x-transition:enter-end="pfp-full-to">
-    <span class="pfp-full-wrap" @click.stop>
+    <!-- A physical card, not just a bigger picture: drag a finger across it
+         to turn it slightly, and a plastic-look sheen sweeps over the face
+         as it does (§ onCardTiltMove). No transition while a finger is
+         actually down — the tilt tracks the touch exactly, same reasoning
+         as the swipe drag and the glass slider elsewhere in this app —
+         letting go is what eases, back to flat, on --ease-spring: a
+         released gesture settling is exactly its case in the motion
+         taxonomy (§ :root's own comments, styles.css). -->
+    <span class="pfp-full-wrap" @click.stop
+          :class="{ settling: cardTiltSettling }"
+          :style="`--tilt-x: ${cardTilt.x}; --tilt-y: ${cardTilt.y}`"
+          @pointerdown="onCardTiltDown($event)"
+          @pointermove="onCardTiltMove($event)"
+          @pointerup="onCardTiltUp($event)"
+          @pointercancel="onCardTiltUp($event)">
       <img class="pfp-full-image" :class="'shape-' + pfpFull.shape"
            :src="pfpFull.src" alt="">
       <template x-if="pfpEffectOn(pfpFull.effect)">
         <span class="pfp-glow pfp-glow-full" :style="pfpEffectStyle(pfpFull.effect)" aria-hidden="true"></span>
       </template>
+      <span class="pfp-full-sheen" aria-hidden="true"></span>
     </span>
     <button class="pfp-full-close" @click.stop="closePfpFull()" aria-label="Close">
       <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg>
