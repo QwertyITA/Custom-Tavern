@@ -172,20 +172,34 @@ const CONFIRM_MS = 3000;
 // copy, MESSAGE_REACTIONS — kept in sync by hand, six emoji neither side
 // has a reason to change often).
 const MESSAGE_REACTIONS = ["❤️", "😂", "😢", "😮", "😡", "👍"];
-// The three canned notes "Suggest edit" offers instead of typing one out —
+// The four canned notes "Suggest edit" offers instead of typing one out —
 // the instruction text is what actually reaches the model (§
 // run_suggest_edit, scheduler.py), so wording these well matters as much as
-// wording a hand-typed one would.
+// wording a hand-typed one would. "Shorten" spells out *cut real length*
+// because the vaguer first wording of it ("noticeably shorter") reliably
+// came back the same length with a clause trimmed here and there — a model
+// asked to be brief without being told what to actually drop tends to
+// polish rather than cut.
 const SUGGEST_EDIT_PRESETS = [
   {
     id: "shorten",
     label: "Shorten",
-    instruction: "Make the reply noticeably shorter, keeping the same actions and outcome.",
+    instruction: "Make the reply meaningfully shorter — actually cut real length, don't just tighten the "
+      + "wording. Remove superfluous content: repeated beats, filler description, hedging, anything that "
+      + "doesn't move the scene forward. Keep every action and plot detail that actually matters.",
   },
   {
     id: "lengthen",
     label: "Lengthen",
-    instruction: "Make the reply longer, with more sensory or narrative detail, without changing what happens.",
+    instruction: "Make the reply longer with real added material — more sensory detail, more of what the "
+      + "character notices or does — not padding or repetition. Keep everything that already happens; add to it.",
+  },
+  {
+    id: "describe_actions",
+    label: "Describe more actions",
+    instruction: "Add more description of what's happening — physical actions, gestures, body language, small "
+      + "environmental detail — around the existing dialogue. Don't change what is said or the outcome, just "
+      + "show more of what's going on while it's said.",
   },
   {
     id: "fix_pov",

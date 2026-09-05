@@ -2213,19 +2213,36 @@ class PassScheduler:
         )
         ctx.prompt_tokens = assembled.total_tokens
         ctx.window_from = assembled.window_from
+        # The reply and the note travel as real turns — an assistant message
+        # holding the reply, then an out-of-character user note about it —
+        # rather than only described in the system prompt. A model follows an
+        # instruction it is actually handed as a turn far more reliably than
+        # one paraphrased in a block of system text it has to notice applies
+        # to the conversation underneath it (the same reason `continue`
+        # appends the reply-so-far as a turn instead of just naming it).
+        messages = list(assembled.messages)
+        messages.append({"role": "assistant", "content": existing})
+        messages.append({
+            "role": "user",
+            "content": f"(Out of character, not a line in the scene: revise your reply above — {instruction})",
+        })
         request = GenRequest(
             system=(
                 f"{assembled.system}\n\n## This turn\n"
-                f"{character.name}'s reply below is being revised, not answered "
-                "again from scratch — the person reading it asked for a specific "
-                "change. Rewrite the whole reply so it reads naturally on its "
-                "own, keeping the same scene, voice and events except for what "
-                "the note below asks to change. Send back only the revised "
-                "reply: no preamble, no explanation, no note about what changed.\n\n"
-                f"## The reply to revise\n{existing}\n\n"
-                f"## The requested change\n{instruction}"
+                "The final message is an out-of-character note about "
+                f"{character.name}'s reply just above it, not a new line in "
+                "the scene — do not answer it, do not continue the scene "
+                "past it. Instead rewrite that whole reply to actually carry "
+                "out what the note asks, same scene, same voice, same events "
+                "otherwise. If it asks for the reply to be shorter, actually "
+                "cut real length — drop repeated beats, filler description, "
+                "hedging and anything that does not move the scene forward — "
+                "rather than tightening a clause here and there and calling "
+                "it done; if it asks for longer, add real material rather "
+                "than padding. Send back only the rewritten reply in full: "
+                "no preamble, no meta comment, no restating the note."
             ),
-            messages=assembled.messages,
+            messages=messages,
             sampling=_with_character_stops(definition.sampling, character),
             pass_id="suggest_edit",
         )
