@@ -172,6 +172,29 @@ const CONFIRM_MS = 3000;
 // copy, MESSAGE_REACTIONS — kept in sync by hand, six emoji neither side
 // has a reason to change often).
 const MESSAGE_REACTIONS = ["❤️", "😂", "😢", "😮", "😡", "👍"];
+// The three canned notes "Suggest edit" offers instead of typing one out —
+// the instruction text is what actually reaches the model (§
+// run_suggest_edit, scheduler.py), so wording these well matters as much as
+// wording a hand-typed one would.
+const SUGGEST_EDIT_PRESETS = [
+  {
+    id: "shorten",
+    label: "Shorten",
+    instruction: "Make the reply noticeably shorter, keeping the same actions and outcome.",
+  },
+  {
+    id: "lengthen",
+    label: "Lengthen",
+    instruction: "Make the reply longer, with more sensory or narrative detail, without changing what happens.",
+  },
+  {
+    id: "fix_pov",
+    label: "Fix grammar & perspective",
+    instruction: "Proofread the reply for grammar mistakes and point-of-view errors — especially the character's "
+      + "own actions written as \"you\", or the user's actions written as the character's — and fix them without "
+      + "changing anything else.",
+  },
+];
 // Deleting a character takes its chats with it — the one action in the app
 // that cannot be undone by re-importing, so it gets a third gate the other
 // armed deletes don't: a held press, timed rather than tapped.
@@ -898,6 +921,12 @@ function tavern() {
     // reason every other fixed list a template iterates (settings.*,
     // this.chats, ...) lives on `this` rather than as a bare top-level name.
     messageReactions: MESSAGE_REACTIONS,
+    // Which message's "Suggest edit" note box is open, "" when none (§
+    // openSuggestEdit), and the free-text note being typed into it. The
+    // presets live on `this` for the same reason messageReactions does.
+    suggestingFor: "",
+    suggestText: "",
+    suggestEditPresets: SUGGEST_EDIT_PRESETS,
     // The hold-to-delete modal for a character, null when closed. `state` is
     // "idle" (modal up, nothing pressed), "holding" (timing a press) or
     // "deleting" (the hold finished; the request is in flight).
@@ -6208,7 +6237,12 @@ function tavern() {
           ? [{ id: "thought", label: "What it thought", icon: "#i-brain" }]
           : []),
         { id: "delete", label: "Delete", icon: "#i-delete", danger: true },
-        { id: "suggest", label: "Suggest edit", icon: "#i-suggest", soon: true },
+        // Only on the literal last message in the chat (§ canSuggestEdit) —
+        // an edit to an older reply would be revising something everything
+        // said since has already answered.
+        ...(this.canSuggestEdit(message)
+          ? [{ id: "suggest", label: "Suggest edit", icon: "#i-suggest" }]
+          : []),
         // Only on replies — reacting to your own message is not what this
         // is for, and the character-noticing-a-reaction pass (§
         // message_reaction, registry.py) only ever runs against one of its
@@ -6383,6 +6417,7 @@ function tavern() {
       if (option.id === "prompt") return this.showPrompt(message);
       if (option.id === "thought") return this.showThinking(message);
       if (option.id === "react") return this.openReactionPicker(message);
+      if (option.id === "suggest") return this.openSuggestEdit(message);
       if (option.id === "delete") {
         // Arm the bubble's own delete rather than deleting outright. A drag
         // that lands one option over should not be able to destroy a message.
@@ -6461,6 +6496,7 @@ function tavern() {
     // already uses for anything the server might also reject or race.
 
     openReactionPicker(message) {
+      this.suggestingFor = "";
       this.reactingTo = this.reactingTo === message.id ? "" : message.id;
     },
 
@@ -6470,6 +6506,77 @@ function tavern() {
         await api.post(`/api/messages/${message.id}/react`, { emoji });
       } catch (e) {
         this.error = errorText(e);
+      }
+    },
+
+    // ---- suggest edit ----
+    //
+    // A rewrite in place, not a branch: the same variant keeps its id and its
+    // swipe position, only its text changes (§ run_suggest_edit, scheduler.py)
+    // — the same thing a hand-typed edit does, just written by asking for a
+    // change instead of typing the fix yourself. Only ever offered on the
+    // literal last message in the chat: an edit to an older reply would be
+    // revising something everything since has already answered.
+
+    canSuggestEdit(message) {
+      if (!message || message.role !== "assistant") return false;
+      const last = this.messages[this.messages.length - 1];
+      return !!last && last.id === message.id;
+    },
+
+    openSuggestEdit(message) {
+      this.reactingTo = "";
+      this.suggestingFor = this.suggestingFor === message.id ? "" : message.id;
+      this.suggestText = "";
+    },
+
+    closeSuggestEdit() {
+      this.suggestingFor = "";
+      this.suggestText = "";
+    },
+
+    // Streams the revision straight into the bubble that is already on
+    // screen, same shape as continueReply — there is nothing to choose
+    // between afterwards, so this replaces the text in place rather than
+    // creating a variant.
+    async applySuggestedEdit(message, instruction) {
+      const note = (instruction || this.suggestText || "").trim();
+      if (!note || this.streaming) return;
+      this.closeSuggestEdit();
+      this.streaming = true;
+      this.streamAbort = new AbortController();
+      const start = message.text || "";
+      let buffer = "";
+      try {
+        const response = await fetch(`/api/messages/${message.id}/suggest-edit`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ instruction: note }),
+          signal: this.streamAbort.signal,
+        });
+        if (!response.ok) throw await apiError(response);
+        for await (const event of sseStream(response)) {
+          if (event.type === "delta") {
+            buffer += event.text;
+            message.text = buffer;
+          } else if (event.type === "edited") {
+            message.text = event.text;
+            message.edited = true;
+          } else if (event.type === "error") {
+            this.error = event.error;
+          }
+        }
+      } catch (e) {
+        if (e.name === "AbortError") {
+          this.flashHint("Stopped");
+          await this.reloadMessages();
+        } else {
+          this.error = errorText(e);
+          message.text = start;
+        }
+      } finally {
+        this.streaming = false;
+        this.streamAbort = null;
       }
     },
 

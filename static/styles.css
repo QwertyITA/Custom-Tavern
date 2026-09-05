@@ -3299,6 +3299,50 @@ body {
 .reaction-option:active { transform: scale(.88); }
 .reaction-option.on { background: var(--panel-2); border-color: var(--accent); }
 
+/* "Suggest edit": the presets read as a row of pills (same language as the
+   reaction picker above) and the free-text note reuses the composer's own
+   textarea-plus-round-send-button shape, scaled to fit inside a bubble. */
+.suggest-editor { display: flex; flex-direction: column; gap: 8px; padding: 8px 0 6px; }
+.suggest-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.suggest-preset {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text);
+  transition: transform 120ms var(--ease-out), background 140ms var(--ease-out);
+}
+.suggest-preset:active { transform: scale(.94); background: var(--panel-2); }
+.suggest-row { display: flex; gap: 6px; align-items: flex-end; }
+.suggest-input {
+  flex: 1;
+  resize: none;
+  max-height: 30vh;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+}
+.suggest-send {
+  width: 32px; height: 32px;
+  flex: none;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent);
+  color: var(--on-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 200ms var(--ease-back), opacity 160ms var(--ease-out);
+}
+.suggest-send .icon { width: 16px; height: 16px; }
+.suggest-send:not(:disabled):active { transform: scale(.9); }
+.suggest-send:disabled { opacity: .35; }
+
 /* A long conversation is a long list of boxes the browser would otherwise lay
    out and paint in full on every frame. content-visibility lets it skip the
    ones that are off-screen entirely; the intrinsic size is a guess at a

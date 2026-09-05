@@ -783,6 +783,33 @@
           </div>
         </div>
 
+        <!-- "Suggest edit": same fold mechanism as the picker above, only
+             ever offered on the literal last message in the chat (§
+             canSuggestEdit) — an edit to an older reply would be revising
+             something everything since has already answered. -->
+        <div class="fold suggest-fold" :class="{ open: suggestingFor === m.id }"
+             x-show="canSuggestEdit(m)" x-cloak>
+          <div class="fold-clip">
+            <div class="suggest-editor">
+              <div class="suggest-presets">
+                <template x-for="preset in suggestEditPresets" :key="preset.id">
+                  <button class="suggest-preset" @click="applySuggestedEdit(m, preset.instruction)"
+                          x-text="preset.label"></button>
+                </template>
+              </div>
+              <div class="suggest-row">
+                <textarea class="suggest-input" x-model="suggestText" rows="1"
+                          placeholder="Or write what to change…"
+                          @input="autosize($event.target, 0.3)"></textarea>
+                <button class="suggest-send" :disabled="!suggestText.trim()"
+                        @click="applySuggestedEdit(m)" aria-label="Send the note">
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-send"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- No `:style` binding here on purpose. Alpine writes the whole
              style attribute for one, which wiped the height `autosize` had
              just measured — the box stayed at its floor however long the

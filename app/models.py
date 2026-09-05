@@ -360,6 +360,10 @@ class EditMessageRequest(BaseModel):
     reaudit: bool = False
 
 
+class SuggestEditRequest(BaseModel):
+    instruction: str
+
+
 class ToggleRequest(BaseModel):
     enabled: bool
     scope: Literal["global", "per_character", "per_chat"] = "global"

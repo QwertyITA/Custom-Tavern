@@ -2141,6 +2141,161 @@ class PassScheduler:
         self._track(chat["id"], task)
         yield {"type": "turn_end", "turn": ctx.turn}
 
+    async def run_suggest_edit(self, message_id: str, instruction: str) -> AsyncIterator[dict]:
+        """Serialized per chat, same as run_turn (§ _run_locked) — resolved
+        from the message being revised, since the caller only has that."""
+        message = repo.get_message(self.db, message_id)
+        chat_id = message["chat_id"] if message and message["role"] == "assistant" else None
+        async for event in self._run_locked(chat_id, self._run_suggest_edit(message_id, instruction)):
+            yield event
+
+    async def _run_suggest_edit(self, message_id: str, instruction: str) -> AsyncIterator[dict]:
+        """Rewrite a reply per a note about it — "make it shorter", "the
+        perspective isn't right" — rather than answering the turn again.
+
+        Only ever the literal last message in the chat: an edit to an older
+        reply would be revising something everything said since has already
+        answered, which the note's own "shorter"/"longer" framing does not
+        account for. The frontend gates the option the same way (§
+        canSuggestEdit, app.js); this is the check that actually holds.
+
+        The same variant keeps its id and its place in the swipe order —
+        only its text changes, same as a hand-typed edit (§ update_variant_text,
+        repo.py). This is an AI-assisted way of doing that, not a new branch
+        to choose between, so there is no rollback of the turn's state writes
+        the way a swipe needs: nothing about what happened is being redone,
+        only how it reads.
+        """
+        message = repo.get_message(self.db, message_id)
+        if message is None or message["role"] != "assistant":
+            yield {"type": "error", "error": "can only suggest an edit on a reply"}
+            return
+
+        chat = repo.get_chat(self.db, message["chat_id"])
+        character = repo.get_character(self.db, chat["character_id"]) if chat else None
+        if chat is None or character is None:
+            yield {"type": "error", "error": "unknown chat"}
+            return
+
+        latest = repo.list_messages(self.db, chat["id"])
+        if not latest or latest[-1]["id"] != message_id:
+            yield {"type": "error", "error": "can only suggest an edit on the latest message"}
+            return
+
+        instruction = instruction.strip()
+        if not instruction:
+            yield {"type": "error", "error": "write what to change, or pick one of the presets"}
+            return
+
+        existing = message["text"] or ""
+        ctx = TurnContext(
+            chat=chat,
+            character=character,
+            settings=self.settings,
+            turn=message["turn"],
+            message_id=message_id,
+            variant_id=message["variant_id"],
+            schema=state_mod.load_schema(
+                {k: v.model_dump() for k, v in character.state_schema.items()}
+                if character.state_schema
+                else None
+            ),
+        )
+        ctx.toggle_states = registry.toggle_states(self.db, character.id, chat["id"])
+        ctx.pre_values = assembly.current_values(self.db, chat["id"], ctx.schema, character.id)
+
+        definition = registry.get_pass(self.db, "basic") or registry.CANONICAL_PASSES[0]
+        injections = registry.active_injections(self.db, ctx.toggle_states, "basic")
+        assembled = assembly.build_reply_context(
+            self.db, chat, character, self.settings,
+            toggle_injections=injections,
+            exclude_message_id=message_id,
+        )
+        ctx.prompt_tokens = assembled.total_tokens
+        ctx.window_from = assembled.window_from
+        request = GenRequest(
+            system=(
+                f"{assembled.system}\n\n## This turn\n"
+                f"{character.name}'s reply below is being revised, not answered "
+                "again from scratch — the person reading it asked for a specific "
+                "change. Rewrite the whole reply so it reads naturally on its "
+                "own, keeping the same scene, voice and events except for what "
+                "the note below asks to change. Send back only the revised "
+                "reply: no preamble, no explanation, no note about what changed.\n\n"
+                f"## The reply to revise\n{existing}\n\n"
+                f"## The requested change\n{instruction}"
+            ),
+            messages=assembled.messages,
+            sampling=_with_character_stops(definition.sampling, character),
+            pass_id="suggest_edit",
+        )
+
+        provider = provider_for_tier(definition.model_tier, self.settings)
+        run_id = self._record_run(
+            ctx, definition, "running", model=provider.model, started_at=time.time()
+        )
+
+        sink = GenResult()
+        suffix = SuffixStreamFilter()
+        watch = ReasoningWatch()
+        collected: list[str] = []
+        try:
+            async for delta in provider.stream(request, sink):
+                shown, thought = watch.feed(delta)
+                if watch.take_retraction():
+                    collected.clear()
+                    suffix = SuffixStreamFilter()
+                    yield {"type": "reply_reset"}
+                # As in the reply pass: the count, never the text (§5.6).
+                if thought:
+                    yield {"type": "reasoning", "chars": watch.chars}
+                visible = suffix.feed(shown) if shown else ""
+                if visible:
+                    collected.append(visible)
+                    yield {"type": "delta", "text": visible}
+        except (ProviderError, asyncio.TimeoutError, OSError) as exc:
+            self._record_run(
+                ctx, definition, "failed", run_id=run_id, error=str(exc), finished_at=time.time()
+            )
+            yield {"type": "error", "error": f"suggest edit failed: {exc}"}
+            return
+
+        held = watch.finish()
+        if held:
+            visible = suffix.feed(held)
+            if visible:
+                collected.append(visible)
+                yield {"type": "delta", "text": visible}
+        tail, _payload = suffix.finish()
+        if tail:
+            collected.append(tail)
+            yield {"type": "delta", "text": tail}
+
+        body, _thinking = split_thinking("".join(collected))
+        revised = clean_reply(
+            body, strip_leakage=self.settings.strip_user_turn_leakage,
+            user_names=("You", "{{user}}"),
+        ).strip()
+
+        if not revised:
+            self._record_run(
+                ctx, definition, "error", run_id=run_id, finished_at=time.time(),
+                error="empty revision",
+            )
+            # No text: a revision that produced nothing must leave the one
+            # being read in place, not replace it with a blank.
+            yield {"type": "error", "error": "the revision came back empty"}
+            return
+
+        repo.update_variant_text(self.db, message["variant_id"], revised, edited=True)
+        self._record_run(
+            ctx, definition, "done", run_id=run_id,
+            model=sink.model or provider.model,
+            tokens_in=sink.tokens_in or assembled.total_tokens,
+            tokens_out=sink.tokens_out, finished_at=time.time(), attempts=1,
+        )
+        yield {"type": "edited", "message_id": message_id, "text": revised}
+
     async def run_impersonate(self, chat_id: str) -> AsyncIterator[dict]:
         """Draft the user's next message in their own voice.
 

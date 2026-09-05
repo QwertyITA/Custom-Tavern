@@ -270,6 +270,24 @@ STscript (26).
       reaction can fire far more often, so the cost dashboard is the
       right place for it to show up. Clearing a reaction never launches
       the pass — nothing to acknowledge in an un-reaction.
+- [x] **42. Suggest edit.** Rewrite a reply per a note about it —
+      "make it shorter," "the perspective isn't right" — rather than
+      branching from it, from the message wheel's own `soon: true`
+      placeholder. Only ever offered on the literal last message in the
+      chat (`canSuggestEdit`, app.js, re-checked server-side in
+      `PassScheduler._run_suggest_edit`): an edit to an older reply
+      would be revising something everything since has already
+      answered, which "shorter"/"longer" can't account for. Three
+      canned notes (Shorten / Lengthen / Fix grammar & perspective) or a
+      free-text one reach the model the same way — the reply-quality
+      (`basic`) backend rewrites the whole message from the surrounding
+      context plus the existing text and the note, streamed straight
+      into the bubble that's already on screen. The same variant keeps
+      its id and its swipe position; only its text changes
+      (`repo.update_variant_text(..., edited=True)`), same as a
+      hand-typed edit — this is just an AI-assisted way of doing that,
+      not a new branch to choose between, so there's no state rollback
+      the way a swipe needs.
 
 ## Undecided — needs a call
 

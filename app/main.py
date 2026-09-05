@@ -43,6 +43,7 @@ from .models import (
     PfpEffect,
     Sampling,
     SendMessageRequest,
+    SuggestEditRequest,
     ToggleRequest,
 )
 from .passes import registry
@@ -1627,6 +1628,13 @@ async def react_to_message(message_id: str, payload: dict = Body(...)) -> dict:
 async def continue_reply(message_id: str):
     """Extend a reply in place rather than branching from it."""
     return await _stream(scheduler().run_continue(message_id))
+
+
+@app.post("/api/messages/{message_id}/suggest-edit")
+async def suggest_edit(message_id: str, payload: SuggestEditRequest):
+    """Rewrite a reply per a note about it — "make it shorter" and the like —
+    rather than branching from it (§ PassScheduler.run_suggest_edit)."""
+    return await _stream(scheduler().run_suggest_edit(message_id, payload.instruction))
 
 
 @app.post("/api/messages/{message_id}/swipe")
