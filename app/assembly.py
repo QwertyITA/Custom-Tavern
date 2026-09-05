@@ -653,6 +653,25 @@ def build_reply_context(
             position = max(0, len(turn_messages) - max(0, note.depth))
             turn_messages.insert(position, {"role": "system", "content": note_text})
             _section(assembled, "authors_note", note_text)
+
+    # A "Suggest edit" instruction, remembered for the next few turns rather
+    # than just the one message it was asked on (§ repo.set_edit_note,
+    # PassScheduler._run_suggest_edit) — always at the very end, the
+    # strongest and cheapest position (same reasoning as the author's note
+    # above), since it is meant to weigh on the very next reply most of all
+    # and fade from there. Nothing deletes it when it expires; this check
+    # just stops reading it, the same way an expired band elsewhere is only
+    # ever skipped, not cleaned up.
+    edit_note = (chat.get("settings") or {}).get("edit_note")
+    edit_note_text = ""
+    if isinstance(edit_note, dict) and current_turn <= int(edit_note.get("expires_turn") or 0):
+        edit_note_text = expand(str(edit_note.get("text") or "")).strip()
+        if edit_note_text:
+            turn_messages.append({
+                "role": "system",
+                "content": f"(Still in effect from a recent edit request: {edit_note_text})",
+            })
+            _section(assembled, "edit_note", edit_note_text)
     assembled.messages.extend(turn_messages)
 
     # The conversation itself, and the note buried inside it, take their place
@@ -674,6 +693,12 @@ def build_reply_context(
             "id": "authors_note", "label": "Author's note", "band": "middle",
             "custom": False, "tokens": estimate_tokens(note_text), "text": note_text,
             "depth": note.depth,
+        })
+    if edit_note_text:
+        inserted.append({
+            "id": "edit_note", "label": "Suggested edit (recent)", "band": "middle",
+            "custom": False, "tokens": estimate_tokens(edit_note_text), "text": edit_note_text,
+            "expires_turn": edit_note.get("expires_turn"),
         })
     assembled.parts[conversation_at:conversation_at] = inserted
 

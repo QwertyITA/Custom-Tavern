@@ -182,6 +182,13 @@ MIN_CONTEXT = assembly.MIN_CONTEXT
 CHAT_RENAME_FIRST_AT = 10
 CHAT_RENAME_EVERY = 50
 
+# How many turns a "Suggest edit" instruction keeps weighing on ordinary
+# replies after it lands (§ repo.set_edit_note) — long enough that "make it
+# shorter" actually changes the next few replies rather than just the one
+# message it was asked on, short enough that it fades rather than becoming a
+# standing rule nobody remembers setting.
+SUGGEST_EDIT_NOTE_TURNS = 3
+
 
 def _milestones_crossed(count: int) -> int:
     """How many chat_rename anchors (10, 60, 110, ...) `count` has reached
@@ -2305,6 +2312,16 @@ class PassScheduler:
             return
 
         repo.update_variant_text(self.db, message["variant_id"], revised, edited=True)
+        # Remembered for a few turns, not just this one message: a "make it
+        # shorter" is almost always a standing complaint about the last few
+        # replies, not a one-off — so the next several replies get the same
+        # note (§ repo.set_edit_note, assembly.build_reply_context), fading
+        # on its own once SUGGEST_EDIT_NOTE_TURNS passes rather than staying
+        # on like the author's note would.
+        repo.set_edit_note(
+            self.db, chat["id"], instruction,
+            expires_turn=message["turn"] + SUGGEST_EDIT_NOTE_TURNS,
+        )
         self._record_run(
             ctx, definition, "done", run_id=run_id,
             model=sink.model or provider.model,

@@ -4,8 +4,8 @@ ever on the literal last message in the chat."""
 
 from __future__ import annotations
 
-from app import repo
-from app.passes.scheduler import PassScheduler
+from app import assembly, repo
+from app.passes.scheduler import SUGGEST_EDIT_NOTE_TURNS, PassScheduler
 
 from .conftest import events_of, sync, turn
 from .test_api import new_chat, send, sse_events
@@ -94,6 +94,69 @@ def test_suggest_edit_reports_an_unknown_message(sched, chat):
         return [e async for e in sched.run_suggest_edit("not-a-real-message", "Make it shorter.")]
 
     assert events_of(sync(scenario()), "error")
+
+
+# ------------------------------------------------------------- the sticky note
+
+
+def _note_text_in(sched, chat, character) -> str:
+    """The sticky note's own injected line, if build_reply_context still
+    carries one — the whole point being that a note applied through
+    `run_suggest_edit` reaches the *next ordinary reply's* prompt, not just
+    the message it was asked on.
+
+    Only the system-role messages: the echo backend parrots the last user
+    turn back verbatim (§ EchoProvider._reply_body), and the note itself is
+    handed to the model as a user-role turn (§ _run_suggest_edit) — so the
+    instruction text can legitimately end up inside a *stored reply* too,
+    which would make a plain substring search over every message a false
+    positive for "the note is still active" once that reply is back in the
+    window.
+    """
+    updated_chat = repo.get_chat(sched.db, chat["id"])
+    assembled = assembly.build_reply_context(sched.db, updated_chat, character, sched.settings)
+    return " ".join(m["content"] for m in assembled.messages if m["role"] == "system")
+
+
+def test_a_suggested_edit_note_lands_in_the_next_reply(sched, chat, character):
+    reply = _reply(sched, chat)
+
+    async def scenario():
+        return [e async for e in sched.run_suggest_edit(reply["id"], "Make it shorter.")]
+
+    sync(scenario())
+    assert "Make it shorter." in _note_text_in(sched, chat, character)
+
+
+def test_the_note_fades_after_its_turns_run_out(sched, chat, character):
+    reply = _reply(sched, chat)
+
+    async def scenario():
+        return [e async for e in sched.run_suggest_edit(reply["id"], "Make it shorter.")]
+
+    sync(scenario())
+    assert "Make it shorter." in _note_text_in(sched, chat, character)
+
+    # Enough ordinary turns to move the chat past the note's window — it
+    # must not linger like the author's note would.
+    for i in range(SUGGEST_EDIT_NOTE_TURNS + 1):
+        sync(turn(sched, chat["id"], f"turn {i}"))
+
+    assert "Make it shorter." not in _note_text_in(sched, chat, character)
+
+
+def test_a_new_suggested_edit_replaces_the_old_note(sched, chat, character):
+    reply = _reply(sched, chat)
+
+    async def edit(instruction):
+        return [e async for e in sched.run_suggest_edit(reply["id"], instruction)]
+
+    sync(edit("Make it shorter."))
+    sync(edit("Add more description of actions."))
+
+    contents = _note_text_in(sched, chat, character)
+    assert "Add more description of actions." in contents
+    assert "Make it shorter." not in contents
 
 
 # ------------------------------------------------------------------- the API

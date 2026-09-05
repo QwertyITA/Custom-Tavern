@@ -287,7 +287,16 @@ STscript (26).
       (`repo.update_variant_text(..., edited=True)`), same as a
       hand-typed edit — this is just an AI-assisted way of doing that,
       not a new branch to choose between, so there's no state rollback
-      the way a swipe needs.
+      the way a swipe needs. The note also outlives the one message it
+      was asked on: `repo.set_edit_note` remembers it against the chat
+      for `SUGGEST_EDIT_NOTE_TURNS` (3) more turns, and
+      `assembly.build_reply_context` injects it as a standing system
+      note — same placement reasoning as the author's note (§
+      `AuthorsNote`), but fading on its own rather than staying on,
+      since "make it shorter" is almost always a complaint about the
+      next few replies, not a permanent rule nobody remembers setting.
+      A later suggest-edit's note replaces the one before it rather
+      than stacking.
 
 ## Undecided — needs a call
 

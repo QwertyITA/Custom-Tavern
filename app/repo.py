@@ -343,6 +343,27 @@ def update_chat_settings(db: Database, chat_id: str, settings: dict[str, Any]) -
     )
 
 
+def set_edit_note(db: Database, chat_id: str, text: str, expires_turn: int) -> None:
+    """A "Suggest edit" instruction, remembered for a few turns rather than
+    just this one message (§ PassScheduler._run_suggest_edit).
+
+    Lives in the same settings blob authors_note's own chat-level override
+    does — a fading nudge, not a standing instruction, so it gets no column
+    of its own. `assembly.build_reply_context` drops it once the chat's turn
+    passes `expires_turn`; nothing here actively clears it, the same way an
+    expired band elsewhere is just never read again rather than deleted.
+    """
+    chat = get_chat(db, chat_id)
+    if chat is None:
+        return
+    settings = chat["settings"]
+    if text.strip():
+        settings["edit_note"] = {"text": text, "expires_turn": expires_turn}
+    else:
+        settings.pop("edit_note", None)
+    update_chat_settings(db, chat_id, settings)
+
+
 # ----------------------------------------------------------------- messages
 
 
