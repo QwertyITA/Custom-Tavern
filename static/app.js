@@ -172,7 +172,7 @@ const CONFIRM_MS = 3000;
 // copy, MESSAGE_REACTIONS — kept in sync by hand, six emoji neither side
 // has a reason to change often).
 const MESSAGE_REACTIONS = ["❤️", "😂", "😢", "😮", "😡", "👍"];
-// The four canned notes "Suggest edit" offers instead of typing one out —
+// The five canned notes "Suggest edit" offers instead of typing one out —
 // the instruction text is what actually reaches the model (§
 // run_suggest_edit, scheduler.py), so wording these well matters as much as
 // wording a hand-typed one would. "Shorten" spells out *cut real length*
@@ -200,6 +200,13 @@ const SUGGEST_EDIT_PRESETS = [
     instruction: "Add more description of what's happening — physical actions, gestures, body language, small "
       + "environmental detail — around the existing dialogue. Don't change what is said or the outcome, just "
       + "show more of what's going on while it's said.",
+  },
+  {
+    id: "describe_less",
+    label: "Describe less",
+    instruction: "Cut back the description of physical actions, gestures and environmental detail around the "
+      + "dialogue — trim it down to what actually matters, don't just skim over it. Don't change what is said "
+      + "or the outcome, and don't cut the dialogue itself.",
   },
   {
     id: "fix_pov",
