@@ -150,6 +150,10 @@ class TurnContext:
     signals: dict[str, str] = field(default_factory=dict)
     toggle_states: dict[str, bool] = field(default_factory=dict)
     reply_text: str = ""
+    # Which emoji this run is about (§ message_reaction, registry.py) —
+    # set only by react_to_message, alongside message_id/variant_id
+    # naming which message/variant it's for.
+    reaction_emoji: str = ""
     # What this turn's prompt actually cost. Eviction is permanent, so it only
     # happens under real pressure (§7.2) — and this is the only measurement of
     # that pressure anyone has.
@@ -1359,6 +1363,20 @@ class PassScheduler:
             )
             messages = [{"role": "user", "content": f"## Conversation so far\n{transcript}"}]
             return definition.prompt, messages, self._handler_chat_rename(ctx)
+        elif definition.id == "message_reaction":
+            reacted = repo.get_message(self.db, ctx.message_id)
+            if reacted is None:
+                return "", [], None
+            label = assembly.speaker_label(character.name)
+            speaker = "User" if reacted["role"] == "user" else label
+            messages = [{
+                "role": "user",
+                "content": (
+                    f"## The message reacted to\n{speaker}: {to_plain(reacted['text'])}\n\n"
+                    f"## Reaction\n{ctx.reaction_emoji}"
+                ),
+            }]
+            return definition.prompt, messages, self._handler_message_reaction(ctx)
         elif definition.id == "state_auditor":
             bands = state_mod.render_bands(ctx.schema, ctx.pre_values)
             extra = (
@@ -1678,6 +1696,20 @@ class PassScheduler:
             self._emit(
                 ctx.chat_id,
                 {"type": "chat_renamed", "chat_id": ctx.chat_id, "title": title},
+            )
+            return True
+
+        return handle
+
+    def _handler_message_reaction(self, ctx: TurnContext):
+        async def handle(payload: dict) -> bool:
+            line = re.sub(r"\s+", " ", str(payload.get("text") or "")).strip(" \"'")
+            if not line:
+                return False
+            repo.set_reaction_ack(self.db, ctx.variant_id, line)
+            self._emit(
+                ctx.chat_id,
+                {"type": "message_reaction", "message_id": ctx.message_id, "ack": line},
             )
             return True
 
@@ -2390,6 +2422,52 @@ class PassScheduler:
         )
         self._track(chat_id, task)
         return {"ok": True, "run_id": run_id, "pass_id": pass_id}
+
+    def react_to_message(self, chat_id: str, message_id: str, emoji: str) -> dict:
+        """Sibling to run_pass_now, for message_reaction specifically.
+
+        Targets one specific message rather than "the last one" — a
+        reaction can land on any past message, not only the one the
+        conversation is currently on — so this builds its own TurnContext
+        around that message instead of reusing run_pass_now's. Otherwise
+        the same tracked path: same pass_runs row, same pass_status
+        events, same cost dashboard entry, launched and left running.
+        """
+        chat = repo.get_chat(self.db, chat_id)
+        character = repo.get_character(self.db, chat["character_id"]) if chat else None
+        if chat is None or character is None:
+            return {"ok": False, "error": "unknown chat"}
+
+        message = repo.get_message(self.db, message_id)
+        if message is None or message["chat_id"] != chat_id:
+            return {"ok": False, "error": "unknown message"}
+
+        definition = registry.get_pass(self.db, "message_reaction")
+        if definition is None or not definition.enabled:
+            return {"ok": False, "error": "message_reaction pass unavailable"}
+
+        ctx = TurnContext(
+            chat=chat,
+            character=character,
+            settings=self.settings,
+            turn=message["turn"],
+            message_id=message_id,
+            variant_id=message["variant_id"],
+            reaction_emoji=emoji,
+            schema=state_mod.load_schema(
+                {k: v.model_dump() for k, v in character.state_schema.items()}
+                if character.state_schema
+                else None
+            ),
+        )
+
+        run_id = self._record_run(ctx, definition, "pending")
+        task = asyncio.create_task(
+            self._run_background(ctx, definition, [], asyncio.Event(), run_id),
+            name=f"manual:message_reaction:{chat_id}:{message_id}",
+        )
+        self._track(chat_id, task)
+        return {"ok": True, "run_id": run_id, "pass_id": "message_reaction"}
 
     async def _maybe_rename_chat(self, ctx: TurnContext) -> None:
         """Retitle this chat once it has grown enough to be worth titling —

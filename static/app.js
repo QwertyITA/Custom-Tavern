@@ -168,6 +168,10 @@ const REGEN_PILL_WIDTH = 84;
 const REGEN_PILL_HEIGHT = 46;
 // How long an armed delete stays armed before giving up on the second tap.
 const CONFIRM_MS = 3000;
+// The fixed set someone can react to a reply with (§ app/models.py's own
+// copy, MESSAGE_REACTIONS — kept in sync by hand, six emoji neither side
+// has a reason to change often).
+const MESSAGE_REACTIONS = ["❤️", "😂", "😢", "😮", "😡", "👍"];
 // Deleting a character takes its chats with it — the one action in the app
 // that cannot be undone by re-importing, so it gets a third gate the other
 // armed deletes don't: a held press, timed rather than tapped.
@@ -885,6 +889,15 @@ function tavern() {
     confirmChar: "",
     confirmChat: "",
     confirmMsg: "",
+    // Which message's emoji picker is open, "" when none (§ message
+    // reactions, openReactionPicker).
+    reactingTo: "",
+    // Exposed as a data property, not just the module-level const above —
+    // Alpine's template expressions (x-for etc.) evaluate against the
+    // component's own scope, not this script's outer closure, the same
+    // reason every other fixed list a template iterates (settings.*,
+    // this.chats, ...) lives on `this` rather than as a bare top-level name.
+    messageReactions: MESSAGE_REACTIONS,
     // The hold-to-delete modal for a character, null when closed. `state` is
     // "idle" (modal up, nothing pressed), "holding" (timing a press) or
     // "deleting" (the hold finished; the request is in flight).
@@ -4964,6 +4977,22 @@ function tavern() {
             // the slice is small and always sent whole, whoever changed it:
             // music_select proposing, or a manual pick/respond/ended call.
             this.music = { ...event.value };
+          } else if (event.panel === "reaction") {
+            // Someone (maybe another tab on this same chat) set or cleared
+            // a reaction — mirror it onto the message so both read the
+            // same mark.
+            const reacted = this.messages.find((m) => m.id === event.value.message_id);
+            if (reacted) reacted.user_reaction = event.value.user_reaction;
+          }
+          break;
+        case "message_reaction":
+          // message_reaction (§ scheduler.py) answered — persisted server-
+          // side already (repo.set_reaction_ack), so merging it onto the
+          // message here is just catching this tab up, not the only place
+          // it's remembered.
+          {
+            const target = this.messages.find((m) => m.id === event.message_id);
+            if (target) target.reaction_ack = event.ack;
           }
           break;
         case "chat_renamed": {
@@ -6180,7 +6209,13 @@ function tavern() {
           : []),
         { id: "delete", label: "Delete", icon: "#i-delete", danger: true },
         { id: "suggest", label: "Suggest edit", icon: "#i-suggest", soon: true },
-        { id: "react", label: "React", icon: "#i-react", soon: true },
+        // Only on replies — reacting to your own message is not what this
+        // is for, and the character-noticing-a-reaction pass (§
+        // message_reaction, registry.py) only ever runs against one of its
+        // own lines anyway.
+        ...(message && message.role === "assistant"
+          ? [{ id: "react", label: "React", icon: "#i-react" }]
+          : []),
       ];
     },
 
@@ -6347,6 +6382,7 @@ function tavern() {
       if (option.id === "hide") return this.toggleHidden(message);
       if (option.id === "prompt") return this.showPrompt(message);
       if (option.id === "thought") return this.showThinking(message);
+      if (option.id === "react") return this.openReactionPicker(message);
       if (option.id === "delete") {
         // Arm the bubble's own delete rather than deleting outright. A drag
         // that lands one option over should not be able to destroy a message.
@@ -6413,6 +6449,28 @@ function tavern() {
     visibleToggles() {
       if (this.settings.feature_web_search) return this.toggles;
       return this.toggles.filter((t) => t.id !== "web_search");
+    },
+
+    // ---- message reactions ----
+    //
+    // Reacting is instant and local (this.reactingTo just closes); the mark
+    // and, once message_reaction answers, the ack line both arrive over the
+    // chat's own SSE stream (§ handleEvent's "panel"/reaction and
+    // "message_reaction" cases) rather than being set optimistically here —
+    // the same write-then-listen-for-the-echo pattern the rest of this app
+    // already uses for anything the server might also reject or race.
+
+    openReactionPicker(message) {
+      this.reactingTo = this.reactingTo === message.id ? "" : message.id;
+    },
+
+    async setReaction(message, emoji) {
+      this.reactingTo = "";
+      try {
+        await api.post(`/api/messages/${message.id}/react`, { emoji });
+      } catch (e) {
+        this.error = errorText(e);
+      }
     },
 
     // ---- settings (§13) ----

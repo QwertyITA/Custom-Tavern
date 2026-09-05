@@ -71,6 +71,12 @@ CREATE TABLE IF NOT EXISTS message_variants (
     -- a flag, not a correction (ISSUES-TRIAGE.md #15, KNOWN-ISSUES.md "A
     -- reply can quote the user's own turn back").
     echoes_user TEXT NOT NULL DEFAULT '',
+    -- Message reactions (ROADMAP), per variant same as echoes_user above
+    -- (§9). user_reaction is the emoji picked, or '' for none;
+    -- reaction_ack is the character's own generated line acknowledging it
+    -- (§ app/passes/registry.py's message_reaction pass), cached once.
+    user_reaction TEXT NOT NULL DEFAULT '',
+    reaction_ack TEXT NOT NULL DEFAULT '',
     created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_variants_message ON message_variants(message_id, idx);

@@ -212,6 +212,13 @@ class PfpEffect(BaseModel):
 
 REACTION_KEYS = ("starred", "unstarred", "killed")
 
+# Message reactions (not to be confused with the character reactions above —
+# same word, different feature): the fixed set someone can react to a reply
+# with. Fixed rather than user-configurable — six is already the whole ask
+# (heart/laugh/cry/wow/angry/thumbs-up), and mirrored in static/app.js's own
+# copy of this same tuple for the picker UI.
+MESSAGE_REACTIONS = ("❤️", "😂", "😢", "😮", "😡", "👍")
+
 
 class CharacterReactions(BaseModel):
     """Three short in-character lines the story never asks for directly but

@@ -172,7 +172,7 @@ class Database:
             self._writer_thread.join(timeout=5)
 
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 
 def _run_migration_step(conn: sqlite3.Connection, step: str) -> None:
     """Apply one migration statement, tolerating one that has already landed.
@@ -306,6 +306,17 @@ MIGRATIONS: dict[int, list[str]] = {
     15: [
         "ALTER TABLE chats ADD COLUMN title_manual INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE chats ADD COLUMN title_auto_count INTEGER NOT NULL DEFAULT 0",
+    ],
+    # Message reactions. Per variant, same as echoes_user above and the same
+    # reasoning (§9: state binds only to the swipe variant you land on) — a
+    # reaction to one variant's joke should not survive a swipe to another.
+    # user_reaction is the emoji the person picked, empty for none;
+    # reaction_ack is the character's own generated line acknowledging it
+    # (§ app/passes/registry.py's message_reaction pass), cached once so
+    # reopening the chat still shows it rather than only ever firing once.
+    16: [
+        "ALTER TABLE message_variants ADD COLUMN user_reaction TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE message_variants ADD COLUMN reaction_ack TEXT NOT NULL DEFAULT ''",
     ],
 }
 

@@ -362,6 +362,36 @@ CANONICAL_PASSES: list[PassDef] = [
             "No quotation marks inside the title, no trailing punctuation."
         ),
     ),
+    PassDef(
+        id="message_reaction",
+        kind="canonical",
+        label="Reaction",
+        blocking=False,
+        # Cheap on purpose: a reaction can happen far more often than the
+        # once-ever lines app/character_reactions.py generates, which is why
+        # this is a real, tracked pass (§ react_to_message, scheduler.py)
+        # rather than a bare provider call the way that module gets away
+        # with — the background tier is the whole point.
+        model_tier="background",
+        # Never auto-fires — eligible() already skips manual triggers
+        # entirely — only ever launched by react_to_message when someone
+        # actually reacts to a message.
+        trigger=Trigger(type="manual"),
+        sampling=Sampling(temp=0.9, top_p=0.95, max_tokens=40),
+        expects_json=False,
+        output=PassOutput(type="none"),
+        # No writes_slice: the line is cached on the reacted variant itself
+        # (§ repo.set_reaction_ack), not chat state — its handler
+        # (_handler_message_reaction, scheduler.py) writes there directly.
+        prompt=(
+            "You write one short in-character aside for a roleplay "
+            "character, reacting to the person having just reacted to "
+            "one of their own messages with an emoji.\n"
+            "One line, 5 to 15 words, in their own voice — a private "
+            "reaction to being noticed, not a new full reply and not a "
+            "narrator describing them. No quotation marks around it."
+        ),
+    ),
 ]
 
 

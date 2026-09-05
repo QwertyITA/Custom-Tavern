@@ -400,6 +400,8 @@ def add_message(
         "has_full_text": bool(full_text),
         "has_draft_text": bool(draft_text),
         "echoes_user": echoes_user,
+        "user_reaction": "",
+        "reaction_ack": "",
         "created_at": timestamp,
     }
 
@@ -442,6 +444,7 @@ def add_variant(
         "id": variant_id, "idx": index, "text": text,
         "has_thinking": bool(thinking), "has_full_text": bool(full_text),
         "has_draft_text": bool(draft_text), "echoes_user": echoes_user,
+        "user_reaction": "", "reaction_ack": "",
     }
 
 
@@ -526,13 +529,36 @@ def set_message_hidden(db: Database, message_id: str, hidden: bool) -> None:
     )
 
 
+def set_reaction(db: Database, variant_id: str, emoji: str) -> None:
+    """The emoji someone reacted with, or '' to clear it. Same shape as
+    translation.set_translation — one column, one variant, no arbitration
+    needed since nothing else ever writes this one."""
+    db.write_sync(
+        lambda conn: conn.execute(
+            "UPDATE message_variants SET user_reaction=? WHERE id=?", (emoji, variant_id)
+        )
+    )
+
+
+def set_reaction_ack(db: Database, variant_id: str, text: str) -> None:
+    """The character's own line acknowledging a reaction (§ message_reaction
+    pass, scheduler.py) — generated once and cached, same as translation."""
+    db.write_sync(
+        lambda conn: conn.execute(
+            "UPDATE message_variants SET reaction_ack=? WHERE id=?", (text, variant_id)
+        )
+    )
+
+
 def get_message(db: Database, message_id: str) -> dict | None:
     row = db.query_one(
         "SELECT m.*, v.text AS text, v.translation AS translation, v.idx AS variant_index, "
         "(LENGTH(COALESCE(v.thinking, '')) > 0) AS has_thinking, "
         "(LENGTH(COALESCE(v.full_text, '')) > 0) AS has_full_text, "
         "(LENGTH(COALESCE(v.draft_text, '')) > 0) AS has_draft_text, "
-        "COALESCE(v.echoes_user, '') AS echoes_user "
+        "COALESCE(v.echoes_user, '') AS echoes_user, "
+        "COALESCE(v.user_reaction, '') AS user_reaction, "
+        "COALESCE(v.reaction_ack, '') AS reaction_ack "
         "FROM messages m LEFT JOIN message_variants v ON v.id = m.active_variant "
         "WHERE m.id=?",
         (message_id,),
@@ -546,6 +572,8 @@ def get_message(db: Database, message_id: str) -> dict | None:
     message["has_full_text"] = bool(message["has_full_text"])
     message["has_draft_text"] = bool(message["has_draft_text"])
     message["echoes_user"] = message["echoes_user"] or ""
+    message["user_reaction"] = message["user_reaction"] or ""
+    message["reaction_ack"] = message["reaction_ack"] or ""
     message["variant_id"] = message.pop("active_variant")
     count = db.query_one(
         "SELECT COUNT(*) AS c FROM message_variants WHERE message_id=?", (message_id,)
@@ -558,8 +586,10 @@ def list_variants(db: Database, message_id: str) -> list[dict]:
     return [
         dict(row)
         for row in db.query(
-            "SELECT id, idx, text, provider, model, echoes_user FROM message_variants "
-            "WHERE message_id=? ORDER BY idx",
+            "SELECT id, idx, text, provider, model, echoes_user, "
+            "COALESCE(user_reaction, '') AS user_reaction, "
+            "COALESCE(reaction_ack, '') AS reaction_ack "
+            "FROM message_variants WHERE message_id=? ORDER BY idx",
             (message_id,),
         )
     ]
@@ -574,6 +604,8 @@ def list_messages(db: Database, chat_id: str, include_dropped: bool = True) -> l
         "(LENGTH(COALESCE(v.full_text, '')) > 0) AS has_full_text, "
         "(LENGTH(COALESCE(v.draft_text, '')) > 0) AS has_draft_text, "
         "COALESCE(v.echoes_user, '') AS echoes_user, "
+        "COALESCE(v.user_reaction, '') AS user_reaction, "
+        "COALESCE(v.reaction_ack, '') AS reaction_ack, "
         "(SELECT COUNT(*) FROM message_variants mv WHERE mv.message_id = m.id) AS variant_count "
         "FROM messages m LEFT JOIN message_variants v ON v.id = m.active_variant "
         "WHERE m.chat_id=?"
@@ -590,6 +622,8 @@ def list_messages(db: Database, chat_id: str, include_dropped: bool = True) -> l
         message["has_full_text"] = bool(message["has_full_text"])
         message["has_draft_text"] = bool(message["has_draft_text"])
         message["echoes_user"] = message["echoes_user"] or ""
+        message["user_reaction"] = message["user_reaction"] or ""
+        message["reaction_ack"] = message["reaction_ack"] or ""
         message["variant_id"] = message.pop("active_variant")
         out.append(message)
     return out

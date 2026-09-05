@@ -704,6 +704,11 @@
                 :title="`Repeats back: “${m.echoes_user}”`">
             <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-warn"/></svg>
           </span>
+          <!-- The emoji itself is the mark — tapping it reopens the picker
+               below to change or clear it. -->
+          <button class="reaction-mark" x-show="m.user_reaction" x-cloak
+                  @click="openReactionPicker(m)" x-text="m.user_reaction"
+                  :aria-label="`Reacted with ${m.user_reaction} — tap to change`"></button>
         </div>
 
         <!-- Who said it. Only in a group: in a solo chat every reply is from
@@ -745,6 +750,29 @@
             </span>
           </template>
         </div>
+
+        <!-- The emoji picker (ROADMAP): a fold, not a popover — same reveal
+             this app already uses for "a few buttons near where you tapped"
+             (§ chat-row-actions), which stays in the row's own normal flow
+             rather than needing to escape .msg's content-visibility clipping
+             the way an absolutely-positioned popover would. -->
+        <div class="fold reaction-fold" :class="{ open: reactingTo === m.id }" x-show="m.role === 'assistant'" x-cloak>
+          <div class="fold-clip">
+            <div class="reaction-picker">
+              <template x-for="emoji in messageReactions" :key="emoji">
+                <button class="reaction-option" :class="{ on: m.user_reaction === emoji }"
+                        @click="setReaction(m, emoji)" x-text="emoji"
+                        :aria-label="`React with ${emoji}`"></button>
+              </template>
+            </div>
+          </div>
+        </div>
+        <!-- The character's own aside noticing the reaction (§
+             message_reaction, scheduler.py) — persisted (repo.
+             set_reaction_ack), so it is still here after reopening the
+             chat, not a toast that fired once. -->
+        <p class="reaction-ack" x-show="m.reaction_ack" x-cloak x-text="m.reaction_ack"></p>
+
         <!-- No `:style` binding here on purpose. Alpine writes the whole
              style attribute for one, which wiped the height `autosize` had
              just measured — the box stayed at its floor however long the

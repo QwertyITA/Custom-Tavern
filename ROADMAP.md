@@ -251,6 +251,25 @@ STscript (26).
       a single last-interaction timestamp bumped on each interaction, with
       elapsed time computed from it on read rather than polled continuously.
       Recorded on request; not started, not designed.
+- [x] **41. Message reactions.** React to one of the character's own
+      replies with one of six fixed emoji (heart/laugh/cry/wow/angry/
+      thumbs-up) from the message wheel — the `soon: true` placeholder
+      that was already sitting there. Setting one launches
+      `message_reaction` (canonical, background tier, `Trigger(type=
+      "manual")` — never auto-fires, only ever run through
+      `PassScheduler.react_to_message`, a sibling of `run_pass_now`
+      targeting one specific message instead of "the last one," same
+      tracked `pass_runs`/cost-dashboard path either way): a short
+      in-character line noticing the reaction, cached on the reacted
+      variant (`message_variants.user_reaction`/`reaction_ack`, per
+      variant same as `echoes_user` — §9, a reaction binds to the swipe
+      you land on) so it's still there on reopening the chat, not a
+      toast that only ever fired once. Deliberately a real tracked pass
+      rather than an untracked call the way `character_reactions.py`
+      gets away with for its own once-ever lines — a per-message
+      reaction can fire far more often, so the cost dashboard is the
+      right place for it to show up. Clearing a reaction never launches
+      the pass — nothing to acknowledge in an un-reaction.
 
 ## Undecided — needs a call
 

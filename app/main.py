@@ -31,6 +31,7 @@ from .db import get_db
 from .events import BUS
 from .markup import parse_to_dicts
 from .models import (
+    MESSAGE_REACTIONS,
     REACTION_KEYS,
     AuthorsNote,
     AvatarVideo,
@@ -1581,6 +1582,45 @@ async def set_hidden(message_id: str, payload: dict = Body(...)) -> dict:
     hidden = bool(payload.get("hidden", True))
     repo.set_message_hidden(db, message_id, hidden)
     return {"ok": True, "hidden": hidden}
+
+
+@app.post("/api/messages/{message_id}/react")
+async def react_to_message(message_id: str, payload: dict = Body(...)) -> dict:
+    """React to one of the character's own replies with a fixed emoji.
+
+    Setting one (not clearing it) also launches message_reaction
+    (§ PassScheduler.react_to_message) — background tier, tracked the same
+    as any other pass — so the character generates a short in-character
+    line noticing it. Clearing a reaction never does: acknowledging an
+    un-reaction would be a strange thing for a character to do, and it
+    would spend a model call for no reason a person asked for.
+    """
+    db = get_db()
+    message = repo.get_message(db, message_id)
+    if message is None:
+        raise HTTPException(404, "message not found")
+    if message["role"] != "assistant":
+        raise HTTPException(400, "only a reply can be reacted to")
+
+    raw = payload.get("emoji")
+    emoji = str(raw).strip() if raw else ""
+    if emoji and emoji not in MESSAGE_REACTIONS:
+        raise HTTPException(400, "unknown reaction")
+    # The same emoji tapped again clears it — a toggle, same as every other
+    # tap-to-arm control in this app that isn't destructive enough to need
+    # a confirm step.
+    if emoji and emoji == message["user_reaction"]:
+        emoji = ""
+
+    repo.set_reaction(db, message["variant_id"], emoji)
+    BUS.publish(message["chat_id"], {
+        "type": "panel", "panel": "reaction",
+        "value": {"message_id": message_id, "user_reaction": emoji},
+        "source": "manual",
+    })
+    if emoji:
+        scheduler().react_to_message(message["chat_id"], message_id, emoji)
+    return {"ok": True, "user_reaction": emoji}
 
 
 @app.post("/api/messages/{message_id}/continue")

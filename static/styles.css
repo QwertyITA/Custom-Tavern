@@ -3223,6 +3223,48 @@ body {
   from { transform: scale(.4) rotate(-12deg); opacity: 0; }
   to { transform: none; opacity: 1; }
 }
+/* The only tappable one among .msg-marks' otherwise-static indicators —
+   its own emoji is the mark, reopening the picker below on tap. */
+.reaction-mark {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 13px;
+  line-height: 1;
+  padding: 3px 6px;
+  animation: hidden-in 240ms var(--ease-back) both;
+  transition: transform 120ms var(--ease-out);
+}
+.reaction-mark:active { transform: scale(.88); }
+
+/* The picker: a fold's contents (§ .fold above), so it reveals in the row's
+   own normal flow rather than an absolutely-positioned popover that would
+   have to escape .msg's content-visibility clipping. */
+.reaction-picker { display: flex; gap: 4px; padding: 6px 0; }
+.reaction-option {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 20px;
+  line-height: 1;
+  min-width: 40px;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 120ms var(--ease-out), background 140ms var(--ease-out);
+}
+.reaction-option:active { transform: scale(.88); }
+.reaction-option.on { background: var(--panel-2); border-color: var(--accent); }
+
+/* The character's own aside noticing a reaction — a quiet line under the
+   bubble, not a new full message. */
+.reaction-ack {
+  margin: 2px 0 0;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--muted);
+}
 
 /* A long conversation is a long list of boxes the browser would otherwise lay
    out and paint in full on every frame. content-visibility lets it skip the
