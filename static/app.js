@@ -7596,14 +7596,19 @@ function tavern() {
       port.addEventListener("touchstart", (event) => {
         // Not while a message is being held or its wheel is open: that finger
         // is choosing an option, and reading it as a pull past the end of the
-        // chat opened "write for me" behind the menu.
-        if (this.wheel || this.hold) { pullFrom = null; return; }
+        // chat opened "write for me" behind the menu. Not while the full-
+        // screen card is up either — .pfp-full-layer is `position: fixed`,
+        // which escapes .chat-inner's own box but not the DOM: it is still a
+        // descendant of `port`, so a swipe meant to turn the card bubbles up
+        // to these same listeners unless this stops it (§ pfp-full-layer,
+        // index.html).
+        if (this.wheel || this.hold || this.pfpFull.src) { pullFrom = null; return; }
         pullFrom = this.atVeryBottom() ? event.touches[0].clientY : null;
         track = [];
         if (pullFrom !== null) sample(pullFrom);
       }, { passive: true });
       port.addEventListener("touchmove", (event) => {
-        if (this.wheel || this.hold) { pullFrom = null; this.setReveal(0); return; }
+        if (this.wheel || this.hold || this.pfpFull.src) { pullFrom = null; this.setReveal(0); return; }
         if (pullFrom === null) return;
         if (!this.atVeryBottom()) { pullFrom = null; this.setReveal(0); return; }
         const y = event.touches[0].clientY;
@@ -7625,7 +7630,7 @@ function tavern() {
       port.addEventListener("touchcancel", endPull, { passive: true });
 
       port.addEventListener("wheel", (event) => {
-        if (this.wheel || this.hold) { if (this.reveal) this.setReveal(0); return; }
+        if (this.wheel || this.hold || this.pfpFull.src) { if (this.reveal) this.setReveal(0); return; }
         if (event.deltaY <= 0 || !this.atVeryBottom()) {
           if (this.reveal) this.setReveal(0);
           return;
