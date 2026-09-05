@@ -1835,7 +1835,12 @@ function tavern() {
     // has nothing to get wrong on plain data with no functions or Dates in
     // it, which is all any of these three ever hold.
     panelDirty() {
-      if (this.panel === "brain" || this.panel === "theme" || this.panel === "settings") {
+      // "music" belongs here too: music_meta (name/description/auto per
+      // track, § setMusicMeta) lives on this.settings the same as
+      // background_meta does for Theme — leaving it out meant closing the
+      // panel never asked, and never saved, a single edit made in it.
+      if (this.panel === "brain" || this.panel === "theme" || this.panel === "settings"
+        || this.panel === "music") {
         return JSON.stringify(this.settings) !== this._settingsSnapshot;
       }
       if (this.panel === "character") {
@@ -1926,7 +1931,12 @@ function tavern() {
     // (browsing chats, "What was sent", ...).
     activeSaveAction() {
       if (this.panel === "story") return null;
-      if (this.panel === "brain" || this.panel === "theme" || this.panel === "settings") {
+      // "music" saves through the same settings object and bar as Theme —
+      // music_meta lives on this.settings exactly as background_meta does
+      // (§ panelDirty above). Playing a track is still instant either way;
+      // this is only for naming, describing or excluding one.
+      if (this.panel === "brain" || this.panel === "theme" || this.panel === "settings"
+        || this.panel === "music") {
         return { save: () => this.saveSettings(), saving: this.saving, msg: this.saveMsg, error: this.saveError };
       }
       if (this.panel === "character") {

@@ -2695,7 +2695,13 @@
                       :aria-pressed="settings.background === b.name"
                       :aria-label="`Use ${bgLabel(b.name)} as the backdrop`"></button>
               <div class="bg-row-fields">
-                <input :value="bgLabel(b.name)" placeholder="Name" maxlength="60"
+                <!-- The raw stored label, not bgLabel(b.name) — same fix as
+                     the music library's own name field: that falls back to
+                     the bare filename the moment the field is empty, and
+                     :value re-asserting it on every keystroke snapped the
+                     filename back before a new name could be typed. The
+                     filename still shows, just as a placeholder now. -->
+                <input :value="bgMeta(b.name).label || ''" :placeholder="bgLabel(b.name)" maxlength="60"
                        @input="setBgMeta(b.name, 'label', $event.target.value)">
                 <textarea :value="bgMeta(b.name).description || ''" rows="2" maxlength="400"
                           placeholder="What this shows — helps the AI pick it automatically."
@@ -2869,7 +2875,8 @@
       <div>
         <p class="note">One shared library — every character's automatic
           pick (§ music_select) and your own manual choice both draw from
-          it. Playing one is instant; nothing here needs Save.</p>
+          it. Playing one is instant; naming, describing or excluding one
+          previews live here too, but Save is what keeps it.</p>
 
         <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-music"/></svg>Library</h3>
         <p class="kind-note">
@@ -2886,7 +2893,16 @@
                 <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-play"/></svg>
               </button>
               <div class="music-row-fields">
-                <input class="music-row-name" :value="musicLabel(t.name)" placeholder="Name" maxlength="60"
+                <!-- The raw stored label, not musicLabel(t.name) — that
+                     falls back to the bare filename the moment the field is
+                     empty, and :value re-asserting that fallback on every
+                     keystroke (§ setMusicMeta re-rendering it) meant
+                     clearing the name to retype it snapped the filename
+                     straight back before a single new character landed.
+                     The filename still shows, just as a placeholder now, so
+                     an empty field still reads as "falls back to this". -->
+                <input class="music-row-name" :value="musicMeta(t.name).label || ''"
+                       :placeholder="musicLabel(t.name)" maxlength="60"
                        @input="setMusicMeta(t.name, 'label', $event.target.value)">
                 <input :value="musicMeta(t.name).description || ''" maxlength="400"
                        placeholder="What this sounds like — helps the AI pick it automatically."
