@@ -704,11 +704,6 @@
                 :title="`Repeats back: “${m.echoes_user}”`">
             <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-warn"/></svg>
           </span>
-          <!-- The emoji itself is the mark — tapping it reopens the picker
-               below to change or clear it. -->
-          <button class="reaction-mark" x-show="m.user_reaction" x-cloak
-                  @click="openReactionPicker(m)" x-text="m.user_reaction"
-                  :aria-label="`Reacted with ${m.user_reaction} — tap to change`"></button>
         </div>
 
         <!-- Who said it. Only in a group: in a solo chat every reply is from
@@ -751,6 +746,26 @@
           </template>
         </div>
 
+        <!-- The reaction lives at the bubble's own bottom-left corner: the
+             emoji mark (still a button — tapping it reopens the picker
+             below to change or clear it) beside the character's own child
+             bubble noticing it, both in the row's normal flow rather than
+             an absolutely-positioned overlay. This one stays visible for
+             good once a reaction lands, not just for an animation, so it
+             can't lean on .msg's content-visibility-lift allowlist (§
+             .msg.animating, styles.css) the way a transient popover would —
+             normal flow sidesteps the clipping question entirely. -->
+        <div class="msg-reaction" x-show="m.user_reaction || m.reaction_ack" x-cloak>
+          <button class="reaction-mark" x-show="m.user_reaction" x-cloak
+                  @click="openReactionPicker(m)" x-text="m.user_reaction"
+                  :aria-label="`Reacted with ${m.user_reaction} — tap to change`"></button>
+          <!-- The character's own aside noticing the reaction (§
+               message_reaction, scheduler.py) — persisted (repo.
+               set_reaction_ack), so it is still here after reopening the
+               chat, not a toast that fired once. -->
+          <p class="reaction-ack" x-show="m.reaction_ack" x-cloak x-text="m.reaction_ack"></p>
+        </div>
+
         <!-- The emoji picker (ROADMAP): a fold, not a popover — same reveal
              this app already uses for "a few buttons near where you tapped"
              (§ chat-row-actions), which stays in the row's own normal flow
@@ -767,11 +782,6 @@
             </div>
           </div>
         </div>
-        <!-- The character's own aside noticing the reaction (§
-             message_reaction, scheduler.py) — persisted (repo.
-             set_reaction_ack), so it is still here after reopening the
-             chat, not a toast that fired once. -->
-        <p class="reaction-ack" x-show="m.reaction_ack" x-cloak x-text="m.reaction_ack"></p>
 
         <!-- No `:style` binding here on purpose. Alpine writes the whole
              style attribute for one, which wiped the height `autosize` had

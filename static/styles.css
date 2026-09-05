@@ -3223,9 +3223,19 @@ body {
   from { transform: scale(.4) rotate(-12deg); opacity: 0; }
   to { transform: none; opacity: 1; }
 }
-/* The only tappable one among .msg-marks' otherwise-static indicators —
-   its own emoji is the mark, reopening the picker below on tap. */
+/* The reaction and its ack sit at the bubble's own bottom-left, in normal
+   flow — see the comment in index.html on why this one doesn't take the
+   absolutely-positioned-popover route the picker below does. */
+.msg-reaction {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  margin-top: 6px;
+}
+/* The only tappable one here — its own emoji is the mark, reopening the
+   picker below on tap. */
 .reaction-mark {
+  flex: none;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -3236,6 +3246,38 @@ body {
   transition: transform 120ms var(--ease-out);
 }
 .reaction-mark:active { transform: scale(.88); }
+
+/* The child bubble: the character's own aside noticing the reaction, drawn
+   in the same speech-bubble language as .reaction-bubble above (roster
+   row's star/unstar/kill line) — scaled down, and tailed sideways at the
+   mark beside it instead of upward at the row it floats over. */
+.reaction-ack {
+  position: relative;
+  margin: 0;
+  max-width: 200px;
+  padding: 6px 10px;
+  border-radius: 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  font-style: italic;
+  line-height: 1.35;
+  color: var(--text);
+  animation: hidden-in 240ms var(--ease-back) both;
+}
+.reaction-ack::after {
+  content: "";
+  position: absolute;
+  right: 100%;
+  top: 50%;
+  margin-right: -5px;
+  width: 10px;
+  height: 10px;
+  background: var(--panel-2);
+  border-left: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  transform: translateY(-50%) rotate(45deg);
+}
 
 /* The picker: a fold's contents (§ .fold above), so it reveals in the row's
    own normal flow rather than an absolutely-positioned popover that would
@@ -3256,15 +3298,6 @@ body {
 }
 .reaction-option:active { transform: scale(.88); }
 .reaction-option.on { background: var(--panel-2); border-color: var(--accent); }
-
-/* The character's own aside noticing a reaction — a quiet line under the
-   bubble, not a new full message. */
-.reaction-ack {
-  margin: 2px 0 0;
-  font-size: 12px;
-  font-style: italic;
-  color: var(--muted);
-}
 
 /* A long conversation is a long list of boxes the browser would otherwise lay
    out and paint in full on every frame. content-visibility lets it skip the
