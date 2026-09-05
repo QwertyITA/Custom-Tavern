@@ -948,6 +948,10 @@ function tavern() {
     suggestingFor: "",
     suggestText: "",
     suggestEditPresets: SUGGEST_EDIT_PRESETS,
+    // Which message is armed for select-to-copy, "" when none (§
+    // startSelectCopy) — the bubble's own swipe/hold pointer handling steps
+    // aside for this one message while it is set.
+    selectingText: "",
     // The hold-to-delete modal for a character, null when closed. `state` is
     // "idle" (modal up, nothing pressed), "holding" (timing a press) or
     // "deleting" (the hold finished; the request is in flight).
@@ -6161,6 +6165,10 @@ function tavern() {
     // the scroller, stay still and it opens the wheel. All three start here.
     onMsgDown(event, message) {
       if (!event.isPrimary) return;
+      // Selecting text is the one gesture on this element that has to reach
+      // the browser untouched — claiming the pointer for a hold or a swipe
+      // here would beat native long-press-to-select to the touch every time.
+      if (this.selectingText === message.id) return;
       this.hold = { x: event.clientX, y: event.clientY, pointerId: event.pointerId, id: message.id };
       clearTimeout(this._holdTimer);
       this._holdTimer = setTimeout(() => this.openWheel(message), HOLD_MS);
@@ -6432,7 +6440,7 @@ function tavern() {
 
       if (option.soon) return this.flashHint(`${option.label} is not built yet`);
       if (option.id === "edit") return this.startEdit(message, this.bubbleFor(message.id));
-      if (option.id === "copy") return this.copyMessage(message);
+      if (option.id === "copy") return this.startSelectCopy(message);
       if (option.id === "continue") return this.continueReply(message);
       if (option.id === "hide") return this.toggleHidden(message);
       if (option.id === "prompt") return this.showPrompt(message);
@@ -6449,8 +6457,33 @@ function tavern() {
       }
     },
 
-    async copyMessage(message) {
-      this.flashHint(await this.writeClipboard(message.text || "") ? "Copied" : "Could not copy");
+    // ---- select-to-copy ----
+    //
+    // Copying used to grab the whole message outright. Picking a line out of
+    // six paragraphs meant copying all of it and cutting the rest somewhere
+    // else, so "Copy" now arms selection instead: it steps the bubble's own
+    // pointer handling aside (§ onMsgDown, the swipe/hold gesture that would
+    // otherwise beat the browser's native long-press-to-select to the touch)
+    // so a normal selection drag works, and the bar it shows is what turns
+    // "done selecting" into an actual copy.
+
+    startSelectCopy(message) {
+      this.selectingText = message.id;
+    },
+
+    cancelSelectCopy() {
+      this.selectingText = "";
+      window.getSelection?.().removeAllRanges();
+    },
+
+    async confirmSelectCopy() {
+      const text = (window.getSelection?.().toString() || "").trim();
+      if (!text) {
+        this.flashHint("Select some text first");
+        return;
+      }
+      this.flashHint(await this.writeClipboard(text) ? "Copied" : "Could not copy");
+      this.cancelSelectCopy();
     },
 
     // Two mechanisms, and the order matters. execCommand goes first because it

@@ -2471,6 +2471,19 @@ body {
 .bubble.clipping { overflow: hidden; }
 .bubble.dragging { transition: none; cursor: grabbing; user-select: none; }
 
+/* Select-to-copy (§ startSelectCopy, app.js): the swipe/hold pointer
+   handling steps aside for this one bubble, so what is left to say here is
+   only that it *has* — the outline is the mode's only visible sign, since
+   the drag itself is the browser's own native selection, not ours to draw. */
+.bubble.selecting {
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
+  cursor: text;
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
 .swipe-hint {
   position: absolute;
   top: 6px;
@@ -2707,6 +2720,60 @@ body {
 .hint-leave { transition: opacity 160ms var(--ease-in-out), transform 200ms var(--ease-in-out); }
 .hint-from { opacity: 0; transform: translateX(-50%) translateY(10px) scale(.94); }
 .hint-to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+
+/* Select-to-copy's own bar: reuses the hint-toast's transitions (it is the
+   same "a floating strip appears low over the chat" shape) but sits higher,
+   so a plain flashHint ("Select some text first") arriving while it is up
+   still has clear space below to appear in rather than landing on top of it. */
+.select-copy-bar {
+  position: fixed;
+  left: 50%;
+  bottom: calc(130px + var(--safe-bottom));
+  transform: translateX(-50%);
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 8px 6px 14px;
+  box-shadow: 0 8px 20px -6px color-mix(in srgb, var(--text) 28%, transparent);
+  font-size: 13px;
+  color: var(--text);
+}
+.select-copy-label { color: var(--muted); white-space: nowrap; }
+.select-copy-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--accent);
+  color: var(--on-accent);
+  border: none;
+  border-radius: 999px;
+  padding: 7px 14px;
+  font: inherit;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: transform 120ms var(--ease-out);
+}
+.select-copy-btn .icon { width: 16px; height: 16px; }
+.select-copy-btn:active { transform: scale(.92); }
+.select-copy-cancel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 50%;
+  border: none;
+  background: none;
+  color: var(--muted);
+  transition: transform 120ms var(--ease-out), background 140ms var(--ease-out);
+}
+.select-copy-cancel .icon { width: 16px; height: 16px; }
+.select-copy-cancel:active { transform: scale(.88); background: var(--panel-2); }
 
 /* --------------------------------------------------- message lifecycle */
 

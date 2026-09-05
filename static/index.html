@@ -677,13 +677,14 @@
       <!-- Swipe the message itself to change variant: left forward, right back
            (§9). touch-action: pan-y leaves vertical scrolling to the chat. -->
       <div class="bubble" :data-mid="m.id"
-           :class="{ swipeable: swipeable(m), dragging: dragId === m.id, hidden: m.hidden }"
+           :class="{ swipeable: swipeable(m), dragging: dragId === m.id, hidden: m.hidden,
+                     selecting: selectingText === m.id }"
            :style="dragId === m.id ? `transform: translateX(${dragDx}px)` : ''"
            @pointerdown="onMsgDown($event, m)"
            @pointermove="onMsgMove($event, m)"
            @pointerup="onMsgUp($event, m)"
            @pointercancel="onMsgCancel()"
-           @contextmenu.prevent>
+           @contextmenu="selectingText === m.id || $event.preventDefault()">
         <span class="swipe-hint" x-show="swipeHint(m)" x-text="swipeHint(m)" x-cloak></span>
         <!-- Said, but not remembered: it has to be obvious which messages the
              model can no longer see. -->
@@ -1158,6 +1159,26 @@
      x-transition:enter-end="hint-to"
      x-transition:leave="hint-leave" x-transition:leave-start="hint-to"
      x-transition:leave-end="hint-from"></div>
+
+<!-- "Copy" arms text selection rather than copying the whole message
+     outright: the bubble's own pointer handling (§ onMsgDown) is what
+     stands between a long-press and the browser's native selection UI, so
+     this is what lets go of it, and what gives the gesture an ending —
+     tap Copy for whatever got selected, or the ✕ to leave without. -->
+<div class="select-copy-bar" x-show="selectingText" x-cloak
+     x-transition:enter="hint-enter" x-transition:enter-start="hint-from"
+     x-transition:enter-end="hint-to"
+     x-transition:leave="hint-leave" x-transition:leave-start="hint-to"
+     x-transition:leave-end="hint-from">
+  <span class="select-copy-label">Select some text, then</span>
+  <button class="select-copy-btn" @click="confirmSelectCopy()">
+    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-copy"/></svg>
+    <span>Copy</span>
+  </button>
+  <button class="select-copy-cancel" @click="cancelSelectCopy()" aria-label="Cancel, don't copy">
+    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg>
+  </button>
+</div>
 
 <!-- ambient indicator: a background pass is working, no character-thinking cue -->
 <div class="ambient" x-show="ambient.length" x-cloak>
