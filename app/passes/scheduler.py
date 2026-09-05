@@ -2341,6 +2341,19 @@ class PassScheduler:
         for the `<<<state>>>` suffix to carry and asking for one would only
         give the model something else to get wrong. The text lands in the
         composer, where the user can rewrite it before sending.
+
+        The conversation's roles are swapped before it is sent — the
+        character's lines as `user`, the person's own past lines as
+        `assistant` — rather than asking for the user's voice only in the
+        system prompt while handing over a transcript that still ends on an
+        `assistant` turn from the character. A completion always continues
+        whatever sits in the assistant slot, and a page of character card and
+        persona instructions in the system prompt reliably outweighs one
+        paragraph asking it to break that pattern: unswapped, this wrote
+        another line for the character far more often than not. Swapped, the
+        strongest signal available — "continue the assistant turn" — already
+        points at the user's own voice, so the system prompt only has to
+        explain the swap, not fight the transcript.
         """
         chat = repo.get_chat(self.db, chat_id)
         character = repo.get_character(self.db, chat["character_id"]) if chat else None
@@ -2354,20 +2367,27 @@ class PassScheduler:
         assembled = assembly.build_reply_context(
             self.db, chat, character, self.settings, toggle_injections=injections
         )
+        messages = [
+            {**m, "role": {"user": "assistant", "assistant": "user"}.get(m["role"], m["role"])}
+            for m in assembled.messages
+        ]
 
         system = (
             f"{assembled.system}\n\n"
             "## This turn\n"
-            f"Write the USER's next message, not {character.name}'s. You are "
-            "drafting the user's side of the conversation for them: stay in "
-            "their voice as it appears in the transcript, keep it to the length "
+            "The conversation above has its roles swapped for this one "
+            f"request: what {character.name} said now sits in the 'user' "
+            "slot, and what the person actually playing this scene said "
+            "sits in the 'assistant' slot. Continue in the assistant slot — "
+            f"write their next line, not {character.name}'s: stay in their "
+            "voice as it reads in the transcript, keep it to the length "
             "they usually write, and move the scene forward.\n"
-            f"Write only the message. No name prefix, no quotation marks around "
-            f"the whole thing, and nothing from {character.name}."
+            f"Write only the line itself. No name prefix, no quotation marks "
+            f"around the whole thing, and nothing from {character.name}."
         )
         request = GenRequest(
             system=system,
-            messages=assembled.messages,
+            messages=messages,
             # Not the character's stop strings: this is the *user's* line, and
             # a sequence that ends the character's replies has no business
             # cutting off the user's.

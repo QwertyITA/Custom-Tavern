@@ -776,6 +776,66 @@ def test_swipe_on_a_user_message_is_refused(sched, chat, character):
     assert events_of(events, "error")
 
 
+# ---------------------------------------------------------------- impersonate
+
+
+def test_impersonate_swaps_roles_so_the_completion_continues_the_users_voice(
+    sched, chat, character, monkeypatch
+):
+    """The bug this guards: unswapped, the request handed the model a
+    transcript ending on an *assistant* turn from the character and only a
+    system-prompt paragraph asking it to write someone else's line instead
+    — and a page of character-card and persona instructions reliably won
+    that fight. Swapped, the character's own last line sits in the 'user'
+    slot and the person's own last line sits in 'assistant', so the one
+    thing a completion is guaranteed to do — continue whatever is in the
+    assistant slot — already points at the right voice, with nothing left
+    for the system prompt to fight."""
+    from app.passes import scheduler as sched_mod
+
+    sync(turn(sched, chat["id"], "I set the lantern down between us."))
+    stored = repo.list_messages(sched.db, chat["id"])
+    user_text = next(m["text"] for m in stored if m["role"] == "user")
+    reply_text = next(m["text"] for m in reversed(stored) if m["role"] == "assistant")
+
+    captured = {}
+
+    class Recorder:
+        name = "recorder"
+        model = "recorder-1"
+
+        async def stream(self, request, sink=None):
+            captured["messages"] = request.messages
+            yield "Understood."
+
+        async def context_limit(self):
+            return None
+
+        async def aclose(self):
+            return None
+
+    monkeypatch.setattr(sched_mod, "provider_for_tier", lambda tier, settings=None: Recorder())
+
+    async def scenario():
+        return [e async for e in sched.run_impersonate(chat["id"])]
+
+    sync(scenario())
+
+    messages = captured["messages"]
+    assert messages, "the request never reached the provider"
+    # The transcript's actual last turn is the character's reply (whatever
+    # trails it — the volatile suffix, e.g. — is a 'system' message, not
+    # part of the swap) — after the swap it must read as the 'user' slot,
+    # not 'assistant'.
+    last = next(m for m in reversed(messages) if m["role"] in ("user", "assistant"))
+    assert last["role"] == "user"
+    assert reply_text in last["content"]
+    # And the person's own last line, originally 'user', now sits in the
+    # slot a completion continues.
+    assistant_turns = [m["content"] for m in messages if m["role"] == "assistant"]
+    assert any(user_text in c for c in assistant_turns)
+
+
 # --------------------------------------------------------------- echoed replies
 #
 # The `echo` backend's own reply literally is `"You said: {user}"` — so any
