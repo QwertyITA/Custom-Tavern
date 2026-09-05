@@ -297,6 +297,26 @@ STscript (26).
       next few replies, not a permanent rule nobody remembers setting.
       A later suggest-edit's note replaces the one before it rather
       than stacking.
+- [x] **43. Separate paragraphs.** A reply with more than one paragraph
+      renders as more than one bubble, one per paragraph, each appearing
+      a beat after the last instead of all at once — like a burst of
+      short texts rather than one long one. Client-side only, same as
+      `realistic_chat_speed` right above it in Settings: the split and
+      the pacing both happen in `static/app.js`, never in what is
+      generated or stored — `splitParagraphs` on blank-line boundaries,
+      a reveal loop in `runStream` that reads `target.text` (never
+      writes it, so it can't desync the pacer) and advances
+      `streamingParagraphsShown` once every `paragraphPauseMs()` for as
+      long as more paragraphs exist than are currently shown. Realistic
+      chat speed being on stretches that pause the same way it already
+      stretches the reply's own pacing, rather than the two reasoning
+      about time independently. The outer `.bubble` stops drawing its
+      own shape when this is on (`.bubble.split`) and each `.para-bubble`
+      draws its own instead — the wheel, the marks and the reaction
+      corner all still anchor to the one unchanged `.bubble` element, so
+      continue/swipe/edit/react/suggest-edit and everything else keep
+      treating the reply as the one message it has always been in the
+      data model; only how it is shown changes.
 
 ## Undecided — needs a call
 

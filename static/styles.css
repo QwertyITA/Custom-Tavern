@@ -1362,7 +1362,17 @@ body {
    rotate gives the card its own vanishing point, so it turns rather than
    just squashing sideways. No transition here at all by default — a drag
    has to track the touch exactly — .settling is the one moment one exists,
-   the same idiom .reveal.settling below uses for the pull-to-reveal panel. */
+   the same idiom .reveal.settling below uses for the pull-to-reveal panel.
+
+   border-radius + overflow:hidden live here now, not on the image and the
+   sheen individually — a portrait whose aspect ratio does not match the
+   screen's leaves object-fit: contain a letterboxed gap either side, and
+   with each layer clipping its own separately-computed rounded corner, that
+   gap was where a rotated corner and the still-rectangular layer under it
+   parted ways: a black sliver that did not turn with the card because
+   nothing there was actually clipped to its shape. One clip, owned by the
+   wrap, is what makes the black around a letterboxed picture read as a
+   matte border on the card instead of a stray edge behind it. */
 .pfp-full-wrap {
   position: relative;
   width: 100%;
@@ -1371,6 +1381,9 @@ body {
   align-items: center;
   justify-content: center;
   touch-action: none;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
   transform: perspective(900px)
              rotateX(calc(var(--tilt-y) * -14deg))
              rotateY(calc(var(--tilt-x) * 14deg));
@@ -1386,7 +1399,6 @@ body {
      smaller than the enlarged one it was opened from on a dense screen. */
   width: 100%;
   height: 100%;
-  border-radius: 12px;
   object-fit: contain;
   animation: pfp-image-in var(--dur-slow) var(--ease-in-out) both;
 }
@@ -1408,7 +1420,6 @@ body {
 .pfp-full-sheen {
   position: absolute;
   inset: 0;
-  border-radius: 12px;
   pointer-events: none;
   background: linear-gradient(
     115deg,
@@ -1596,6 +1607,45 @@ body {
   overflow-wrap: anywhere;
 }
 .msg.user .bubble { background: var(--surface-user); }
+
+/* "Separate paragraphs" (§ settings.separate_paragraphs): the outer bubble
+   stops drawing its own shape and becomes a plain positioning box — the
+   wheel, the marks, the reaction corner all still anchor to it exactly as
+   before — and .para-bubble below draws the shape instead, once per
+   paragraph, so a multi-paragraph reply reads as several messages arriving
+   rather than one long one. */
+.bubble.split {
+  background: none;
+  border: none;
+  padding: 0;
+  box-shadow: none;
+}
+
+.body-paragraphs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: opacity var(--dur-text-fade) var(--ease-out);
+}
+.body-paragraphs.fade-out { opacity: 0; }
+
+.para-bubble {
+  background: var(--surface-ai);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 9px 11px;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+  /* Each one is new content arriving, not a released gesture settling — the
+     arriving case in the motion taxonomy (§ :root's own comments), so this
+     eases out rather than springing. */
+  animation: para-bubble-in var(--dur-base) var(--ease-out) both;
+}
+.msg.user .para-bubble { background: var(--surface-user); }
+@keyframes para-bubble-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
 
 .body {
   white-space: pre-wrap;

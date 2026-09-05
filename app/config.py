@@ -497,6 +497,16 @@ class Settings:
     # where per-device state would make sense.
     realistic_chat_speed: bool = True
 
+    # Same client-side-only reasoning as realistic_chat_speed above — this
+    # changes how a reply already received is shown, never what is asked for
+    # or generated. On, static/app.js's own paragraph split (§ splitParagraphs)
+    # shows each paragraph of a reply as its own bubble instead of one long
+    # one, each appearing PARAGRAPH_PAUSE_MS after the last rather than all at
+    # once — realistic_chat_speed being on as well stretches that pause the
+    # same way it already stretches typing speed, rather than the two
+    # settings reasoning about pacing independently.
+    separate_paragraphs: bool = False
+
     # Whole-feature switches (Brain → Settings), off by default — both need a
     # service the app itself does not ship (a search engine, a lip-sync
     # renderer), so most installs will never touch either. Off hides every
@@ -894,6 +904,9 @@ def build_settings(payload: dict[str, Any], current: Settings) -> Settings:
     )
     settings.realistic_chat_speed = bool(
         payload.get("realistic_chat_speed", current.realistic_chat_speed)
+    )
+    settings.separate_paragraphs = bool(
+        payload.get("separate_paragraphs", current.separate_paragraphs)
     )
     settings.feature_web_search = bool(
         payload.get("feature_web_search", current.feature_web_search)

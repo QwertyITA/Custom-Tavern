@@ -634,6 +634,28 @@ function realisticPacing(text) {
   return { silenceMs, typingMinMs: randRange(REALISTIC_TYPING_MIN_MS) };
 }
 
+// "Separate paragraphs" (§ settings.separate_paragraphs): a reply renders as
+// one bubble per paragraph instead of one long one. Blank-line boundaries
+// only — the model's own paragraph breaks, not every line wrap — so a list
+// or a short aside inside one paragraph stays one bubble.
+function splitParagraphs(text) {
+  const parts = String(text || "").split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  return parts.length ? parts : [""];
+}
+
+// Between one paragraph-bubble and the next while one is actively streaming
+// in (§ runStream's own reveal loop) — short by default, since it is only
+// meant as breathing room between bubbles that are already arriving quickly;
+// "Realistic chat speed" stretches it the same way it already stretches the
+// reply's own pacing above, since someone actually pausing between texts
+// pauses longer than that.
+const PARAGRAPH_PAUSE_MS = 300;
+const PARAGRAPH_PAUSE_REALISTIC_MS = [900, 1800];
+
+function paragraphPauseMs(realistic) {
+  return realistic ? randRange(PARAGRAPH_PAUSE_REALISTIC_MS) : PARAGRAPH_PAUSE_MS;
+}
+
 // "/" lines in the composer are forced actions, not something to send — see
 // send() and runSlashCommand(). A table rather than an if/else chain in
 // send() itself, so a new command is one more entry here, not a new branch
@@ -881,6 +903,11 @@ function tavern() {
     editingEl: null,
     regenId: null,
     regenPrevious: "",
+    // How many of the streaming message's paragraphs are shown so far, while
+    // "Separate paragraphs" is on (§ runStream's own reveal loop) — Infinity
+    // once nothing is streaming, so visibleParagraphs never has to special-
+    // case "no stream in progress" separately from "caught up already".
+    streamingParagraphsShown: Infinity,
     fadingId: null,
     // Following the newest message. Cleared when the user scrolls up to read,
     // restored when they come back down or ask for the newest message. Also
@@ -5472,6 +5499,21 @@ function tavern() {
       return this.regenId === message.id && !message.text;
     },
 
+    // What the body should actually render: the whole message as one block
+    // normally, or one entry per paragraph when "Separate paragraphs" is on
+    // (§ index.html's own two templates for this). While this exact message
+    // is the one a reply is streaming into, only as many paragraphs as
+    // streamingParagraphsShown allows — anything already loaded (history, or
+    // this message once the stream has moved past it) shows every paragraph
+    // at once, since the pacing is only ever about *arriving*.
+    visibleParagraphs(message) {
+      const source = message.display || message.text || "";
+      if (!this.settings.separate_paragraphs) return [source];
+      const all = splitParagraphs(source);
+      const isLive = message.id === "streaming" || message.id === this.regenId;
+      return isLive ? all.slice(0, Math.max(1, this.streamingParagraphsShown)) : all;
+    },
+
     // ---- the composing cue ----
 
     // What the cue says. Two states, because they are two different things:
@@ -5549,6 +5591,35 @@ function tavern() {
         if (target) target.text = text;
         this.markFlowing();
       });
+
+      // "Separate paragraphs" (§ settings.separate_paragraphs): reveals one
+      // more paragraph every so often for as long as `target.text` (already
+      // written by the pacer above) has more of them than are currently
+      // shown. Entirely independent of the pacer — it only ever reads
+      // target.text, never writes it, so the two cannot desync — and it
+      // reads `target` from this same closure rather than re-resolving it,
+      // so it sees the exact bubble the pacer is writing into. Stopped from
+      // `finally` below, the same place every other per-stream flag here is.
+      let paragraphRevealDone = false;
+      if (this.settings.separate_paragraphs) {
+        this.streamingParagraphsShown = 1;
+        (async () => {
+          const paced = this.settings.realistic_chat_speed !== false;
+          while (!paragraphRevealDone) {
+            const total = target ? splitParagraphs(target.display || target.text).length : 1;
+            if (total > this.streamingParagraphsShown) {
+              await sleep(paragraphPauseMs(paced));
+              if (paragraphRevealDone) break;
+              this.streamingParagraphsShown += 1;
+            } else {
+              await sleep(60);
+            }
+          }
+          this.streamingParagraphsShown = Infinity;
+        })();
+      } else {
+        this.streamingParagraphsShown = Infinity;
+      }
 
       // Creates the placeholder bubble (or finds the one being swiped) and
       // hands whatever has accumulated in `buffer` to the pacer. Called from
@@ -5848,6 +5919,7 @@ function tavern() {
         // this would reveal or finalize against state this has already torn
         // down or reloaded.
         clearTimeout(realisticTimer);
+        paragraphRevealDone = true;
         await pacer.done();
         this.streaming = false;
         this.composing = false;

@@ -678,7 +678,7 @@
            (§9). touch-action: pan-y leaves vertical scrolling to the chat. -->
       <div class="bubble" :data-mid="m.id"
            :class="{ swipeable: swipeable(m), dragging: dragId === m.id, hidden: m.hidden,
-                     selecting: selectingText === m.id }"
+                     selecting: selectingText === m.id, split: settings.separate_paragraphs }"
            :style="dragId === m.id ? `transform: translateX(${dragDx}px)` : ''"
            @pointerdown="onMsgDown($event, m)"
            @pointermove="onMsgMove($event, m)"
@@ -725,10 +725,26 @@
         </div>
         <!-- `display` only exists when a display-scope rule (§16) rewrote this
              message; `text` is always what was actually said, and it is what
-             editing, copying and the prompt all use. -->
-        <div class="body" :class="{ 'fade-out': fadingId === m.id, lensed: !!m.display }"
-             x-effect="Markup.schedule($el, m.display || m.text)"
-             x-show="editing !== m.id && !isRegenerating(m)"></div>
+             editing, copying and the prompt all use.
+
+             Two templates rather than one class toggle: "Separate
+             paragraphs" (§ settings.separate_paragraphs) needs a *list* of
+             bodies, one per paragraph, each with its own Markup.schedule
+             call — one element can only ever hold one. -->
+        <template x-if="!settings.separate_paragraphs">
+          <div class="body" :class="{ 'fade-out': fadingId === m.id, lensed: !!m.display }"
+               x-effect="Markup.schedule($el, m.display || m.text)"
+               x-show="editing !== m.id && !isRegenerating(m)"></div>
+        </template>
+        <template x-if="settings.separate_paragraphs">
+          <div class="body-paragraphs" :class="{ 'fade-out': fadingId === m.id }"
+               x-show="editing !== m.id && !isRegenerating(m)">
+            <template x-for="(para, pi) in visibleParagraphs(m)" :key="pi">
+              <div class="body para-bubble" :class="{ lensed: !!m.display }"
+                   x-effect="Markup.schedule($el, para)"></div>
+            </template>
+          </div>
+        </template>
 
         <!-- Attachments, under the text they were sent with (§19). A text file
              shows its name and size; its contents went into the prompt and are
@@ -2571,6 +2587,20 @@
           either way. Applies to a new message and to answering one that
           never got a reply — not to regenerating or continuing a reply
           already on screen, both of which stay instant.
+        </p>
+
+        <label class="toggle">
+          <input type="checkbox" x-model="settings.separate_paragraphs">
+          <span>Separate paragraphs</span>
+        </label>
+        <p class="kind-note">
+          A reply with more than one paragraph lands as more than one
+          bubble — one per paragraph, each appearing a beat after the last
+          instead of all at once, the way someone texting in a burst sends
+          a few short messages rather than one long one. Realistic chat
+          speed above stretches that beat the same way it stretches
+          everything else about a reply's pacing. Off, a reply is always
+          one bubble, whatever it contains.
         </p>
 
         <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-edit"/></svg>Chat naming</h3>

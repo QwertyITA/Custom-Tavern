@@ -71,6 +71,18 @@ def test_saving_settings_writes_the_file_and_takes_effect(client, isolated_setti
     assert config.SETTINGS.tiers["background"] == "horde"
 
 
+def test_separate_paragraphs_defaults_off_and_round_trips(client, isolated_settings):
+    """Client-side pacing only, same as realistic_chat_speed right above it
+    in Settings — the server has nothing else to do with this one."""
+    current = client.get("/api/settings").json()
+    assert current["separate_paragraphs"] is False
+
+    current["separate_paragraphs"] = True
+    body = client.put("/api/settings", json=current).json()
+    assert body["settings"]["separate_paragraphs"] is True
+    assert client.get("/api/settings").json()["separate_paragraphs"] is True
+
+
 def test_get_after_save_never_returns_the_real_key(client, isolated_settings):
     client.put("/api/settings", json={
         "backends": [{"name": "echo", "kind": "echo"},
