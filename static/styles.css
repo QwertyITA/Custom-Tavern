@@ -2135,8 +2135,31 @@ body {
 /* The roster's own header row: "New group chat" sits to the left of the
    title rather than in the New character/Import row below, since starting
    one is a variant of *opening* the roster, not of adding to it. */
-.roster-head { display: flex; align-items: center; gap: 8px; }
+.roster-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .roster-head h3 { margin: 0; }
+
+/* Same icon-and-label pill language as .char-action-btn below, just not
+   pinned to a two-up row — this one sits on its own, at the end of the
+   roster's own header line. */
+.roster-action-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background 140ms var(--ease-out), border-color 140ms var(--ease-out);
+}
+.roster-action-btn .icon-btn-glyph { color: var(--accent); }
+.roster-action-btn:active { background: var(--panel-2); }
+.roster-action-btn.on { color: var(--accent); border-color: var(--accent); background: var(--panel-2); }
 
 /* The picker: a fold's contents (§ .fold), same reveal this app already
    uses everywhere a control needs to be tucked away until asked for. */

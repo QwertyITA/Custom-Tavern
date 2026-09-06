@@ -2973,11 +2973,12 @@
         </div>
 
         <div class="roster-head">
-          <button class="icon-btn" :class="{ on: groupPickerOpen }" @click="toggleGroupPicker()"
-                  title="New group chat" aria-label="New group chat">
-            <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-people"/></svg>
-          </button>
           <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chats"/></svg>Characters</h3>
+          <button class="roster-action-btn" :class="{ on: groupPickerOpen }" @click="toggleGroupPicker()"
+                  aria-label="New group chat">
+            <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-people"/></svg>
+            <span>Group chat</span>
+          </button>
         </div>
 
         <!-- Picking who is in it up front, rather than starting solo and
