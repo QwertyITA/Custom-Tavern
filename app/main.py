@@ -2358,6 +2358,25 @@ async def cost(chat_id: str) -> dict:
 
 # ------------------------------------------------------------------ static
 
+# Every static response carries a Last-Modified/ETag already (FileResponse's
+# own doing), which makes it *validatable* — but with no explicit
+# Cache-Control, a browser is free to skip validation for a while and just
+# reuse whatever it already has (RFC 7234's heuristic freshness), silently
+# serving a stale copy of a file that changed on the very next deploy. The
+# service worker's own fetch (§ sw.js) is "network first" on purpose, for
+# exactly this reason — but that intent is only as good as what the browser's
+# own HTTP cache decides to hand back for it. no-cache (not no-store: still
+# cache it, just always ask first) closes that gap: every load revalidates
+# with the server, cheaply, over a 304 when nothing changed.
+@app.middleware("http")
+async def _no_cache_static(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if path == "/" or path in ("/sw.js", "/manifest.webmanifest") or path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 

@@ -43,6 +43,20 @@ def test_health_reports_bootstrap_state(client):
     assert body["characters"] >= 1
 
 
+def test_static_assets_always_revalidate(client):
+    """no-cache, not no-store: a browser may still keep the last copy, but
+    has to ask the server before reusing it — otherwise a phone that already
+    has app.js cached can go on serving a version from before the last
+    deploy indefinitely, with nothing here ever telling it to check again."""
+    for path in ("/", "/static/app.js", "/static/styles.css", "/sw.js", "/manifest.webmanifest"):
+        assert client.get(path).headers["cache-control"] == "no-cache", path
+    # Untouched: an API response answers a question, it is not a file that
+    # sits around waiting to go stale.
+    assert "cache-control" not in {
+        k.lower() for k in client.get("/api/health").headers.keys()
+    }
+
+
 def test_settings_never_leak_api_keys(client):
     body = client.get("/api/settings").json()
     for backend in body["backends"]:
