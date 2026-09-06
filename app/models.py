@@ -347,6 +347,15 @@ class CreateChatRequest(BaseModel):
     title: str = ""
 
 
+class CreateGroupChatRequest(BaseModel):
+    # The first one is who the chat is created from — their opening line
+    # plays, and they hold the chats.character_id column a solo chat also
+    # would — the rest join as members (§ groups.add_member) before anyone
+    # has said a word.
+    character_ids: list[str]
+    title: str = ""
+
+
 class SendMessageRequest(BaseModel):
     text: str
     # Staged attachments to bind to this turn's message (§19).

@@ -38,6 +38,7 @@ from .models import (
     Character,
     CharacterReactions,
     CreateChatRequest,
+    CreateGroupChatRequest,
     EditMessageRequest,
     PassDef,
     PfpEffect,
@@ -1113,6 +1114,31 @@ async def list_chats(character_id: str | None = None) -> list[dict]:
     return rows
 
 
+def _seed_opening_message(db, chat: dict, character: Character) -> None:
+    """The greeting loads at chat start (§7.4) and is a real message, so it
+    takes part in context assembly and can be swiped like any other. Its
+    macros are resolved once, here: a message is a record of something that
+    was said, and rewriting it later because a persona was renamed would
+    falsify the transcript."""
+    ctx = assembly.macro_context(db, chat, character)
+    openings = [character.first_mes, *character.alternate_greetings]
+    openings = [macros.substitute(o.strip(), ctx) for o in openings]
+    openings = [o for o in openings if o]
+    if not openings:
+        return
+    message = repo.add_message(db, chat["id"], "assistant", openings[0], turn=0)
+    # The card's other openings become swipe variants of the same message,
+    # so choosing between them is the gesture that already exists rather
+    # than a picker that only ever appears once per chat. add_variant makes
+    # each new one active, so the first is re-selected at the end to leave
+    # the card's preferred greeting showing.
+    for alternate in openings[1:]:
+        repo.add_variant(db, message["id"], alternate)
+    if len(openings) > 1:
+        first = repo.list_variants(db, message["id"])[0]
+        repo.set_active_variant(db, message["id"], first["id"])
+
+
 @app.post("/api/chats")
 async def create_chat(payload: CreateChatRequest) -> dict:
     db = get_db()
@@ -1127,27 +1153,38 @@ async def create_chat(payload: CreateChatRequest) -> dict:
     chat = repo.create_chat(db, payload.character_id, explicit_title or "Latest chat")
     if explicit_title:
         repo.rename_chat(db, chat["id"], explicit_title, manual=True)
-    # The greeting loads at chat start (§7.4) and is a real message, so it takes
-    # part in context assembly and can be swiped like any other. Its macros are
-    # resolved once, here: a message is a record of something that was said, and
-    # rewriting it later because a persona was renamed would falsify the
-    # transcript.
-    ctx = assembly.macro_context(db, chat, character)
-    openings = [character.first_mes, *character.alternate_greetings]
-    openings = [macros.substitute(o.strip(), ctx) for o in openings]
-    openings = [o for o in openings if o]
-    if openings:
-        message = repo.add_message(db, chat["id"], "assistant", openings[0], turn=0)
-        # The card's other openings become swipe variants of the same message,
-        # so choosing between them is the gesture that already exists rather
-        # than a picker that only ever appears once per chat. add_variant makes
-        # each new one active, so the first is re-selected at the end to leave
-        # the card's preferred greeting showing.
-        for alternate in openings[1:]:
-            repo.add_variant(db, message["id"], alternate)
-        if len(openings) > 1:
-            first = repo.list_variants(db, message["id"])[0]
-            repo.set_active_variant(db, message["id"], first["id"])
+    _seed_opening_message(db, chat, character)
+    return chat
+
+
+@app.post("/api/chats/group")
+async def create_group_chat(payload: CreateGroupChatRequest) -> dict:
+    """Start a chat with several characters in it from the first message
+    on, rather than growing one into a group after the fact by adding
+    members (§ groups.add_member) one at a time. The first id is who the
+    chat is created from — same as a solo chat's own character_id, their
+    greeting is what plays — everyone after joins as a member before the
+    opening line is even written, so it is never missing from the cast."""
+    db = get_db()
+    seen: set[str] = set()
+    ids = [cid for cid in payload.character_ids if not (cid in seen or seen.add(cid))]
+    if len(ids) < 2:
+        raise HTTPException(400, "a group chat needs at least two different characters")
+
+    characters = []
+    for character_id in ids:
+        character = repo.get_character(db, character_id)
+        if character is None or _vault_hidden(character):
+            raise HTTPException(404, f"character not found: {character_id}")
+        characters.append(character)
+
+    explicit_title = payload.title.strip()
+    chat = repo.create_chat(db, ids[0], explicit_title or "Latest chat")
+    if explicit_title:
+        repo.rename_chat(db, chat["id"], explicit_title, manual=True)
+    for character_id in ids[1:]:
+        groups.add_member(db, chat["id"], character_id)
+    _seed_opening_message(db, chat, characters[0])
     return chat
 
 

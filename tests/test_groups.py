@@ -325,6 +325,78 @@ def test_the_members_endpoint_reports_the_room(client):
     assert all(p["note"] for p in body["policies"])
 
 
+# ------------------------------------------------------ starting one as one
+
+
+def test_creating_a_group_chat_adds_every_character_at_once(client):
+    a = client.post("/api/characters", json={"name": "Harrow"}).json()["id"]
+    b = client.post("/api/characters", json={"name": "Anna"}).json()["id"]
+
+    chat = client.post("/api/chats/group", json={"character_ids": [a, b]}).json()
+    body = client.get(f"/api/chats/{chat['id']}/members").json()
+    assert {m["character_id"] for m in body["members"]} == {a, b}
+
+
+def test_a_group_chat_needs_at_least_two_characters(client):
+    a = client.post("/api/characters", json={"name": "Harrow"}).json()["id"]
+    response = client.post("/api/chats/group", json={"character_ids": [a]})
+    assert response.status_code == 400
+
+
+def test_a_group_chat_rejects_an_unknown_character(client):
+    a = client.post("/api/characters", json={"name": "Harrow"}).json()["id"]
+    response = client.post("/api/chats/group", json={"character_ids": [a, "not-a-real-character"]})
+    assert response.status_code == 404
+
+
+def test_a_group_chat_dedupes_a_repeated_id(client):
+    """The same character twice is one character, not two — same reasoning
+    as add_member's own ON CONFLICT DO NOTHING."""
+    a = client.post("/api/characters", json={"name": "Harrow"}).json()["id"]
+    b = client.post("/api/characters", json={"name": "Anna"}).json()["id"]
+
+    chat = client.post("/api/chats/group", json={"character_ids": [a, a, b]}).json()
+    body = client.get(f"/api/chats/{chat['id']}/members").json()
+    assert {m["character_id"] for m in body["members"]} == {a, b}
+
+
+def test_the_greeting_comes_from_the_first_character_named(client):
+    a = client.post("/api/characters", json={"name": "Harrow"}).json()["id"]
+    b = client.post("/api/characters", json={"name": "Anna"}).json()["id"]
+    client.put(f"/api/characters/{a}", json={"first_mes": "Harrow nods once."})
+    client.put(f"/api/characters/{b}", json={"first_mes": "Anna waves."})
+
+    chat = client.post("/api/chats/group", json={"character_ids": [a, b]}).json()
+    messages = client.get(f"/api/chats/{chat['id']}/messages").json()
+    assert messages and messages[0]["text"] == "Harrow nods once."
+
+
+def test_a_group_chat_reaches_every_members_own_history(client):
+    """The point of starting one as one rather than growing into it: it
+    belongs to everybody in it from the first line, not just the character
+    it happens to be filed under."""
+    a = client.post("/api/characters", json={"name": "Harrow"}).json()["id"]
+    b = client.post("/api/characters", json={"name": "Anna"}).json()["id"]
+    chat = client.post("/api/chats/group", json={"character_ids": [a, b]}).json()
+
+    for character_id in (a, b):
+        listed = client.get(f"/api/chats?character_id={character_id}").json()
+        assert chat["id"] in {c["id"] for c in listed}
+
+
+def test_list_chats_reports_is_group_and_member_ids(client):
+    a = client.post("/api/characters", json={"name": "Harrow"}).json()["id"]
+    b = client.post("/api/characters", json={"name": "Anna"}).json()["id"]
+    group_chat = client.post("/api/chats/group", json={"character_ids": [a, b]}).json()
+    solo_chat = client.post("/api/chats", json={"character_id": a}).json()
+
+    listed = {c["id"]: c for c in client.get("/api/chats").json()}
+    assert listed[group_chat["id"]]["is_group"] is True
+    assert set(listed[group_chat["id"]]["member_ids"]) == {a, b}
+    assert listed[solo_chat["id"]]["is_group"] is False
+    assert listed[solo_chat["id"]]["member_ids"] == [a]
+
+
 def test_muting_through_the_api_sticks(client):
     character_id, chat_id = api_chat(client)
     client.patch(f"/api/chats/{chat_id}/members/{character_id}", json={"muted": True})

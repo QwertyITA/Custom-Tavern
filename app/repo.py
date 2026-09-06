@@ -308,18 +308,38 @@ def get_chat(db: Database, chat_id: str) -> dict | None:
 
 
 def list_chats(db: Database, character_id: str | None = None) -> list[dict]:
+    """Every chat, or every chat one character is actually *in* — as a
+    member (§ chat_members, groups.py), not only as the chat's own
+    `character_id` column. A group chat is started from one character but
+    belongs to all of them, so it has to turn up in each member's own
+    history, not just the one it happened to be created from."""
+    member_ids_sql = (
+        "(SELECT GROUP_CONCAT(character_id) FROM chat_members WHERE chat_id=c.id) AS member_ids"
+    )
     if character_id:
         rows = db.query(
-            "SELECT id, character_id, title, created_at, updated_at FROM chats "
-            "WHERE character_id=? ORDER BY updated_at DESC",
+            f"SELECT c.id, c.character_id, c.title, c.created_at, c.updated_at, {member_ids_sql} "
+            "FROM chats c WHERE EXISTS ("
+            "  SELECT 1 FROM chat_members m WHERE m.chat_id=c.id AND m.character_id=?"
+            ") ORDER BY c.updated_at DESC",
             (character_id,),
         )
     else:
         rows = db.query(
-            "SELECT id, character_id, title, created_at, updated_at FROM chats "
-            "ORDER BY updated_at DESC"
+            f"SELECT c.id, c.character_id, c.title, c.created_at, c.updated_at, {member_ids_sql} "
+            "FROM chats c ORDER BY c.updated_at DESC"
         )
-    return [dict(row) for row in rows]
+    chats = []
+    for row in rows:
+        chat = dict(row)
+        raw = chat["member_ids"] or ""
+        chat["member_ids"] = raw.split(",") if raw else []
+        # A group chat has more than one member — the same threshold
+        # groups.is_group uses, restated here so a list of chats does not
+        # cost one query per row to know which of them are group chats.
+        chat["is_group"] = len(chat["member_ids"]) > 1
+        chats.append(chat)
+    return chats
 
 
 def delete_chat(db: Database, chat_id: str) -> None:

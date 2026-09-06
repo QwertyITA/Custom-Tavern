@@ -872,6 +872,13 @@ function tavern() {
     // must still draw as a plain list while unable to answer.
     cardBudget: {},
     chats: [],
+    // The "New group chat" picker (§ toggleGroupPicker) — open/closed, which
+    // characters are checked so far, and whether the create request is in
+    // flight. Reset whenever the picker closes, same as any other fold this
+    // app forgets the instant it is shut.
+    groupPickerOpen: false,
+    groupPicked: [],
+    creatingGroupChat: false,
     characterId: "",
     chatId: "",
     character: null,
@@ -4115,8 +4122,12 @@ function tavern() {
 
     // ---- characters ----
 
+    // Membership (§ repo.list_chats, member_ids), not just chats.character_id
+    // — a group chat belongs to every character in it, not only the one it
+    // happened to be created from, so it has to turn up in each of their
+    // own histories.
     chatsFor(characterId) {
-      return this.chats.filter((c) => c.character_id === characterId);
+      return this.chats.filter((c) => (c.member_ids || [c.character_id]).includes(characterId));
     },
 
     whenLabel(chat) {
@@ -4610,6 +4621,43 @@ function tavern() {
     },
     characterExportName(c) {
       return `${c.name}.card.${c.has_expressions ? "png" : "json"}`;
+    },
+
+    // ---- group chats, started as one (roadmap 8) ----
+    //
+    // The other way in is growing a solo chat into one member at a time,
+    // from "Who is here" (§ addMember) once you are already inside it. This
+    // is for when the room is the point from the first line — picking
+    // everyone before anyone has said anything, rather than starting with
+    // one character and inviting the rest in afterward.
+
+    toggleGroupPicker() {
+      this.groupPickerOpen = !this.groupPickerOpen;
+      this.groupPicked = [];
+    },
+
+    toggleGroupPick(characterId) {
+      const at = this.groupPicked.indexOf(characterId);
+      if (at === -1) this.groupPicked.push(characterId);
+      else this.groupPicked.splice(at, 1);
+    },
+
+    async startGroupChat() {
+      if (this.groupPicked.length < 2 || this.creatingGroupChat) return;
+      this.creatingGroupChat = true;
+      this.error = "";
+      try {
+        const chat = await api.post("/api/chats/group", { character_ids: this.groupPicked });
+        this.chats = await api.get("/api/chats");
+        this.groupPickerOpen = false;
+        this.groupPicked = [];
+        await this.openChat(chat.id);
+        this.closePanel();
+      } catch (e) {
+        this.error = errorText(e);
+      } finally {
+        this.creatingGroupChat = false;
+      }
     },
 
     async newCharacter() {

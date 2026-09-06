@@ -317,6 +317,22 @@ STscript (26).
       continue/swipe/edit/react/suggest-edit and everything else keep
       treating the reply as the one message it has always been in the
       data model; only how it is shown changes.
+- [x] **44. Group chats, started as one.** A new button beside the
+      roster's "Characters" heading picks at least two characters up
+      front and starts one chat with all of them in it from the first
+      line — the other way in, growing a solo chat into a group by
+      adding members one at a time from "Who is here" mid-conversation
+      (§ groups.add_member), still works exactly as before. `POST
+      /api/chats/group` is a sibling of the solo `POST /api/chats`:
+      the first character id is who the chat is created from (their
+      greeting plays, same as a solo chat's own character_id), the
+      rest join as `chat_members` before anyone has said a word.
+      `repo.list_chats` now joins against `chat_members` instead of
+      filtering on the chat's own `character_id` column, so a group
+      chat turns up in *every* participant's own "Recent chats" — not
+      only the one it happened to be created from — each carrying a
+      `member_ids` list and an `is_group` flag the roster draws a
+      small people-icon badge from.
 
 ## Undecided — needs a call
 

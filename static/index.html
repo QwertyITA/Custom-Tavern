@@ -2972,7 +2972,43 @@
           </div>
         </div>
 
-        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chats"/></svg>Characters</h3>
+        <div class="roster-head">
+          <button class="icon-btn" :class="{ on: groupPickerOpen }" @click="toggleGroupPicker()"
+                  title="New group chat" aria-label="New group chat">
+            <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-people"/></svg>
+          </button>
+          <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chats"/></svg>Characters</h3>
+        </div>
+
+        <!-- Picking who is in it up front, rather than starting solo and
+             growing the chat into a group one member at a time the way
+             "Who is here" (§ addMember) already lets you — both still end
+             up at the exact same chat_members table (§ groups.py), this
+             just gets everyone into the cast before the first line is
+             written instead of after. -->
+        <div class="fold" :class="{ open: groupPickerOpen }">
+          <div class="fold-clip">
+            <div class="group-picker">
+              <p class="kind-note">Pick at least two characters to start one chat with all of them in it.</p>
+              <template x-for="c in characters" :key="c.id">
+                <label class="group-pick-row">
+                  <input type="checkbox" :checked="groupPicked.includes(c.id)"
+                         @change="toggleGroupPick(c.id)">
+                  <span class="char-pfp">
+                    <svg class="char-pfp-generic" viewBox="0 0 24 24" aria-hidden="true">
+                      <use href="#i-person"/>
+                    </svg>
+                  </span>
+                  <span class="char-name" x-text="c.name"></span>
+                </label>
+              </template>
+              <button class="wide primary" :disabled="groupPicked.length < 2 || creatingGroupChat"
+                      @click="startGroupChat()">
+                <span x-text="creatingGroupChat ? 'Starting…' : 'Start group chat'"></span>
+              </button>
+            </div>
+          </div>
+        </div>
 
         <template x-for="c in characters" :key="c.id">
           <div class="char" :data-cid="c.id"
@@ -3131,6 +3167,14 @@
                   <div class="chat-row">
                     <button class="chat-open" x-show="renamingChat !== chat.id"
                             @click="openChat(chat.id); closePanel()">
+                      <!-- The one place a chat says it isn't only this
+                           character's own — several members share the same
+                           row in every one of their own histories (§
+                           repo.list_chats, member_ids). -->
+                      <span class="chat-group-badge" x-show="chat.is_group" x-cloak
+                            title="Group chat" aria-label="Group chat">
+                        <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-people"/></svg>
+                      </span>
                       <span class="chat-title" x-text="chat.title || 'untitled'"></span>
                       <span class="chat-when" x-text="whenLabel(chat)"></span>
                     </button>

@@ -2129,6 +2129,28 @@ body {
 .chat-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-when { color: var(--muted); font-size: 11px; flex: none; }
 .chat-empty { color: var(--muted); font-size: 12px; padding: 8px; }
+.chat-group-badge { flex: none; display: inline-flex; color: var(--muted); }
+.chat-group-badge .icon-btn-glyph { width: 13px; height: 13px; }
+
+/* The roster's own header row: "New group chat" sits to the left of the
+   title rather than in the New character/Import row below, since starting
+   one is a variant of *opening* the roster, not of adding to it. */
+.roster-head { display: flex; align-items: center; gap: 8px; }
+.roster-head h3 { margin: 0; }
+
+/* The picker: a fold's contents (§ .fold), same reveal this app already
+   uses everywhere a control needs to be tucked away until asked for. */
+.group-picker { display: flex; flex-direction: column; gap: 4px; padding: 4px 0 12px; }
+.group-pick-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  border-radius: 8px;
+  transition: background 140ms var(--ease-out);
+}
+.group-pick-row:active { background: var(--panel-2); }
+.group-pick-row .char-name { flex: 1; min-width: 0; }
 
 /* The row's own overflow glyph — narrower than an ordinary .glyph-btn since
    it carries nothing but one icon, kept close to .chat-when just before it. */
