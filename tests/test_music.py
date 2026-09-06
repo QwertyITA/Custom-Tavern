@@ -36,6 +36,29 @@ def test_validate_music_meta_keeps_the_label(tmp_path, monkeypatch):
     assert cleaned == {"song.mp3": {"label": "Evening Waltz"}}
 
 
+def test_validate_music_meta_keeps_the_artist(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "USER_MUSIC_DIR", tmp_path / "music")
+    config.USER_MUSIC_DIR.mkdir(parents=True, exist_ok=True)
+    (config.USER_MUSIC_DIR / "song.mp3").write_bytes(TRACK_BYTES)
+
+    cleaned = config.validate_music_meta({"song.mp3": {"artist": "  Nils Frahm  "}})
+    assert cleaned == {"song.mp3": {"artist": "Nils Frahm"}}
+
+
+def test_music_display_combines_title_and_artist():
+    meta = {"song.mp3": {"label": "Evening Waltz", "artist": "Nils Frahm"}}
+    assert config.music_display("song.mp3", meta) == "Evening Waltz — Nils Frahm"
+
+
+def test_music_display_falls_back_to_the_title_alone_with_no_artist():
+    assert config.music_display("song.mp3", {"song.mp3": {"label": "Evening Waltz"}}) == "Evening Waltz"
+    assert config.music_display("song.mp3", None) == "song"
+
+
+def test_music_display_still_shows_the_artist_with_no_title(tmp_path, monkeypatch):
+    assert config.music_display("song.mp3", {"song.mp3": {"artist": "Nils Frahm"}}) == "song — Nils Frahm"
+
+
 # --------------------------------------------------------------- library
 
 
@@ -400,6 +423,16 @@ def test_music_select_excludes_a_track_marked_auto_false(sched, chat, character,
     assert name not in body
 
 
+def test_music_select_tells_the_model_the_artist_too(sched, chat, character, tmp_path, monkeypatch):
+    name = _seed_track(tmp_path, monkeypatch)
+    monkeypatch.setattr(sched.settings, "music_meta", {name: {"artist": "Nils Frahm"}})
+    definition = next(d for d in registry.all_passes(sched.db) if d.id == "music_select")
+
+    task, messages, _handler = sched._build_pass_input(context(chat, character), definition)
+    body = task + " " + " ".join(m["content"] for m in messages)
+    assert "Nils Frahm" in body
+
+
 def test_music_select_asks_with_a_fallback_line_on_an_invalid_pick(
     sched, chat, character, tmp_path, monkeypatch
 ):
@@ -536,6 +569,19 @@ def test_a_playing_track_reaches_the_prompt_by_its_title(db, chat, character):
     out = assembly.build_reply_context(db, chat, character, settings)
     assert "Currently playing: An Old Waltz." in out.volatile
     assert "melancholy" not in out.volatile
+
+
+def test_a_playing_track_with_an_artist_reaches_the_prompt_by_both(db, chat, character):
+    sync(state_mod.write_slice(
+        db, chat["id"], SLICE_MUSIC,
+        {"status": "playing", "track": "waltz.mp3", "character": "Mira"},
+        source_turn=1, source_pass="manual",
+    ))
+    settings = Settings(music_meta={
+        "waltz.mp3": {"label": "An Old Waltz", "artist": "Nils Frahm"}
+    })
+    out = assembly.build_reply_context(db, chat, character, settings)
+    assert "Currently playing: An Old Waltz — Nils Frahm." in out.volatile
 
 
 def test_a_playing_track_falls_back_to_its_filename_with_the_extension_stripped(

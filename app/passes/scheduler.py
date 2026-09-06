@@ -1348,14 +1348,22 @@ class PassScheduler:
             # the library panel, just never proposed by this pass.
             meta = settings.music_meta or {}
             listed = [
-                (name, ((meta.get(name) or {}).get("description") or "").strip())
+                (
+                    name,
+                    ((meta.get(name) or {}).get("artist") or "").strip(),
+                    ((meta.get(name) or {}).get("description") or "").strip(),
+                )
                 for name in config.available_music_tracks()
                 if (meta.get(name) or {}).get("auto") is not False
             ]
             if not listed:
                 return "", [], None
-            lines = [f"- {name}: {desc}" if desc else f"- {name}" for name, desc in listed]
-            extra = "Allowed tracks (id: description):\n" + "\n".join(lines)
+            lines = []
+            for name, artist, desc in listed:
+                bits = [f"by {artist}" if artist else "", desc]
+                tail = "; ".join(b for b in bits if b)
+                lines.append(f"- {name}: {tail}" if tail else f"- {name}")
+            extra = "Allowed tracks (id: artist; description):\n" + "\n".join(lines)
         elif definition.id == "chat_rename":
             # The whole chat, every time (§ CHAT_RENAME_FIRST_AT/_EVERY,
             # _maybe_rename_chat) — this can retitle a chat more than once as

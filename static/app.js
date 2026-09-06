@@ -749,7 +749,7 @@ const SLASH_COMMANDS = {
       }
       if (vm.messages.length > before.messageCount) return "Asked about adding a track to play";
       if (vm.music.status === "proposed" && (vm.music.track !== before.track || vm.music.status !== before.status)) {
-        return `Wants to play ${vm.musicLabel(vm.music.track)}`;
+        return `Wants to play ${vm.musicDisplay(vm.music.track)}`;
       }
       if (run.status === "stale") return "Music unchanged — nothing else fit";
       return "Music unchanged — already proposing that one";
@@ -4007,6 +4007,18 @@ function tavern() {
       // fallback for the same reason bgLabel strips it: nobody asking
       // permission to play something needs to read its file format.
       return this.musicMeta(name).label || name.replace(/\.[^.]+$/, "");
+    },
+
+    // musicLabel plus " — Artist" when one is set (§ Settings.music_meta,
+    // config.py's music_display) — every place a track's name is *shown*
+    // to a person (the card, the currently-playing bar) rather than
+    // *edited*. The editable title field itself still binds through
+    // musicLabel/musicMeta directly (§ the raw-value comment on that input,
+    // above) — this one is never what an input's own value reads from.
+    musicDisplay(name) {
+      if (!name) return "";
+      const artist = (this.musicMeta(name).artist || "").trim();
+      return artist ? `${this.musicLabel(name)} — ${artist}` : this.musicLabel(name);
     },
 
     // The person's own pick — no card, no permission needed.

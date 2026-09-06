@@ -362,6 +362,19 @@ STscript (26).
       on that message's own row and cascades away with it. A `/music`
       command forces the same on-demand path background/expression
       already use, for testing this without waiting on the trigger.
+- [x] **46. Music: an artist field, next to the title.** Each track in
+      the library now has its own `artist`, alongside the existing
+      `label`/description — a new input in the Music panel, same raw-
+      value-binds-the-input shape the title field already uses (no
+      filename-style fallback to snap back to, so no placeholder trick
+      needed here). Never shown in the title's own editable field, only
+      in text a person or the model actually *reads*: the proposal
+      card, the currently-playing bar, and the "Currently playing: …"
+      prompt line all now read `config.music_display`/`musicDisplay`
+      (title, plus " — Artist" when one is set) instead of the title
+      alone. `music_select`'s own track list also passes the artist to
+      the model alongside the description, so it can be part of the
+      pick, not just the write-up afterward.
 
 ## Undecided — needs a call
 

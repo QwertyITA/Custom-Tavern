@@ -1247,7 +1247,7 @@
      x-transition:leave-end="music-card-from">
   <span>
     <strong x-text="music.character || 'The character'"></strong>
-    wants to play <em x-text="musicLabel(music.track)"></em>.
+    wants to play <em x-text="musicDisplay(music.track)"></em>.
   </span>
   <div class="music-card-actions">
     <button class="wide" @click="musicRespond('allow')">Allow</button>
@@ -1262,7 +1262,7 @@
      x-transition:leave="music-bar-leave" x-transition:leave-start="music-bar-to"
      x-transition:leave-end="music-bar-from">
   <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-music"/></svg>
-  <span class="music-bar-track" x-text="musicLabel(music.track)"></span>
+  <span class="music-bar-track" x-text="musicDisplay(music.track)"></span>
   <button class="icon-btn" @click="openPanel('music')" title="Change track" aria-label="Change track">
     <svg class="icon" viewBox="0 0 24 24"><use href="#i-skip"/></svg>
   </button>
@@ -2898,16 +2898,16 @@
 
         <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-music"/></svg>Library</h3>
         <p class="kind-note">
-          Name and describe a track so the AI can pick a fitting one on its
-          own — it will still ask before playing it. The eye excludes one
-          from that automatic pick without removing it; it stays choosable
-          by hand here either way.
+          Name, credit an artist and describe a track so the AI can pick a
+          fitting one on its own — it will still ask before playing it. The
+          eye excludes one from that automatic pick without removing it; it
+          stays choosable by hand here either way.
         </p>
         <div class="music-list">
           <template x-for="t in musicLibrary" :key="t.name">
             <div class="music-row" :class="{ on: music.track === t.name && music.status === 'playing' }">
               <button class="music-row-play" @click="pickMusic(t.name)"
-                      :aria-label="`Play ${musicLabel(t.name)}`" title="Play">
+                      :aria-label="`Play ${musicDisplay(t.name)}`" title="Play">
                 <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-play"/></svg>
               </button>
               <div class="music-row-fields">
@@ -2922,6 +2922,9 @@
                 <input class="music-row-name" :value="musicMeta(t.name).label || ''"
                        :placeholder="musicLabel(t.name)" maxlength="60"
                        @input="setMusicMeta(t.name, 'label', $event.target.value)">
+                <input :value="musicMeta(t.name).artist || ''" maxlength="80"
+                       placeholder="Artist"
+                       @input="setMusicMeta(t.name, 'artist', $event.target.value)">
                 <input :value="musicMeta(t.name).description || ''" maxlength="400"
                        placeholder="What this sounds like — helps the AI pick it automatically."
                        @input="setMusicMeta(t.name, 'description', $event.target.value)">

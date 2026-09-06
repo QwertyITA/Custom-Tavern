@@ -350,6 +350,9 @@ def validate_music_meta(raw: Any) -> dict[str, dict[str, Any]]:
         label = str(entry.get("label") or "").strip()[:60]
         if label:
             cleaned["label"] = label
+        artist = str(entry.get("artist") or "").strip()[:80]
+        if artist:
+            cleaned["artist"] = artist
         description = str(entry.get("description") or "").strip()[:400]
         if description:
             cleaned["description"] = description
@@ -368,6 +371,20 @@ def music_title(name: str, meta: dict[str, dict[str, Any]] | None = None) -> str
     if label:
         return str(label)
     return Path(name).stem
+
+
+def music_artist(name: str, meta: dict[str, dict[str, Any]] | None = None) -> str:
+    return str(((meta or {}).get(name) or {}).get("artist") or "").strip()
+
+
+def music_display(name: str, meta: dict[str, dict[str, Any]] | None = None) -> str:
+    """music_title, plus " — Artist" when one is set — the one place both
+    fields combine into text a person or the model actually reads. Mirrors
+    app.js's musicDisplay; music_title itself stays title-only, since that's
+    also what a track's editable name field binds to (§ index.html)."""
+    title = music_title(name, meta)
+    artist = music_artist(name, meta)
+    return f"{title} — {artist}" if artist else title
 
 
 def user_avatar_idles() -> list[str]:
