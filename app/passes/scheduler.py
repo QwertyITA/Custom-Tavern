@@ -1592,10 +1592,23 @@ class PassScheduler:
             chosen = str(payload.get("track") or "").strip()
             if chosen not in allowed:
                 # "none", a hallucinated name, or one dropped out from under
-                # it this turn: nothing to propose, not a bug — silence is a
-                # legitimate answer here, unlike a backdrop that always keeps
-                # showing something.
-                return False
+                # it this turn: nothing to propose. The model may still have
+                # asked the person to add a track (§ registry.py's prompt) —
+                # a real message, not a card, so declining or deleting it
+                # never has to leave state.music in a "still asking" limbo
+                # nothing then answers.
+                ask = re.sub(r"\s+", " ", str(payload.get("ask") or "")).strip(" \"'")
+                if not ask:
+                    return False
+                message = repo.add_message(
+                    self.db, ctx.chat_id, "assistant", ask, speaker_id=ctx.character.id,
+                )
+                repo.set_music_ask(self.db, message["variant_id"], "pending")
+                self._emit(
+                    ctx.chat_id,
+                    {"type": "message", "message": repo.get_message(self.db, message["id"])},
+                )
+                return True
             write = await state_mod.write_slice(
                 self.db,
                 ctx.chat_id,

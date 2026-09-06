@@ -172,7 +172,7 @@ class Database:
             self._writer_thread.join(timeout=5)
 
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 
 def _run_migration_step(conn: sqlite3.Connection, step: str) -> None:
     """Apply one migration statement, tolerating one that has already landed.
@@ -318,6 +318,15 @@ MIGRATIONS: dict[int, list[str]] = {
         "ALTER TABLE message_variants ADD COLUMN user_reaction TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE message_variants ADD COLUMN reaction_ack TEXT NOT NULL DEFAULT ''",
     ],
+    # music_select's own ask (§ registry.py, scheduler.py): when nothing in
+    # the library fits, the character can ask in-chat for a track instead of
+    # just going quiet. The ask is a real message, and this column lives on
+    # it rather than on state.music, so withdrawing the offer is just
+    # deleting the message — no separate cleanup path needed (cascades with
+    # the rest of that message's row). '' means not an ask (or resolved),
+    # 'pending' is unanswered, 'awaiting_upload' is answered yes and waiting
+    # on a track.
+    17: ["ALTER TABLE message_variants ADD COLUMN music_ask TEXT NOT NULL DEFAULT ''"],
 }
 
 

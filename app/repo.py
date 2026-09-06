@@ -443,6 +443,7 @@ def add_message(
         "echoes_user": echoes_user,
         "user_reaction": "",
         "reaction_ack": "",
+        "music_ask": "",
         "created_at": timestamp,
     }
 
@@ -485,7 +486,7 @@ def add_variant(
         "id": variant_id, "idx": index, "text": text,
         "has_thinking": bool(thinking), "has_full_text": bool(full_text),
         "has_draft_text": bool(draft_text), "echoes_user": echoes_user,
-        "user_reaction": "", "reaction_ack": "",
+        "user_reaction": "", "reaction_ack": "", "music_ask": "",
     }
 
 
@@ -591,6 +592,16 @@ def set_reaction_ack(db: Database, variant_id: str, text: str) -> None:
     )
 
 
+def set_music_ask(db: Database, variant_id: str, state: str) -> None:
+    """'', 'pending' or 'awaiting_upload' (§ music_select's ask, migration
+    17) — one column, one variant, same shape as set_reaction above."""
+    db.write_sync(
+        lambda conn: conn.execute(
+            "UPDATE message_variants SET music_ask=? WHERE id=?", (state, variant_id)
+        )
+    )
+
+
 def get_message(db: Database, message_id: str) -> dict | None:
     row = db.query_one(
         "SELECT m.*, v.text AS text, v.translation AS translation, v.idx AS variant_index, "
@@ -599,7 +610,8 @@ def get_message(db: Database, message_id: str) -> dict | None:
         "(LENGTH(COALESCE(v.draft_text, '')) > 0) AS has_draft_text, "
         "COALESCE(v.echoes_user, '') AS echoes_user, "
         "COALESCE(v.user_reaction, '') AS user_reaction, "
-        "COALESCE(v.reaction_ack, '') AS reaction_ack "
+        "COALESCE(v.reaction_ack, '') AS reaction_ack, "
+        "COALESCE(v.music_ask, '') AS music_ask "
         "FROM messages m LEFT JOIN message_variants v ON v.id = m.active_variant "
         "WHERE m.id=?",
         (message_id,),
@@ -615,6 +627,7 @@ def get_message(db: Database, message_id: str) -> dict | None:
     message["echoes_user"] = message["echoes_user"] or ""
     message["user_reaction"] = message["user_reaction"] or ""
     message["reaction_ack"] = message["reaction_ack"] or ""
+    message["music_ask"] = message["music_ask"] or ""
     message["variant_id"] = message.pop("active_variant")
     count = db.query_one(
         "SELECT COUNT(*) AS c FROM message_variants WHERE message_id=?", (message_id,)
@@ -629,7 +642,8 @@ def list_variants(db: Database, message_id: str) -> list[dict]:
         for row in db.query(
             "SELECT id, idx, text, provider, model, echoes_user, "
             "COALESCE(user_reaction, '') AS user_reaction, "
-            "COALESCE(reaction_ack, '') AS reaction_ack "
+            "COALESCE(reaction_ack, '') AS reaction_ack, "
+            "COALESCE(music_ask, '') AS music_ask "
             "FROM message_variants WHERE message_id=? ORDER BY idx",
             (message_id,),
         )
@@ -647,6 +661,7 @@ def list_messages(db: Database, chat_id: str, include_dropped: bool = True) -> l
         "COALESCE(v.echoes_user, '') AS echoes_user, "
         "COALESCE(v.user_reaction, '') AS user_reaction, "
         "COALESCE(v.reaction_ack, '') AS reaction_ack, "
+        "COALESCE(v.music_ask, '') AS music_ask, "
         "(SELECT COUNT(*) FROM message_variants mv WHERE mv.message_id = m.id) AS variant_count "
         "FROM messages m LEFT JOIN message_variants v ON v.id = m.active_variant "
         "WHERE m.chat_id=?"
@@ -665,6 +680,7 @@ def list_messages(db: Database, chat_id: str, include_dropped: bool = True) -> l
         message["echoes_user"] = message["echoes_user"] or ""
         message["user_reaction"] = message["user_reaction"] or ""
         message["reaction_ack"] = message["reaction_ack"] or ""
+        message["music_ask"] = message["music_ask"] or ""
         message["variant_id"] = message.pop("active_variant")
         out.append(message)
     return out

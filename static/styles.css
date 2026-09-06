@@ -3480,6 +3480,19 @@ body {
   color: var(--text);
   animation: hidden-in 240ms var(--ease-back) both;
 }
+/* The ask's own Yes/No, and the upload button that replaces them once
+   someone says yes (§ music_select's "ask", index.html) — same corner as
+   the reaction row above, in normal flow for the same reason. */
+.music-ask-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  animation: hidden-in 240ms var(--ease-back) both;
+}
+.music-ask-actions .wide { font-size: 12.5px; min-height: 38px; padding: 8px; }
+.music-ask-upload { cursor: pointer; }
+.music-ask-upload.busy { opacity: .7; pointer-events: none; }
+
 .reaction-ack::after {
   content: "";
   position: absolute;

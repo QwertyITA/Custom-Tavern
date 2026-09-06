@@ -77,6 +77,9 @@ CREATE TABLE IF NOT EXISTS message_variants (
     -- (§ app/passes/registry.py's message_reaction pass), cached once.
     user_reaction TEXT NOT NULL DEFAULT '',
     reaction_ack TEXT NOT NULL DEFAULT '',
+    -- music_select's own ask (§ app/db.py migration 17): '' not an ask (or
+    -- resolved), 'pending' unanswered, 'awaiting_upload' answered yes.
+    music_ask TEXT NOT NULL DEFAULT '',
     created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_variants_message ON message_variants(message_id, idx);

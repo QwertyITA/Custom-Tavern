@@ -217,7 +217,7 @@ CANONICAL_PASSES: list[PassDef] = [
                     r"|\b(plays?|puts? on|turns? on|switches? on|starts?|queues? up)\b"
                     r".{0,25}\b(music|song|track|tune|playlist|record)\b",
         ),
-        sampling=Sampling(temp=0.3, top_p=0.9, max_tokens=60),
+        sampling=Sampling(temp=0.3, top_p=0.9, max_tokens=90),
         # A proposal, not a committed value (ROADMAP #39) — the chat shows
         # "<character> wants to play <track>," and nothing plays until the
         # person answers. Its own handler (_handler_music_select,
@@ -230,10 +230,16 @@ CANONICAL_PASSES: list[PassDef] = [
             "You pick the track that best fits how the character would react "
             "to this moment, using each option's description — not just its "
             "filename. This proposes playing it; it does not start it.\n"
-            'Reply with JSON only: {"track": "<one id from the allowed list>"}\n'
+            'Reply with JSON only: {"track": "<one id from the allowed list, '
+            'or \'none\'>", "ask": "<a short in-character line, or empty>"}\n'
             "Choose only an id from the allowed list given in the context, "
-            'exactly as written there. Reply {"track": "none"} if nothing '
-            "fits — silence is a fine answer."
+            'exactly as written there. Set "track" to "none" if nothing '
+            "fits — silence is a fine answer. When you do, you may also set "
+            '"ask" to one short line, in the character\'s own voice and '
+            "personality, inviting the person to add a track that would suit "
+            "this moment — only when asking out loud like that is something "
+            'this character would actually do here; otherwise leave "ask" '
+            'empty. Never set "ask" when "track" is a real id.'
         ),
     ),
     PassDef(

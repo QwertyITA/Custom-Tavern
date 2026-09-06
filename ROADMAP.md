@@ -333,6 +333,24 @@ STscript (26).
       only the one it happened to be created from — each carrying a
       `member_ids` list and an `is_group` flag the roster draws a
       small people-icon badge from.
+- [x] **45. Music: ask instead of going quiet.** When nothing in the
+      library fits (`music_select` would have picked "none"), the
+      character can ask the person to add a track instead — one short
+      line in their own voice and personality, the model's own call
+      whether asking fits the moment at all, never a canned prompt.
+      It's a real chat message, not a floating card: `music_ask`
+      (`message_variants`, migration 17) marks it 'pending', and the
+      message itself carries the ask so declining or scrolling past it
+      reads like any other line. Saying no withdraws the ask and always
+      plays something anyway — a random pick from the same allowed
+      list, not a second model judgment call repeating the first one
+      that already said nothing fit. Saying yes flips the mark to
+      'awaiting_upload' and an upload button appears in its place,
+      reusing the existing manual `POST /api/music`; the upload
+      resolves the mark and starts the new track playing in one
+      follow-through call. No separate "dismiss" affordance — deleting
+      the message is how the offer withdraws, since `music_ask` lives
+      on that message's own row and cascades away with it.
 
 ## Undecided — needs a call
 

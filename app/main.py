@@ -11,6 +11,7 @@ import base64
 import binascii
 import io
 import json
+import random
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -2254,6 +2255,78 @@ async def respond_music(chat_id: str, payload: dict = Body(...)) -> dict:
             source_turn=repo.next_turn(db, chat_id), source_pass="manual",
         )
     return {"ok": True, "music": value}
+
+
+def _music_ask_event(message_id: str, state: str) -> dict:
+    return {"type": "music_ask", "message_id": message_id, "music_ask": state}
+
+
+@app.post("/api/messages/{message_id}/music-ask")
+async def respond_music_ask(message_id: str, payload: dict = Body(...)) -> dict:
+    """Answers the character's own in-chat ask for a track (§ music_select's
+    "ask", registry.py/scheduler.py) — distinct from /music/respond above,
+    which answers a *proposed* track rather than a request for a new one.
+    A no-op when this message isn't actually a pending ask (already answered
+    by another tab, or never was one), same convention as respond_music."""
+    db = get_db()
+    message = repo.get_message(db, message_id)
+    if message is None:
+        raise HTTPException(404, "message not found")
+    choice = str(payload.get("choice") or "").strip()
+    if choice not in ("yes", "no"):
+        raise HTTPException(400, "choice must be yes or no")
+    if message["music_ask"] != "pending":
+        return {"ok": True, "music_ask": message["music_ask"]}
+
+    if choice == "yes":
+        repo.set_music_ask(db, message["variant_id"], "awaiting_upload")
+        BUS.publish(message["chat_id"], _music_ask_event(message_id, "awaiting_upload"))
+        return {"ok": True, "music_ask": "awaiting_upload"}
+
+    # "no": withdraw the ask and always fall back to something playing
+    # (per the feature's own spec) — a random pick rather than another model
+    # call, since the point of asking was that nothing already available was
+    # judged a good fit; a second judgment call would just repeat the first.
+    repo.set_music_ask(db, message["variant_id"], "")
+    BUS.publish(message["chat_id"], _music_ask_event(message_id, ""))
+    meta = config.SETTINGS.music_meta or {}
+    allowed = [
+        name for name in config.available_music_tracks()
+        if (meta.get(name) or {}).get("auto") is not False
+    ]
+    if not allowed:
+        return {"ok": True, "music_ask": "", "music": _music_state(db, message["chat_id"])}
+    value = await _write_music(
+        db, message["chat_id"],
+        {"status": "playing", "track": random.choice(allowed), "character": None},
+        source_pass="music_ask_fallback",
+    )
+    return {"ok": True, "music_ask": "", "music": value}
+
+
+@app.post("/api/messages/{message_id}/music-ask/uploaded")
+async def music_ask_uploaded(message_id: str, payload: dict = Body(...)) -> dict:
+    """The upload button's own follow-through: play what was just added
+    (§ POST /api/music above, called by the frontend first) and withdraw the
+    ask. A no-op, same convention as the endpoint above, unless this message
+    is actually waiting on one."""
+    db = get_db()
+    message = repo.get_message(db, message_id)
+    if message is None:
+        raise HTTPException(404, "message not found")
+    if message["music_ask"] != "awaiting_upload":
+        return {"ok": True, "music_ask": message["music_ask"]}
+    track = str(payload.get("track") or "").strip()
+    if track not in config.available_music_tracks():
+        raise HTTPException(404, "track not found")
+
+    repo.set_music_ask(db, message["variant_id"], "")
+    BUS.publish(message["chat_id"], _music_ask_event(message_id, ""))
+    value = await _write_music(
+        db, message["chat_id"], {"status": "playing", "track": track, "character": None},
+        source_pass="music_ask",
+    )
+    return {"ok": True, "music_ask": "", "music": value}
 
 
 @app.post("/api/chats/{chat_id}/music/ended")

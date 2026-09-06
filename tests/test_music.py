@@ -4,7 +4,7 @@ music_select action_card proposal and its three answers, and the one-shot
 
 from __future__ import annotations
 
-from app import assembly, config, state as state_mod
+from app import assembly, config, repo, state as state_mod
 from app.config import Settings
 from app.passes import registry
 from app.state import SLICE_MUSIC, SLICE_MUSIC_ROLEPLAY, read_slice
@@ -190,6 +190,104 @@ def test_ended_is_a_no_op_when_nothing_is_playing(client, chat):
     assert response.json()["music"]["status"] == "none"
 
 
+# ------------------------------------------------------------- music-ask
+
+
+def _ask_message(db, chat_id: str, text: str = "Mind adding something to play?") -> dict:
+    message = repo.add_message(db, chat_id, "assistant", text)
+    repo.set_music_ask(db, message["variant_id"], "pending")
+    return repo.get_message(db, message["id"])
+
+
+def test_music_ask_yes_moves_to_awaiting_upload(client, db, chat):
+    ask = _ask_message(db, chat["id"])
+    response = client.post(f"/api/messages/{ask['id']}/music-ask", json={"choice": "yes"})
+    assert response.status_code == 200
+    assert response.json()["music_ask"] == "awaiting_upload"
+    assert repo.get_message(db, ask["id"])["music_ask"] == "awaiting_upload"
+
+
+def test_music_ask_no_withdraws_and_plays_a_fallback_track(client, db, chat, tmp_path, monkeypatch):
+    name = _seed_track(tmp_path, monkeypatch)
+    ask = _ask_message(db, chat["id"])
+
+    response = client.post(f"/api/messages/{ask['id']}/music-ask", json={"choice": "no"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["music_ask"] == ""
+    assert body["music"] == {"status": "playing", "track": name, "character": None}
+    assert repo.get_message(db, ask["id"])["music_ask"] == ""
+
+
+def test_music_ask_no_with_an_empty_library_still_withdraws(client, db, chat):
+    ask = _ask_message(db, chat["id"])
+    response = client.post(f"/api/messages/{ask['id']}/music-ask", json={"choice": "no"})
+    assert response.status_code == 200
+    assert response.json()["music_ask"] == ""
+    assert repo.get_message(db, ask["id"])["music_ask"] == ""
+
+
+def test_music_ask_is_a_no_op_once_already_answered(client, db, chat):
+    ask = _ask_message(db, chat["id"])
+    client.post(f"/api/messages/{ask['id']}/music-ask", json={"choice": "yes"})
+    # Answering again — a second tab, or a stale button — must not clobber
+    # the "awaiting_upload" it already reached.
+    response = client.post(f"/api/messages/{ask['id']}/music-ask", json={"choice": "no"})
+    assert response.status_code == 200
+    assert response.json()["music_ask"] == "awaiting_upload"
+
+
+def test_music_ask_rejects_an_unknown_choice(client, db, chat):
+    ask = _ask_message(db, chat["id"])
+    assert client.post(
+        f"/api/messages/{ask['id']}/music-ask", json={"choice": "maybe"}
+    ).status_code == 400
+
+
+def test_music_ask_404s_on_an_unknown_message(client):
+    assert client.post("/api/messages/nope/music-ask", json={"choice": "yes"}).status_code == 404
+
+
+def test_music_ask_uploaded_resolves_and_plays(client, db, chat, tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "USER_MUSIC_DIR", tmp_path / "music")
+    ask = _ask_message(db, chat["id"])
+    client.post(f"/api/messages/{ask['id']}/music-ask", json={"choice": "yes"})
+
+    name = client.post("/api/music?filename=x.mp3", content=TRACK_BYTES).json()["name"]
+    response = client.post(f"/api/messages/{ask['id']}/music-ask/uploaded", json={"track": name})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["music_ask"] == ""
+    assert body["music"] == {"status": "playing", "track": name, "character": None}
+    assert repo.get_message(db, ask["id"])["music_ask"] == ""
+
+
+def test_music_ask_uploaded_rejects_an_unknown_track(client, db, chat):
+    ask = _ask_message(db, chat["id"])
+    client.post(f"/api/messages/{ask['id']}/music-ask", json={"choice": "yes"})
+    response = client.post(
+        f"/api/messages/{ask['id']}/music-ask/uploaded", json={"track": "nope.mp3"}
+    )
+    assert response.status_code == 404
+
+
+def test_music_ask_uploaded_is_a_no_op_when_not_awaiting_one(client, db, chat, tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "USER_MUSIC_DIR", tmp_path / "music")
+    ask = _ask_message(db, chat["id"])  # never answered "yes"
+    name = client.post("/api/music?filename=x.mp3", content=TRACK_BYTES).json()["name"]
+    response = client.post(f"/api/messages/{ask['id']}/music-ask/uploaded", json={"track": name})
+    assert response.status_code == 200
+    assert response.json()["music_ask"] == "pending"
+
+
+def test_deleting_the_ask_message_withdraws_it(client, db, chat):
+    """No separate close affordance — music_ask lives on the message's own
+    row (§ migration 17) and cascades away with it."""
+    ask = _ask_message(db, chat["id"])
+    assert client.delete(f"/api/messages/{ask['id']}").status_code == 200
+    assert repo.get_message(db, ask["id"]) is None
+
+
 # ------------------------------------------------------------- music_select
 
 
@@ -289,6 +387,44 @@ def test_music_select_re_validates_against_a_fresh_library_read(
     sync(scenario())
     assert read_slice(sched.db, chat["id"], SLICE_MUSIC) is None
     assert real_available() == [name], "the file itself was never touched"
+
+
+def test_music_select_asks_when_nothing_fits_and_the_character_wants_to(
+    sched, chat, character, tmp_path, monkeypatch
+):
+    """No valid pick, but the model volunteered an "ask" (§ registry.py's
+    prompt) — a real chat message appears, marked 'pending', instead of
+    the silent no-op test_music_select_makes_no_proposal_on_an_invalid_pick
+    covers when there's no ask at all."""
+    from app.providers import echo as echo_provider
+
+    _seed_track(tmp_path, monkeypatch)
+    monkeypatch.setattr(sched.settings, "music_meta", {})
+    monkeypatch.setattr(echo_provider, "_first_music_id", lambda request: "none")
+    monkeypatch.setattr(
+        echo_provider, "_music_ask_text",
+        lambda request: "Got anything better than this old thing? Add something.",
+    )
+
+    async def scenario():
+        ctx = context(chat, character, user_text="I switch on the jukebox.")
+        launched = sched._launch_background(ctx)
+        assert "music_select" in launched
+        await sched.await_pending(chat["id"])
+
+    sync(scenario())
+    row = sched.db.query_one(
+        "SELECT status FROM pass_runs WHERE chat_id=? AND pass_id='music_select'",
+        (chat["id"],),
+    )
+    assert row["status"] == "done"
+    assert read_slice(sched.db, chat["id"], SLICE_MUSIC) is None, "not a track proposal"
+
+    messages = repo.list_messages(sched.db, chat["id"])
+    ask = messages[-1]
+    assert ask["role"] == "assistant"
+    assert ask["text"] == "Got anything better than this old thing? Add something."
+    assert ask["music_ask"] == "pending"
 
 
 def test_consume_music_roleplay_marks_a_note_used_exactly_once(sched, chat, character):

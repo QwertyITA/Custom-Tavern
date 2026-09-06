@@ -1172,6 +1172,11 @@ function tavern() {
     uploadingMusic: false,
     musicMsg: "",
     confirmMusic: "",
+    // Which pending music-ask message (§ respondMusicAsk/uploadMusicAskTrack)
+    // is mid-upload, if any — its own upload button swaps to a spinner
+    // rather than the shared library panel's uploadingMusic above, since
+    // this one lives in the chat flow, not that panel.
+    uploadingMusicAsk: "",
     importing: false,
     importMsg: "",
     importError: "",
@@ -3994,6 +3999,43 @@ function tavern() {
       }
     },
 
+    // The character's own in-chat ask for a track (§ music_select's "ask",
+    // registry.py) — distinct from musicRespond above, which answers a
+    // *proposed* track rather than a request for a new one. The mark and
+    // any fallback track arrive back over SSE (case "music_ask"/"panel"
+    // above), not set optimistically here, same reasoning as musicRespond.
+    async respondMusicAsk(message, choice) {
+      try {
+        await api.post(`/api/messages/${message.id}/music-ask`, { choice });
+      } catch (e) {
+        this.error = errorText(e);
+      }
+    },
+
+    // The upload button that appears once someone says yes. Raw body, same
+    // shape as uploadMusicTrack above — this one just also resolves the ask
+    // and starts the new track playing once the upload lands.
+    async uploadMusicAskTrack(message, event) {
+      const file = (event.target.files || [])[0];
+      if (!file) return;
+      this.uploadingMusicAsk = message.id;
+      try {
+        const response = await fetch(
+          `/api/music?filename=${encodeURIComponent(file.name)}`,
+          { method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file },
+        );
+        if (!response.ok) throw await apiError(response);
+        const added = await response.json();
+        await this.loadMusicLibrary();
+        await api.post(`/api/messages/${message.id}/music-ask/uploaded`, { track: added.name });
+      } catch (e) {
+        this.error = errorText(e);
+      } finally {
+        this.uploadingMusicAsk = "";
+        event.target.value = "";   // so the same file can be picked again
+      }
+    },
+
     // The <audio> element's own `ended` event.
     async reportMusicEnded() {
       if (!this.chatId) return;
@@ -5228,6 +5270,25 @@ function tavern() {
           {
             const target = this.messages.find((m) => m.id === event.message_id);
             if (target) target.reaction_ack = event.ack;
+          }
+          break;
+        case "message":
+          // A message music_select wrote outside the normal reply stream —
+          // today, only its own "ask" for a track (§ _handler_music_select,
+          // scheduler.py). Guarded by id: a second tab that already has it
+          // (or this same tab, if a future caller ever awaits the run too)
+          // must not duplicate the bubble.
+          if (!this.messages.some((m) => m.id === event.message.id)) {
+            this.messages.push(event.message);
+            this.scrollDown();
+          }
+          break;
+        case "music_ask":
+          // Another tab (or this one) answered the ask, or the upload it
+          // was waiting on landed — mirror the withdrawal/progress here too.
+          {
+            const target = this.messages.find((m) => m.id === event.message_id);
+            if (target) target.music_ask = event.music_ask;
           }
           break;
         case "chat_renamed": {
