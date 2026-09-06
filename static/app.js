@@ -4056,6 +4056,48 @@ function tavern() {
             "--band-prefix": "#c2547d", "--band-middle": "#8877d9", "--band-volatile": "#bd8129",
           },
         },
+        // Three more dark palettes, each the night-side counterpart of one
+        // light one above — same hue family, re-lit for a dark background
+        // rather than a fourth arbitrary dark look. Every one restates the
+        // band colours too, same reason Night has to: the stylesheet's own
+        // defaults are picked to read on a light --bg and go flat against a
+        // dark one.
+        {
+          id: "midnight", label: "Midnight",
+          swatch: "background: linear-gradient(135deg,#12161b,#5b8fc7)",
+          theme: {
+            "--bg": "#12161b", "--panel": "#1a1f26", "--panel-2": "#232a33",
+            "--line": "#2f3947", "--text": "#e3e8ee", "--muted": "#8b96a3",
+            "--accent": "#5b8fc7", "--user-bubble": "#212a35", "--ai-bubble": "#1a1f26",
+            "--c-default": "#e3e8ee", "--c-dialogue": "#7fb2e0", "--c-action": "#7ccfc0",
+            "--c-strong": "#e0b568",
+            "--band-prefix": "#c2547d", "--band-middle": "#8877d9", "--band-volatile": "#bd8129",
+          },
+        },
+        {
+          id: "ember", label: "Ember",
+          swatch: "background: linear-gradient(135deg,#1a1210,#d68a3f)",
+          theme: {
+            "--bg": "#1a1210", "--panel": "#241a16", "--panel-2": "#2f231d",
+            "--line": "#45332a", "--text": "#f0e4d8", "--muted": "#a48f7e",
+            "--accent": "#d68a3f", "--user-bubble": "#2c2119", "--ai-bubble": "#241a16",
+            "--c-default": "#f0e4d8", "--c-dialogue": "#e0955a", "--c-action": "#8fae5e",
+            "--c-strong": "#d65a4a",
+            "--band-prefix": "#c2547d", "--band-middle": "#8877d9", "--band-volatile": "#bd8129",
+          },
+        },
+        {
+          id: "pine", label: "Pine",
+          swatch: "background: linear-gradient(135deg,#10160f,#5ba36a)",
+          theme: {
+            "--bg": "#10160f", "--panel": "#182018", "--panel-2": "#212b20",
+            "--line": "#2e3c2c", "--text": "#e2ebe0", "--muted": "#8fa08c",
+            "--accent": "#5ba36a", "--user-bubble": "#1f2a1e", "--ai-bubble": "#182018",
+            "--c-default": "#e2ebe0", "--c-dialogue": "#7cc98f", "--c-action": "#8f9ad6",
+            "--c-strong": "#d6a75a",
+            "--band-prefix": "#c2547d", "--band-middle": "#8877d9", "--band-volatile": "#bd8129",
+          },
+        },
       ];
     },
 
