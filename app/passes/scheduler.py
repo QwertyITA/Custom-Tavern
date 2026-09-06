@@ -189,6 +189,17 @@ CHAT_RENAME_EVERY = 50
 # standing rule nobody remembers setting.
 SUGGEST_EDIT_NOTE_TURNS = 3
 
+# music_select's own safety net (§ _handler_music_select): the prompt asks
+# the model for an in-character "ask" line every time nothing in the
+# library fits, but a model that ignores that still must never leave the
+# person with silence — generic rather than in-character, since there is no
+# persona to draw one from once the model itself declined to write one.
+_MUSIC_ASK_FALLBACKS = (
+    "Honestly, none of this really fits right now — got something I could put on instead?",
+    "Nothing in here feels right for this. Mind adding a track?",
+    "I don't have anything that really matches the mood. Want to add something?",
+)
+
 
 def _milestones_crossed(count: int) -> int:
     """How many chat_rename anchors (10, 60, 110, ...) `count` has reached
@@ -1592,14 +1603,16 @@ class PassScheduler:
             chosen = str(payload.get("track") or "").strip()
             if chosen not in allowed:
                 # "none", a hallucinated name, or one dropped out from under
-                # it this turn: nothing to propose. The model may still have
-                # asked the person to add a track (§ registry.py's prompt) —
-                # a real message, not a card, so declining or deleting it
-                # never has to leave state.music in a "still asking" limbo
-                # nothing then answers.
+                # it this turn: nothing to propose, but never nothing at all
+                # — the prompt asks for an "ask" every time this happens
+                # (§ registry.py), and a model that ignores that instruction
+                # still gets a fallback line here rather than leaving the
+                # person with silence. A real message either way, not a
+                # card, so declining or deleting it never has to leave
+                # state.music in a "still asking" limbo nothing then answers.
                 ask = re.sub(r"\s+", " ", str(payload.get("ask") or "")).strip(" \"'")
                 if not ask:
-                    return False
+                    ask = random.choice(_MUSIC_ASK_FALLBACKS)
                 message = repo.add_message(
                     self.db, ctx.chat_id, "assistant", ask, speaker_id=ctx.character.id,
                 )

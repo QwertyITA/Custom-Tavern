@@ -335,9 +335,18 @@ STscript (26).
       small people-icon badge from.
 - [x] **45. Music: ask instead of going quiet.** When nothing in the
       library fits (`music_select` would have picked "none"), the
-      character can ask the person to add a track instead — one short
-      line in their own voice and personality, the model's own call
-      whether asking fits the moment at all, never a canned prompt.
+      character asks the person to add a track instead — one short
+      line in their own voice and personality, never a canned prompt.
+      Never silent either way: the prompt leans toward picking a real
+      track over "none" in the first place (an imperfect fit beats
+      nothing), and the moment it does answer "none" it must also
+      supply the "ask" line — a model that ignores that instruction
+      still gets a generic fallback line here rather than the feature
+      quietly doing nothing (`_MUSIC_ASK_FALLBACKS`, scheduler.py). The
+      trigger itself widened for the same reason, reported against a
+      real chat: "listen to" was missing from `music_select`'s on_text
+      verb list entirely, so a dozen turns of talking about specific
+      songs never once fired it — share/recommend/suggest joined it too.
       It's a real chat message, not a floating card: `music_ask`
       (`message_variants`, migration 17) marks it 'pending', and the
       message itself carries the ask so declining or scrolling past it
@@ -350,7 +359,9 @@ STscript (26).
       resolves the mark and starts the new track playing in one
       follow-through call. No separate "dismiss" affordance — deleting
       the message is how the offer withdraws, since `music_ask` lives
-      on that message's own row and cascades away with it.
+      on that message's own row and cascades away with it. A `/music`
+      command forces the same on-demand path background/expression
+      already use, for testing this without waiting on the trigger.
 
 ## Undecided — needs a call
 

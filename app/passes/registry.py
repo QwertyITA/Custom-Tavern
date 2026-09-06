@@ -211,10 +211,21 @@ CANONICAL_PASSES: list[PassDef] = [
         # design — false positives cost one proposal someone declines;
         # false negatives cost the feature not firing at all, which is the
         # bug just described.
+        #
+        # Reported against a second real chat: the person opened with
+        # "Do you want to listen to some music together?" and the verb list
+        # had no "listen to" at all — every reply after kept talking about
+        # music, by name, for a dozen turns, and the pass never once fired.
+        # "Listen to" is if anything the *more* natural way to ask than any
+        # verb already here, so its absence was the gap, not a narrower
+        # case of one already covered — added alongside share/recommend/
+        # suggest for the same reason (a character offering a track is
+        # exactly the moment this pass exists for).
         trigger=Trigger(
             type="on_text",
             pattern=r"\b(jukebox|radio|stereo|record player|turntable|boombox|speakers?)\b"
-                    r"|\b(plays?|puts? on|turns? on|switches? on|starts?|queues? up)\b"
+                    r"|\b(plays?|puts? on|turns? on|switches? on|starts?|queues? up|"
+                    r"listens? to|shares?|recommends?|suggests?)\b"
                     r".{0,25}\b(music|song|track|tune|playlist|record)\b",
         ),
         sampling=Sampling(temp=0.3, top_p=0.9, max_tokens=90),
@@ -233,13 +244,14 @@ CANONICAL_PASSES: list[PassDef] = [
             'Reply with JSON only: {"track": "<one id from the allowed list, '
             'or \'none\'>", "ask": "<a short in-character line, or empty>"}\n'
             "Choose only an id from the allowed list given in the context, "
-            'exactly as written there. Set "track" to "none" if nothing '
-            "fits — silence is a fine answer. When you do, you may also set "
-            '"ask" to one short line, in the character\'s own voice and '
-            "personality, inviting the person to add a track that would suit "
-            "this moment — only when asking out loud like that is something "
-            'this character would actually do here; otherwise leave "ask" '
-            'empty. Never set "ask" when "track" is a real id.'
+            "exactly as written there. Lean toward picking one — a track "
+            "that's merely close to the mood is a better answer than none; "
+            'reserve "none" for when every option is clearly wrong for the '
+            "moment, not just imperfect. When you do answer \"none\", you "
+            'must also set "ask" to one short line, in the character\'s own '
+            "voice and personality, asking the person to add a track that "
+            'would suit this moment — never leave both empty. Never set '
+            '"ask" when "track" is a real id.'
         ),
     ),
     PassDef(

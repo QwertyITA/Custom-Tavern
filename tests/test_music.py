@@ -321,6 +321,22 @@ def test_music_select_fires_on_a_verb_near_music_too(sched, chat, character):
     assert sched.trigger_fires(definition, ctx)
 
 
+def test_music_select_fires_on_listen_to_too(sched, chat, character):
+    """Reported against a real chat: "Do you want to listen to some music
+    together?" never fired the pass across a dozen replies — "listen to"
+    was missing from the verb list entirely, not a narrower case of a verb
+    already covered."""
+    definition = next(d for d in registry.all_passes(sched.db) if d.id == "music_select")
+    ctx = context(chat, character, user_text="Do you want to listen to some music together?")
+    assert sched.trigger_fires(definition, ctx)
+
+
+def test_music_select_fires_when_a_song_is_recommended(sched, chat, character):
+    definition = next(d for d in registry.all_passes(sched.db) if d.id == "music_select")
+    ctx = context(chat, character, reply_text="I could recommend a song, if you'd like.")
+    assert sched.trigger_fires(definition, ctx)
+
+
 def test_music_select_does_not_fire_on_an_unrelated_turn(sched, chat, character, tmp_path, monkeypatch):
     _seed_track(tmp_path, monkeypatch)
     definition = next(d for d in registry.all_passes(sched.db) if d.id == "music_select")
@@ -338,7 +354,14 @@ def test_music_select_excludes_a_track_marked_auto_false(sched, chat, character,
     assert name not in body
 
 
-def test_music_select_makes_no_proposal_on_an_invalid_pick(sched, chat, character, tmp_path, monkeypatch):
+def test_music_select_asks_with_a_fallback_line_on_an_invalid_pick(
+    sched, chat, character, tmp_path, monkeypatch
+):
+    """Never nothing at all: a model that answers with a hallucinated id
+    and no "ask" (ignoring registry.py's own instruction to always supply
+    one) still gets a fallback line here (§ _MUSIC_ASK_FALLBACKS,
+    scheduler.py) rather than the old silent "stale" no-op."""
+    from app.passes.scheduler import _MUSIC_ASK_FALLBACKS
     from app.providers import echo as echo_provider
 
     _seed_track(tmp_path, monkeypatch)
@@ -357,7 +380,12 @@ def test_music_select_makes_no_proposal_on_an_invalid_pick(sched, chat, characte
         "SELECT status FROM pass_runs WHERE chat_id=? AND pass_id='music_select'",
         (chat["id"],),
     )
-    assert row["status"] == "stale"
+    assert row["status"] == "done"
+    assert read_slice(sched.db, chat["id"], SLICE_MUSIC) is None, "not a track proposal"
+
+    ask = repo.list_messages(sched.db, chat["id"])[-1]
+    assert ask["music_ask"] == "pending"
+    assert ask["text"] in _MUSIC_ASK_FALLBACKS
     assert read_slice(sched.db, chat["id"], SLICE_MUSIC) is None
 
 
