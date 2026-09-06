@@ -2191,7 +2191,7 @@ def _music_state(db, chat_id: str) -> dict:
 async def _write_music(db, chat_id: str, value: dict, *, source_pass: str) -> dict:
     write = await state_mod.write_slice(
         db, chat_id, state_mod.SLICE_MUSIC, value,
-        source_turn=repo.next_turn(db, chat_id), source_pass=source_pass,
+        source_turn=repo.current_turn(db, chat_id), source_pass=source_pass,
     )
     BUS.publish(chat_id, {"type": "panel", "panel": "music", "value": write.value, "source": source_pass})
     return write.value
@@ -2252,7 +2252,7 @@ async def respond_music(chat_id: str, payload: dict = Body(...)) -> dict:
         await state_mod.write_slice(
             db, chat_id, state_mod.SLICE_MUSIC_ROLEPLAY,
             {"note": note, "used": False},
-            source_turn=repo.next_turn(db, chat_id), source_pass="manual",
+            source_turn=repo.current_turn(db, chat_id), source_pass="manual",
         )
     return {"ok": True, "music": value}
 

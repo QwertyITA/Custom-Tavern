@@ -116,6 +116,12 @@ def test_picking_an_unknown_track_is_a_404(client, chat):
 
 
 def _propose(db, chat_id: str, track: str, character: str = "Mira") -> None:
+    # A real message at turn 1 — not just a bare state_slices row — so a
+    # manual response afterwards (§ _write_music, main.py's repo.current_turn)
+    # reads back the turn a proposal was actually made on, the same as
+    # production: music_select only ever proposes off a real message's turn.
+    if not repo.list_messages(db, chat_id):
+        repo.add_message(db, chat_id, "user", "play something", turn=1)
     sync(state_mod.write_slice(
         db, chat_id, SLICE_MUSIC,
         {"status": "proposed", "track": track, "character": character},
@@ -161,6 +167,46 @@ def test_respond_roleplay_plays_nothing_but_leaves_a_one_shot_note(
     # as the card and the "Currently playing" line.
     assert "song" in note["value"]["note"]
     assert name not in note["value"]["note"]
+
+
+def test_a_forced_re_pick_after_declining_is_not_rejected_as_stale(
+    sched, client, db, chat, tmp_path, monkeypatch
+):
+    """Reported live: /music kept saying "nothing else fit" no matter what.
+    Root cause was `_write_music` reserving `next_turn()` (one past the
+    turn actually on screen) for every manual action — a decline then
+    permanently outranked any later proposal at that same turn under write
+    arbitration's "reject only an older turn" rule, since nothing ever
+    advances the turn without a new message. `repo.current_turn` fixes the
+    reservation itself; this drives the exact repro end to end."""
+    from app.providers import echo as echo_provider
+
+    name = _seed_track(tmp_path, monkeypatch)
+    monkeypatch.setattr(sched.settings, "music_meta", {})
+    _propose(db, chat["id"], name)
+
+    assert client.post(
+        f"/api/chats/{chat['id']}/music/respond", json={"choice": "decline"}
+    ).status_code == 200
+
+    monkeypatch.setattr(echo_provider, "_first_music_id", lambda request: name)
+
+    async def scenario():
+        result = sched.run_pass_now(chat["id"], "music_select")
+        assert result["ok"]
+        await sched.await_pending(chat["id"])
+
+    sync(scenario())
+
+    row = sched.db.query_one(
+        "SELECT status FROM pass_runs WHERE chat_id=? AND pass_id='music_select' "
+        "ORDER BY id DESC LIMIT 1",
+        (chat["id"],),
+    )
+    assert row["status"] == "done"
+    assert read_slice(db, chat["id"], SLICE_MUSIC)["value"] == {
+        "status": "proposed", "track": name, "character": "Mira",
+    }
 
 
 def test_respond_is_a_no_op_when_nothing_is_proposed(client, chat):

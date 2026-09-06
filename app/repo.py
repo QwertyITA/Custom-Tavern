@@ -392,6 +392,22 @@ def next_turn(db: Database, chat_id: str) -> int:
     return (row["t"] or 0) + 1
 
 
+def current_turn(db: Database, chat_id: str) -> int:
+    """The turn already on screen — `next_turn` minus one, floored at 0 for
+    an empty chat. A manual action (a music pick, an answer to a proposal)
+    happened *at* this turn, not at one that has not been said yet: writing
+    it with `next_turn` instead (§ _write_music, main.py, before this) made
+    every such write permanently outrank a same-turn music_select proposal
+    under write arbitration's "reject only an older turn" rule (§5.5) — not
+    a race guard, since nothing else deliberately wrote ahead of the record
+    either, just next_turn reused for a write it does not describe. A
+    person who declines once, then asks again with no new message in
+    between (§ POST .../passes/music_select/run, the "/music" command),
+    was finding every retry rejected as stale forever, not just the one
+    already answered."""
+    return max(next_turn(db, chat_id) - 1, 0)
+
+
 def add_message(
     db: Database,
     chat_id: str,
