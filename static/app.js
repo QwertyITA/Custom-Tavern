@@ -725,6 +725,36 @@ const SLASH_COMMANDS = {
       return "Expression unchanged — already this one";
     },
   },
+  music: {
+    passId: "music_select",
+    flag: "music",
+    hint: "Picking something to play…",
+    // Two different things count as "changed" here, not one value like the
+    // commands above: a track proposal (state.music) or the character
+    // asking to add one instead (§ music_select's own "ask" — a brand new
+    // chat message, not a slice write at all, so messageCount is part of
+    // the snapshot too). Both land over SSE strictly before the terminal
+    // pass_status (§ the panel/message-ordering comments elsewhere), so by
+    // the time this reads again, either has already caught up.
+    describe: (vm) => ({
+      status: vm.music.status, track: vm.music.track, messageCount: vm.messages.length,
+    }),
+    outcome(vm, run, before) {
+      if (run.status === "failed") return `Error: ${run.error || "the pass failed"}`;
+      if (run.status === "skipped") {
+        if (!vm.musicLibrary.length) return "Music: nothing uploaded yet (Music library)";
+        const eligible = vm.musicLibrary.some((t) => vm.musicMeta(t.name).auto !== false);
+        if (!eligible) return "Music: every track is excluded from auto-pick (Music library)";
+        return "Music unchanged";
+      }
+      if (vm.messages.length > before.messageCount) return "Asked about adding a track to play";
+      if (vm.music.status === "proposed" && (vm.music.track !== before.track || vm.music.status !== before.status)) {
+        return `Wants to play ${vm.musicLabel(vm.music.track)}`;
+      }
+      if (run.status === "stale") return "Music unchanged — nothing else fit";
+      return "Music unchanged — already proposing that one";
+    },
+  },
 };
 
 // Only a whole "/word" line counts — "/" mid-sentence is just punctuation,
@@ -1244,7 +1274,7 @@ function tavern() {
     // as ambient bookkeeping the way scene/expression/background refreshing
     // does.
     musicSearching: false,
-    refreshing: { scene: false, expression: false, background: false },
+    refreshing: { scene: false, expression: false, background: false, music: false },
     // "/" runs still resolving (§ runSlashCommand, resolveSlashRun), keyed
     // by the pass_runs id the server handed back when each was launched.
     pendingSlashRuns: {},
@@ -5213,8 +5243,11 @@ function tavern() {
             // A line in the flow, not an ambient chip (§ musicSearching,
             // the cue row in index.html) — "the character is looking for a
             // song" is something happening in the room, unlike the other
-            // background passes below.
+            // background passes below. refreshing.music is separate from
+            // musicSearching — it only guards/reports "/music" (§
+            // SLASH_COMMANDS), same as background/expression below.
             this.musicSearching = running;
+            this.refreshing.music = running;
           } else if (event.run.tier !== "blocking") {
             // ambient: a subtle indicator, never a character-thinking cue
             this.ambient = running
