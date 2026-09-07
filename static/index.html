@@ -1309,11 +1309,16 @@
      play/pause state is not something Alpine's reactivity models well, the
      same reasoning the bubble-resize pinning elsewhere in this file uses
      for a browser API x-bind cannot drive on its own. Hidden — the bar
-     above is the only visible transport. -->
+     above is the only visible transport. @error fires when the referenced
+     file 404s — a track removed from the library out from under a chat
+     still pointing at it (§ remove_music, main.py, which deliberately does
+     not chase every chat's state.music) — and is treated the same as the
+     track finishing on its own, so the bar clears instead of sitting there
+     forever naming a file that no longer exists. -->
 <audio x-ref="musicPlayer" hidden
        :src="music.status === 'playing' && music.track ? `/music/${music.track}` : null"
        x-effect="music.status === 'playing' ? $refs.musicPlayer.play().catch(() => {}) : $refs.musicPlayer.pause()"
-       @ended="reportMusicEnded()"></audio>
+       @ended="reportMusicEnded()" @error="reportMusicEnded()"></audio>
 
 <!-- Pulling up past the newest message reveals this, in proportion to how far
      you pull. Impersonate is the thing you want exactly when you are at the

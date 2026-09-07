@@ -4041,10 +4041,14 @@ function tavern() {
     // shared library, plus a live meta editor. What's different is the
     // per-chat playback state (this.music) and the three ways it changes —
     // the person's own pick, answering a proposed card, and the <audio>
-    // element itself reporting a track ended — which all write-then-listen
-    // for the "panel"/"music" SSE echo (§ handleEvent) rather than mutating
-    // this.music optimistically, the same pattern saveChatName/deleteChat
-    // already use elsewhere.
+    // element itself reporting a track ended. Each applies the write's own
+    // response (§ _write_music, main.py, which always echoes {music: value})
+    // straight onto this.music rather than waiting on the "panel"/"music" SSE
+    // echo (§ handleEvent) to do it: a dropped or reconnecting EventSource —
+    // routine on a phone that just came back from the background — used to
+    // leave the button looking inert even though the write had gone through,
+    // since nothing but that echo ever touched this.music. The SSE event
+    // still fires and still matters, for a second tab watching the same chat.
 
     async loadMusicLibrary() {
       try {
@@ -4137,7 +4141,8 @@ function tavern() {
     async pickMusic(name) {
       if (!this.chatId) return;
       try {
-        await api.post(`/api/chats/${this.chatId}/music`, { track: name });
+        const r = await api.post(`/api/chats/${this.chatId}/music`, { track: name });
+        this.music = { ...r.music };
       } catch (e) {
         this.error = errorText(e);
       }
@@ -4147,7 +4152,8 @@ function tavern() {
     async musicRespond(choice) {
       if (!this.chatId) return;
       try {
-        await api.post(`/api/chats/${this.chatId}/music/respond`, { choice });
+        const r = await api.post(`/api/chats/${this.chatId}/music/respond`, { choice });
+        this.music = { ...r.music };
       } catch (e) {
         this.error = errorText(e);
       }
@@ -4155,12 +4161,16 @@ function tavern() {
 
     // The character's own in-chat ask for a track (§ music_select's "ask",
     // registry.py) — distinct from musicRespond above, which answers a
-    // *proposed* track rather than a request for a new one. The mark and
-    // any fallback track arrive back over SSE (case "music_ask"/"panel"
-    // above), not set optimistically here, same reasoning as musicRespond.
+    // *proposed* track rather than a request for a new one. Applies the
+    // response directly (mark plus any fallback track), same reasoning as
+    // pickMusic/musicRespond above — a dead SSE stream must not be the only
+    // way this tab finds out its own click landed. Also arrives over SSE
+    // (case "music_ask"/"panel" above), which is what a second tab needs.
     async respondMusicAsk(message, choice) {
       try {
-        await api.post(`/api/messages/${message.id}/music-ask`, { choice });
+        const r = await api.post(`/api/messages/${message.id}/music-ask`, { choice });
+        message.music_ask = r.music_ask;
+        if (r.music) this.music = { ...r.music };
       } catch (e) {
         this.error = errorText(e);
       }
@@ -4181,7 +4191,9 @@ function tavern() {
         if (!response.ok) throw await apiError(response);
         const added = await response.json();
         await this.loadMusicLibrary();
-        await api.post(`/api/messages/${message.id}/music-ask/uploaded`, { track: added.name });
+        const r = await api.post(`/api/messages/${message.id}/music-ask/uploaded`, { track: added.name });
+        message.music_ask = r.music_ask;
+        if (r.music) this.music = { ...r.music };
       } catch (e) {
         this.error = errorText(e);
       } finally {
@@ -4194,7 +4206,8 @@ function tavern() {
     async reportMusicEnded() {
       if (!this.chatId) return;
       try {
-        await api.post(`/api/chats/${this.chatId}/music/ended`, {});
+        const r = await api.post(`/api/chats/${this.chatId}/music/ended`, {});
+        this.music = { ...r.music };
       } catch (e) {
         this.error = errorText(e);
       }
