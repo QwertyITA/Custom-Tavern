@@ -239,8 +239,18 @@ CANONICAL_PASSES: list[PassDef] = [
         output=PassOutput(type="action_card", target="music"),
         prompt=(
             "You pick the track that best fits how the character would react "
-            "to this moment, using each option's description — not just its "
-            "filename. This proposes playing it; it does not start it.\n"
+            "to this moment, using each option's title, artist and "
+            "description — not just its filename. This proposes playing it; "
+            "it does not start it.\n"
+            "First check whether the conversation just now — your own reply "
+            "included — named a specific song or artist. If it did and that "
+            "name matches one of the allowed tracks below by its title or "
+            "artist, pick that one: a track just named out loud always wins "
+            "over a general mood-based guess, even if a different option "
+            "would otherwise fit the mood better. A named song that matches "
+            "nothing in the list is not one of the allowed tracks — fall "
+            "back to the mood-based pick below exactly as if nothing had "
+            "been named.\n"
             'Reply with JSON only: {"track": "<one id from the allowed list, '
             'or \'none\'>", "ask": "<a short in-character line, or empty>"}\n'
             "Choose only an id from the allowed list given in the context, "

@@ -433,6 +433,33 @@ def test_music_select_tells_the_model_the_artist_too(sched, chat, character, tmp
     assert "Nils Frahm" in body
 
 
+def test_music_select_tells_the_model_each_tracks_title(sched, chat, character, tmp_path, monkeypatch):
+    """Reported live: asked for a favourite song, the reply named one, and
+    the pick that followed was a different track — the model was never
+    told any track's title, only its filename (the id) and description, so
+    it had no way to match a name someone just said out loud to anything
+    in the list."""
+    name = _seed_track(tmp_path, monkeypatch)
+    monkeypatch.setattr(sched.settings, "music_meta", {name: {"label": "Evening Waltz"}})
+    definition = next(d for d in registry.all_passes(sched.db) if d.id == "music_select")
+
+    task, messages, _handler = sched._build_pass_input(context(chat, character), definition)
+    body = task + " " + " ".join(m["content"] for m in messages)
+    assert "Evening Waltz" in body
+
+
+def test_music_select_falls_back_to_the_filename_stem_as_a_title(sched, chat, character, tmp_path, monkeypatch):
+    """No label set at all: the listing still names the track by something
+    a person could plausibly have said out loud, not silence."""
+    name = _seed_track(tmp_path, monkeypatch)  # "song.mp3", no music_meta entry
+    monkeypatch.setattr(sched.settings, "music_meta", {})
+    definition = next(d for d in registry.all_passes(sched.db) if d.id == "music_select")
+
+    task, messages, _handler = sched._build_pass_input(context(chat, character), definition)
+    body = task + " " + " ".join(m["content"] for m in messages)
+    assert '"song"' in body
+
+
 def test_music_select_asks_with_a_fallback_line_on_an_invalid_pick(
     sched, chat, character, tmp_path, monkeypatch
 ):

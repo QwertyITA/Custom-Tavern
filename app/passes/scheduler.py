@@ -1340,16 +1340,28 @@ class PassScheduler:
                 f"\nCurrent scene: {scene or 'unknown'}"
             )
         elif definition.id == "music_select":
-            # filename — description, one per line, same shape as
-            # background_swap above. Shared library (§ available_music_tracks,
-            # config.py; settings.music_meta, edited wherever the library
-            # panel lives) rather than per-character. A track whose `auto`
-            # flag is off is left out entirely — still choosable by hand from
-            # the library panel, just never proposed by this pass.
+            # filename — title, artist, description, one per line, same
+            # shape as background_swap above. Shared library (§
+            # available_music_tracks, config.py; settings.music_meta, edited
+            # wherever the library panel lives) rather than per-character. A
+            # track whose `auto` flag is off is left out entirely — still
+            # choosable by hand from the library panel, just never proposed
+            # by this pass.
+            #
+            # The title is what makes "the character just named a song out
+            # loud, now match it against the library" (§ the prompt below)
+            # possible at all — reported live: asked to name a favourite
+            # song, the reply named one, and the pick that followed was a
+            # different track entirely. The id here is always the filename,
+            # which a spoken title has no reason to resemble; without the
+            # title in this listing the model had no way to connect what was
+            # just said to anything in the list, only the mood-based
+            # description to fall back on.
             meta = settings.music_meta or {}
             listed = [
                 (
                     name,
+                    config.music_title(name, meta),
                     ((meta.get(name) or {}).get("artist") or "").strip(),
                     ((meta.get(name) or {}).get("description") or "").strip(),
                 )
@@ -1359,11 +1371,10 @@ class PassScheduler:
             if not listed:
                 return "", [], None
             lines = []
-            for name, artist, desc in listed:
-                bits = [f"by {artist}" if artist else "", desc]
-                tail = "; ".join(b for b in bits if b)
-                lines.append(f"- {name}: {tail}" if tail else f"- {name}")
-            extra = "Allowed tracks (id: artist; description):\n" + "\n".join(lines)
+            for name, title, artist, desc in listed:
+                head = f'"{title}" by {artist}' if artist else f'"{title}"'
+                lines.append(f"- {name}: {head} — {desc}" if desc else f"- {name}: {head}")
+            extra = "Allowed tracks (id: \"title\" by artist — description):\n" + "\n".join(lines)
         elif definition.id == "chat_rename":
             # The whole chat, every time (§ CHAT_RENAME_FIRST_AT/_EVERY,
             # _maybe_rename_chat) — this can retitle a chat more than once as
