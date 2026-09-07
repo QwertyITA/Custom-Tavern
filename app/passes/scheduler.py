@@ -461,6 +461,21 @@ class PassScheduler:
             # this way is that it costs nothing on the turns it does not fire.
             return random.random() < max(0.0, min(1.0, trigger.probability))
         if trigger.type == "on_signal":
+            # The world-info pill's own empty-state fix, reported live: on a
+            # brand new chat there is nothing to change *from* yet, so
+            # scene_change never crosses even "minor" on the first exchange
+            # and the pill sits empty until something later happens to
+            # register as a big enough shift. Scoped to "scene" specifically,
+            # not every on_signal pass — an established baseline is what the
+            # pill needs to stop reading as broken; the other passes' gating
+            # is a deliberate cost lever (§5.2), not a display bug, and
+            # nothing asked for that to change.
+            if (
+                definition.id == "scene"
+                and definition.writes_slice
+                and state_mod.read_slice(self.db, ctx.chat_id, definition.writes_slice) is None
+            ):
+                return True
             level = ctx.signals.get(trigger.signal, "none")
             threshold = trigger.threshold
             if isinstance(threshold, (int, float)):
@@ -1460,9 +1475,25 @@ class PassScheduler:
                 f"{'User' if m['role'] == 'user' else label}: {to_plain(m['text'])}"
                 for m in fresh
             )
+            # What the model can check a new fact against before extracting it
+            # (§ registry.py's prompt) — the actual fix for "creates a memory
+            # that's already basically there": memory_store.store's own
+            # dedupe (Jaccard over content words) only catches a near-verbatim
+            # restatement, not the same fact in different words, and it runs
+            # *after* extraction either way. Capped rather than the character's
+            # whole history: a long-running relationship's memory list only
+            # grows, and the newest ones are what a fresh restatement is most
+            # likely to collide with.
+            existing = memory_store.list_all(self.db, character.id)[:30]
+            existing_block = (
+                "\n".join(f"- {m['text']}" for m in existing) if existing else "(none yet)"
+            )
             return (
                 definition.prompt,
-                [{"role": "user", "content": f"## New messages\n{transcript}"}],
+                [{
+                    "role": "user",
+                    "content": f"## Already remembered\n{existing_block}\n\n## New messages\n{transcript}",
+                }],
                 self._handler_memory(ctx, fresh[-1]["turn"]),
             )
 

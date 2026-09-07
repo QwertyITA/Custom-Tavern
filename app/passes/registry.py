@@ -357,9 +357,15 @@ CANONICAL_PASSES: list[PassDef] = [
             "Extract only facts that will still matter in fifty turns: names, "
             "relationships, promises, injuries, possessions, standing arrangements. "
             "Ignore mood, weather and anything already implied by the character sheet.\n"
+            "Check what is already remembered (given below) before extracting anything: "
+            "skip a fact that restates, narrows, or is already covered by one of them, "
+            "even if worded differently — a duplicate in different words is still a "
+            "duplicate. An empty list is the normal, correct answer for a quiet stretch "
+            "— most windows of conversation have nothing durable in them at all, so do "
+            "not strain to find something to report. Extract only what is genuinely new.\n"
             'Reply with JSON only: {"memories": [{"text": "<one fact, one sentence>", '
             '"keys": ["<lookup keyword>", ...]}]}\n'
-            "Return an empty list if nothing durable happened."
+            "Return an empty list if nothing durable and new happened."
         ),
     ),
     PassDef(

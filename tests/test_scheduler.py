@@ -67,6 +67,30 @@ def test_signal_trigger_gates_on_the_rubric(sched, chat, character):
     assert sched.trigger_fires(definition, context(chat, character, signals={"scene_change": "major"}))
 
 
+def test_scene_fires_unconditionally_with_no_scene_established_yet(sched, chat, character):
+    """The world-info pill's own empty-state fix, reported live: on a brand
+    new chat there is nothing to change *from* yet, so scene_change never
+    crosses even "minor" on the first exchange and the pill sits empty.
+    Scoped to "scene" only (§ trigger_fires, scheduler.py) — the synthetic
+    PassDef in test_signal_trigger_gates_on_the_rubric above still gates
+    normally, confirming this isn't a blanket on_signal change."""
+    definition = next(d for d in registry.all_passes(sched.db) if d.id == "scene")
+    assert sched.trigger_fires(definition, context(chat, character, signals={"scene_change": "none"}))
+
+
+def test_scene_gates_normally_once_established(sched, chat, character):
+    from app.state import SLICE_SCENE, write_slice
+
+    definition = next(d for d in registry.all_passes(sched.db) if d.id == "scene")
+    sync(write_slice(
+        sched.db, chat["id"], SLICE_SCENE,
+        {"place": "Tavern", "weather": "Clear", "time": "Evening"},
+        source_turn=1, source_pass="scene",
+    ))
+    assert not sched.trigger_fires(definition, context(chat, character, signals={"scene_change": "none"}))
+    assert sched.trigger_fires(definition, context(chat, character, signals={"scene_change": "minor"}))
+
+
 def test_on_text_trigger_matches_either_side_of_the_turn(sched, chat, character):
     """The cheapest gate there is — no rubric, no model call, just whether
     the story itself said the trigger word (§ music_select, registry.py)."""
@@ -890,6 +914,37 @@ def test_memory_pass_builds_input_when_enabled(sched, chat, character):
         context(chat, character, turn_no=1), definition
     )
     assert messages and handler is not None
+
+
+def test_memory_pass_shows_the_model_what_is_already_remembered(sched, chat, character):
+    """Reported live: memory kept re-extracting facts that were basically
+    already there. memory_store.store's own dedupe only catches a
+    near-verbatim restatement, and only after extraction — this is what
+    lets the model itself skip a duplicate worded differently, before it
+    ever gets extracted."""
+    from app import memory as memory_store
+
+    memory_store.store(
+        sched.db, character.id, [{"text": "Mira tends the bar at the Long Wait."}],
+    )
+    repo.add_message(sched.db, chat["id"], "user", "a secret")
+    definition = next(d for d in registry.all_passes(sched.db) if d.id == "memory")
+    _prompt, messages, _handler = sched._build_pass_input(
+        context(chat, character, turn_no=1), definition
+    )
+    body = " ".join(m["content"] for m in messages)
+    assert "Already remembered" in body
+    assert "Mira tends the bar at the Long Wait." in body
+
+
+def test_memory_pass_says_none_yet_with_nothing_remembered(sched, chat, character):
+    repo.add_message(sched.db, chat["id"], "user", "a secret")
+    definition = next(d for d in registry.all_passes(sched.db) if d.id == "memory")
+    _prompt, messages, _handler = sched._build_pass_input(
+        context(chat, character, turn_no=1), definition
+    )
+    body = " ".join(m["content"] for m in messages)
+    assert "(none yet)" in body
 
 
 def test_memory_pass_skips_extraction_when_disabled_for_the_character(sched, chat, character):
