@@ -160,22 +160,28 @@ async def preview(settings, character: Character, *, reduce_by: int) -> dict:
         return {"fields": out, "changed": False}
 
     changed_any = False
-    try:
-        for key, text in fields.items():
-            if key not in targets:
-                out[key] = {"before": text, "after": text, "before_tokens": estimate_tokens(text),
-                            "after_tokens": estimate_tokens(text), "changed": False}
-                continue
-            after, changed = await compress_field(
-                provider, character.name, FIELDS[key], text, targets[key]
-            )
-            changed_any = changed_any or changed
-            out[key] = {
-                "before": text, "after": after,
-                "before_tokens": estimate_tokens(text), "after_tokens": estimate_tokens(after),
-                "changed": changed,
-            }
-    finally:
-        await provider.aclose()
+    # No `finally: provider.aclose()` here — `provider_for_tier` hands back
+    # the shared instance the whole app's real generation reuses (§
+    # providers/__init__.py's own docstring: "cached... so HTTP clients... are
+    # reused across passes and turns"), not one this call owns. Closing it
+    # left every later turn on this tier throwing "Cannot send a request, as
+    # the client has been closed" until the process restarted — this ran on
+    # nothing rarer than opening the roster (§ characters_budget, main.py,
+    # which calls the same shared _effective_blocking_budget this preview
+    # does), so it was never a matter of if, only when.
+    for key, text in fields.items():
+        if key not in targets:
+            out[key] = {"before": text, "after": text, "before_tokens": estimate_tokens(text),
+                        "after_tokens": estimate_tokens(text), "changed": False}
+            continue
+        after, changed = await compress_field(
+            provider, character.name, FIELDS[key], text, targets[key]
+        )
+        changed_any = changed_any or changed
+        out[key] = {
+            "before": text, "after": after,
+            "before_tokens": estimate_tokens(text), "after_tokens": estimate_tokens(after),
+            "changed": changed,
+        }
 
     return {"fields": out, "changed": changed_any}

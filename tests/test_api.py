@@ -546,6 +546,57 @@ def test_budget_flags_a_possible_lorebook_misattribution(client):
     assert flags["kutralike"]["misattributions"] == [{"keys": ["Wira"]}]
 
 
+def test_budget_does_not_close_the_shared_blocking_client(client, isolated_settings):
+    """`_effective_blocking_budget` (§ main.py) fetches the *cached* blocking-
+    tier provider (§ providers.provider_for_tier) to ask what window it
+    reports — the same instance real turns reuse (§ providers/__init__.py's
+    own docstring: "cached... so HTTP clients... are reused across passes and
+    turns"). A `finally: provider.aclose()` here once closed that shared
+    client on the way out, which broke every later real turn on the tier with
+    "Cannot send a request, as the client has been closed" until the process
+    restarted — and this endpoint runs on nothing rarer than the roster
+    loading, not some rare edge case. A real send after hitting the budget
+    route (twice, since the bug repeats) is the end-to-end proof this stays
+    fixed rather than only checking the client object's own closed flag. The
+    `echo` backend has no real client to close, so it cannot reproduce the
+    bug itself — the precise unit-level reproduction, against a backend that
+    actually has one, lives in test_provider_cache.py; this is the end-to-end
+    proof that the route stays harmless in the app's default configuration."""
+    client.get("/api/characters/budget")
+    client.get("/api/characters/budget")
+
+    chat_id = new_chat(client)
+    events = send(client, chat_id, "Still there?")
+    assert not [e for e in events if e["type"] == "error"]
+    assert [e for e in events if e["type"] == "reply"]
+
+
+def test_compress_preview_does_not_close_the_shared_blocking_client(client, isolated_settings):
+    """Same bug, same fix, the other caller (§ card_compression.compress_fields).
+    A card too big enough to need compression is what actually reaches the
+    provider — `too_big=False` returns early with nothing to close, so the
+    persona/scenario here have to be genuinely oversized to exercise it."""
+    created = client.post("/api/characters", json={"name": "Verbose"})
+    character_id = created.json()["id"]
+    client.put(f"/api/characters/{character_id}", json={
+        "persona": "A very long persona. " * 300,
+        "scenario": "A very long scenario. " * 300,
+    })
+    client.put("/api/settings", json={
+        "backends": [{"name": "echo", "kind": "echo", "model": "echo-1"}],
+        "tiers": {"blocking": "echo", "foreground": "echo", "background": "echo"},
+        "token_budget": 200,
+    })
+
+    result = client.post(f"/api/characters/{character_id}/compress").json()
+    assert result["needed"] is True
+
+    chat_id = new_chat(client)
+    events = send(client, chat_id, "Still there?")
+    assert not [e for e in events if e["type"] == "error"]
+    assert [e for e in events if e["type"] == "reply"]
+
+
 def test_budget_misattributions_present_even_with_no_messages_backend(client, isolated_settings):
     """Unlike `too_big` above, this check reads a card's own lorebook
     content and needs no backend at all — so it is still computed for every

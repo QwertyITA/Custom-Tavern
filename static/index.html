@@ -1263,7 +1263,14 @@
     </button>
   </div>
 
-  <div class="banner error" x-show="error" x-cloak>
+  <!-- Same "appears/leaves gets a transition" rule as everything else here
+       (§ CLAUDE.md) — this one arrived as a hard cut, the one place in the
+       whole composer stack that still snapped in and out with x-show alone,
+       which is exactly what made it read as a crash dump rather than
+       something the app was telling you on purpose. -->
+  <div class="banner error" x-show="error" x-cloak
+       x-transition:enter="banner-error-enter" x-transition:enter-start="banner-error-from" x-transition:enter-end="banner-error-to"
+       x-transition:leave="banner-error-leave" x-transition:leave-start="banner-error-to" x-transition:leave-end="banner-error-from">
     <span x-text="error"></span>
     <button class="link" @click="error = ''">Dismiss</button>
   </div>

@@ -1862,6 +1862,12 @@ body {
 
 .banner { padding: 8px 10px; border-radius: 8px; font-size: 13px; display: flex; gap: 10px; }
 .banner.error { background: color-mix(in srgb, var(--error) 18%, var(--bg)); color: var(--error); }
+/* Same shape as .music-card's own enter/leave: a small thing arriving in
+   place, not travelling from anywhere in particular. */
+.banner-error-enter { transition: opacity var(--dur-base) var(--ease-back), transform var(--dur-base) var(--ease-back); }
+.banner-error-leave { transition: opacity var(--dur-fast) var(--ease-in-out), transform var(--dur-fast) var(--ease-in-out); }
+.banner-error-from { opacity: 0; transform: translateY(8px) scale(.96); }
+.banner-error-to { opacity: 1; transform: translateY(0) scale(1); }
 
 .ambient {
   display: flex; gap: 6px; padding: 0 10px 4px;

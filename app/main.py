@@ -537,12 +537,16 @@ async def _effective_blocking_budget(db, settings: config.Settings) -> int | Non
         provider = providers.provider_for_tier("blocking", settings)
     except Exception:  # noqa: BLE001 — no backend configured is not an error here
         return None
+    # No `aclose()` on the way out: this is the shared instance real turns on
+    # this tier reuse (§ providers/__init__.py), not a throwaway this call
+    # owns. Closing it here used to break every subsequent turn on the tier
+    # with "Cannot send a request, as the client has been closed" — and this
+    # runs from `characters_budget` below, which the roster calls on nothing
+    # rarer than opening the app, so the breakage was never occasional.
     try:
         limit = await provider.context_limit()
     except Exception:  # noqa: BLE001 — a backend that cannot answer fits nothing
         limit = None
-    finally:
-        await provider.aclose()
     reply_pass = registry.get_pass(db, "basic")
     reply_cost = 0
     if reply_pass is not None:
