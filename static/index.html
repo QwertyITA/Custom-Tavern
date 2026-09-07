@@ -1457,10 +1457,9 @@
     </div>
 
     <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-ticket"/></svg>Passes</h3>
-    <p class="kind-note">Which backend each group of work uses — the same three from Brain, quicker to reach.</p>
     <template x-for="g in settings.tier_groups || []" :key="g.tier">
-      <label class="row theme-row">
-        <span class="row-label wide-label" x-text="g.label"></span>
+      <label class="homepage-tier-row">
+        <span class="row-label" x-text="g.label"></span>
         <select @change="setHomeTier(g.tier, $event.target.value)">
           <template x-for="b in settings.backends || []" :key="b.name">
             <option :value="b.name" :selected="(settings.tiers || {})[g.tier] === b.name" x-text="b.name"></option>

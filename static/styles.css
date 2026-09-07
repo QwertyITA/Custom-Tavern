@@ -2331,22 +2331,54 @@ body {
 
 /* Full-screen, like .sheet, but under it in z-index (§ index.html's own
    comment) — opening Brain from the preset shortcut below still has to
-   land on top of this rather than behind it. */
+   land on top of this rather than behind it.
+   The fixed shell itself does not scroll — .homepage-scroll, a flex child,
+   does (exactly .sheet/.sheet-body's own split, copied on purpose rather
+   than scrolling the fixed element directly). A `position:fixed` element
+   that is also the scroll container fights the address bar on a phone:
+   every time it shows or hides, the visual viewport resizes, and a fixed
+   box using that resize as its own scroll extent reads as the page
+   lurching rather than scrolling — reported live as "the browser window
+   expands and collapses" and the sheet not sitting over the chat cleanly.
+   A non-scrolling fixed shell has nothing for that resize to disturb. */
 .homepage {
   position: fixed;
   inset: 0;
   z-index: 20;
   background: var(--surface-bg);
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 .homepage-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   max-width: 480px;
+  width: 100%;
   margin: 0 auto;
   padding: calc(24px + var(--safe-top)) 16px calc(24px + var(--safe-bottom));
 }
 .homepage-title {
   margin: 0 0 18px;
   font-size: 20px;
+}
+/* Copied from .sheet-body h3 rather than relying on being inside .sheet-body
+   — the homepage is a sibling overlay, not one of the sheet's own tab
+   bodies, so it never inherited that rule and every section heading's icon
+   sat on its own line above the label instead of beside it (a bare <svg>
+   is inline by default, but with nothing making the <h3> a flex row, the
+   icon and the text broke like two inline elements too wide for one line
+   often do). */
+.homepage-scroll h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--muted);
+  margin: 18px 0 8px;
 }
 .homepage-continue {
   display: flex;
@@ -2394,6 +2426,41 @@ body {
 }
 .homepage-pick-row:active { background: var(--panel-2); }
 .homepage-suboption { padding-left: 30px; }
+
+/* The compact pass-assignment row — reported not-compact against the first
+   version, which reused .row.theme-row wholesale: a 44px-tall row built to
+   hold a colour swatch and its hex value, on a label ("Secondary info
+   generator") long enough to wrap onto two lines at that size. Shorter,
+   tighter, and the label is allowed to shrink before the select ever does
+   — the select is the part anyone is actually there to change. */
+.homepage-tier-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 34px;
+  margin-bottom: 4px;
+  font-size: 12.5px;
+}
+.homepage-tier-row .row-label {
+  width: auto;
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--muted);
+  text-transform: none;
+}
+.homepage-tier-row select {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 55%;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 5px 6px;
+  font: inherit;
+  font-size: 12.5px;
+}
 
 /* ------------------------------------------------------- settings sheet */
 
