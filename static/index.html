@@ -382,6 +382,18 @@
       <button class="icon-btn" @click="openPanel('settings')" aria-label="Settings" title="Settings">
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-gear"/></svg>
       </button>
+      <!-- Same single button and three-state behaviour as the roster
+           panel's own vault action (§ openVaultHeaderAction, app.js;
+           .vault-actions above) — not configured opens setup, configured-
+           and-locked unlocks, unlocked locks. A second door onto it, not a
+           second implementation, same reasoning as the three buttons above. -->
+      <button class="icon-btn" @click="openVaultHeaderAction()"
+              :aria-label="settings.vault_unlocked ? 'Lock vault' : 'Unlock vault'"
+              :title="settings.vault_unlocked ? 'Lock' : (settings.vault_configured ? 'Unlock' : 'Set up a lock PIN')">
+        <svg class="icon icon-vault" viewBox="0 0 24 24" aria-hidden="true">
+          <use :href="settings.vault_unlocked ? '#i-lock-open' : '#i-lock'"/>
+        </svg>
+      </button>
     </div>
 
     <!-- The inline twin of the floating world-pill below (§ that comment
