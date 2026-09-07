@@ -1457,8 +1457,20 @@
         <div class="homepage-picker">
           <template x-for="c in characters" :key="c.id">
             <button class="homepage-pick-row" @click="startHomeChat(c.id)">
-              <span class="char-pfp">
-                <svg class="char-pfp-generic" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-person"/></svg>
+              <!-- The same .pfp-slot the roster's own rows draw with (§ that
+                   comment there) — shape, picture and glow, not the fixed
+                   round placeholder .char-pfp draws regardless of what a
+                   character actually looks like. -->
+              <span class="pfp-slot pfp-slot-home" :class="'shape-' + (c.pfp_shape || 'portrait')">
+                <span class="pfp pfp-blank" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
+                </span>
+                <template x-if="c.pfp && !brokenPfp(pfpUrl(c.pfp))">
+                  <img class="pfp pfp-over" :src="pfpUrl(c.pfp)" alt="" @error="markPfpBroken(pfpUrl(c.pfp))">
+                </template>
+                <template x-if="pfpEffectOn(c.pfp_effect)">
+                  <span class="pfp-glow" :style="pfpEffectStyle(c.pfp_effect)" aria-hidden="true"></span>
+                </template>
               </span>
               <span class="char-name" x-text="c.name"></span>
             </button>
@@ -1477,8 +1489,16 @@
           <template x-for="c in characters" :key="c.id">
             <label class="group-pick-row">
               <input type="checkbox" :checked="groupPicked.includes(c.id)" @change="toggleGroupPick(c.id)">
-              <span class="char-pfp">
-                <svg class="char-pfp-generic" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-person"/></svg>
+              <span class="pfp-slot pfp-slot-home" :class="'shape-' + (c.pfp_shape || 'portrait')">
+                <span class="pfp pfp-blank" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
+                </span>
+                <template x-if="c.pfp && !brokenPfp(pfpUrl(c.pfp))">
+                  <img class="pfp pfp-over" :src="pfpUrl(c.pfp)" alt="" @error="markPfpBroken(pfpUrl(c.pfp))">
+                </template>
+                <template x-if="pfpEffectOn(c.pfp_effect)">
+                  <span class="pfp-glow" :style="pfpEffectStyle(c.pfp_effect)" aria-hidden="true"></span>
+                </template>
               </span>
               <span class="char-name" x-text="c.name"></span>
             </label>

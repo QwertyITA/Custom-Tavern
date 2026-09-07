@@ -2020,6 +2020,12 @@ body {
    width on it. Still the same shared .pfp-slot machinery (ratio, glow,
    blank fallback), just a wider --pfp-w. */
 .pfp-slot-roster { --pfp-w: 52px; }
+/* The homepage's own New chat/New group chat pickers (§ index.html) —
+   smaller than the roster's own rows, since these are quick picks in a
+   list rather than the roster's full-height cards, but the same shape,
+   picture and glow rather than the plain round placeholder .char-pfp
+   drew regardless of what a character actually looks like. */
+.pfp-slot-home { --pfp-w: 32px; }
 
 /* Star on top, edit/export/delete stacked under it — one column at the
    head's own right edge, not a corner badge plus a separate full-width row
