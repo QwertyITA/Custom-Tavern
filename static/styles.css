@@ -435,6 +435,14 @@ body {
    back out to 44 would just make the chip that contains it look clipped. */
 .world-pill .icon-btn.refresh { min-width: 26px; min-height: 26px; padding: 3px; }
 .world-pill .icon-btn.refresh .icon { width: 15px; height: 15px; }
+/* Pulls the button back toward the edge when the fields are also showing
+   (§ .world-pill's own comment) — .world-pill's padding just grew to a
+   symmetric 9px for the common button-hidden state, and without this a
+   button-and-fields pill would double up to 9px pill padding *plus* the
+   button's own 3px, reading as an oversized gap on that side alone. Not
+   applied to .empty: that pill has no fields pulling its own padding
+   wide in the first place (see below), so there is nothing to cancel out. */
+.world-pill:not(.empty) .icon-btn.refresh { margin-right: -6px; }
 /* A continuous rotation is the one thing that must stay linear — easing it
    makes the spinner hesitate once per turn. */
 .icon-btn.refresh.spinning { animation: spin 1.1s linear infinite; color: var(--accent); }
@@ -461,7 +469,15 @@ body {
   gap: 2px;
   width: fit-content;
   max-width: 100%;
-  padding: 1px 3px 1px 9px;
+  /* Symmetric now — was 1px 3px 1px 9px, lopsided on the assumption the
+     refresh button's own padding always fills out the right side. It
+     doesn't: the button stays hidden (§ x-show, index.html) whenever there
+     is a scene and the pill hasn't been tapped open, which is the pill's
+     *normal* resting state — so the common case read as text crowding the
+     right edge with nothing to balance the 9px of room on the left. The
+     button, when it does show, pulls itself back in to avoid double
+     padding (§ .icon-btn.refresh below) rather than this shrinking again. */
+  padding: 1px 9px;
   border-radius: 999px;
   background: var(--panel-2);
   cursor: default;
@@ -542,7 +558,10 @@ body {
    The 130px floor above is for wrapped field text finding room to breathe —
    nothing this small needs it, and holding an empty pill to that width left
    it a wide oval with one small button adrift in it. */
-.world-pill.empty { padding: 1px; gap: 0; }
+/* 1px read as touching the border with nothing beside the button to make
+   the edge legible — bumped enough to give the round glyph real breathing
+   room, still even on all sides (a plain icon button, not a chip). */
+.world-pill.empty { padding: 4px; gap: 0; }
 .world-pill-inline.empty { min-width: 0; }
 /* Wraps rather than clipping: pillFitsInline already keeps anything wider
    than two lines' worth out of here entirely, so whatever does land here is
@@ -3088,6 +3107,27 @@ body {
   background: var(--panel-2) center / cover no-repeat;
   cursor: pointer;
 }
+/* The quick pick: thumbnail only, as many as fit a line — the row above
+   needs its width for a name and a description; this one only ever needs
+   to answer "which image", so a small square tile reads faster and lets
+   many sit on one line instead of one scrollable column. */
+.bg-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+  gap: 8px;
+  margin: 4px 0 10px;
+}
+.bg-quick-thumb {
+  aspect-ratio: 1;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  padding: 0;
+  background: var(--panel-2) center / cover no-repeat;
+  cursor: pointer;
+  transition: border-color 140ms var(--ease-out), transform 140ms var(--ease-back);
+}
+.bg-quick-thumb:active { transform: scale(.94); }
+.bg-quick-thumb.on { border-color: var(--accent); }
 .bg-row-fields { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .bg-row-fields input, .bg-row-fields textarea {
   width: 100%;

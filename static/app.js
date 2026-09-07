@@ -1195,6 +1195,9 @@ function tavern() {
     // Detail that is right at its default until it is not, folded away.
     showAdvancedBrain: false,
     showAdvancedTheme: false,
+    // The backdrop list's own name/description/auto-pick editor, folded
+    // away behind the quick-pick grid by default (§ index.html).
+    showBgDetails: false,
     backdrops: [],
     uploadingBg: false,
     bgMsg: "",

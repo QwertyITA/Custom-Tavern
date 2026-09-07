@@ -2682,137 +2682,6 @@
       <div>
         <p class="note">Everything here previews live. Save keeps it.</p>
 
-        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-image"/></svg>Backdrop</h3>
-        <!-- One shared library, not a per-character list — every character's
-             automatic background pick (§ background_swap, registry.py) now
-             draws from the same images named and described here, in
-             Settings.background_meta (config.py). Tapping a thumbnail sets
-             it as the app's own fixed backdrop, same as the old tile grid
-             this replaced; the name and description feed the AI's own pick
-             instead, and are independent of what is on screen right now.
-             The eye is the third, separate question: whether the AI may
-             choose this image *at all* — off pulls it out of that pick
-             without deleting it or losing its place as a manual choice
-             here. -->
-        <p class="kind-note">
-          Name and describe an image so the AI can pick a fitting backdrop
-          on its own during a chat. The eye excludes one from that automatic
-          pick without removing it — it stays choosable by hand here either
-          way.
-        </p>
-        <div class="bg-row-none" :class="{ on: settings.background === 'none' }"
-             @click="setBackground('none')" role="button" tabindex="0"
-             @keydown.enter="setBackground('none')" @keydown.space.prevent="setBackground('none')">
-          No backdrop
-        </div>
-        <div class="bg-list">
-          <template x-for="b in backdrops" :key="b.name">
-            <div class="bg-row" :class="{ on: settings.background === b.name }">
-              <button class="bg-row-thumb" @click="setBackground(b.name)"
-                      :style="`background-image:url('${b.url}')`"
-                      :aria-pressed="settings.background === b.name"
-                      :aria-label="`Use ${bgLabel(b.name)} as the backdrop`"></button>
-              <div class="bg-row-fields">
-                <!-- The raw stored label, not bgLabel(b.name) — same fix as
-                     the music library's own name field: that falls back to
-                     the bare filename the moment the field is empty, and
-                     :value re-asserting it on every keystroke snapped the
-                     filename back before a new name could be typed. The
-                     filename still shows, just as a placeholder now. -->
-                <input :value="bgMeta(b.name).label || ''" :placeholder="bgLabel(b.name)" maxlength="60"
-                       @input="setBgMeta(b.name, 'label', $event.target.value)">
-                <textarea :value="bgMeta(b.name).description || ''" rows="2" maxlength="400"
-                          placeholder="What this shows — helps the AI pick it automatically."
-                          @input="setBgMeta(b.name, 'description', $event.target.value)"></textarea>
-              </div>
-              <div class="bg-row-actions">
-                <button class="icon-btn" :class="{ on: bgMeta(b.name).auto !== false }"
-                        @click="setBgMeta(b.name, 'auto', bgMeta(b.name).auto === false)"
-                        :aria-pressed="bgMeta(b.name).auto !== false"
-                        :title="bgMeta(b.name).auto === false
-                          ? 'Excluded from the AI\'s automatic pick — tap to include'
-                          : 'Eligible for the AI\'s automatic pick — tap to exclude'">
-                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                    <use :href="bgMeta(b.name).auto === false ? '#i-eye-off' : '#i-eye'"></use>
-                  </svg>
-                </button>
-                <button class="icon-btn danger" x-show="b.removable"
-                        :class="{ armed: confirmBg === b.name }" @click="deleteBackdrop(b)"
-                        :title="confirmBg === b.name ? 'Tap again to delete' : 'Delete'">
-                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-delete"/></svg>
-                </button>
-              </div>
-            </div>
-          </template>
-        </div>
-
-        <label class="wide file-btn">
-          <input type="file" accept="image/*" @change="uploadBackdrop($event)" hidden>
-          <span x-text="uploadingBg ? 'Uploading…' : 'Add an image'"></span>
-        </label>
-        <p class="kind-note" x-text="bgMsg"></p>
-
-        <div class="num-field" x-show="settings.background !== 'none'">
-          <div class="num-head">
-            <span class="num-label">Backdrop fade</span>
-            <span class="num-unit" x-text="`${settings.background_dim}%`"></span>
-          </div>
-          <input class="num-slider" type="range" min="40" max="100" :value="settings.background_dim"
-                 @input="setBackgroundDim($event.target.value)" aria-label="Backdrop fade">
-          <p class="kind-note">Higher washes the image out further behind the text.</p>
-        </div>
-
-        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-glass"/></svg>Glass</h3>
-        <p class="note">
-          Frosts every surface so the room stays visible through the interface.
-          It layers over whichever palette you are using — it only changes how
-          solid a surface is, never what colour it is.
-        </p>
-        <label class="toggle">
-          <input type="checkbox" :checked="settings.glass"
-                 @change="setGlass($event.target.checked)">
-          <span>Frosted glass</span>
-        </label>
-        <div class="fold" :class="{ open: settings.glass }">
-          <div class="fold-clip">
-            <div class="num-field">
-              <div class="num-head">
-                <span class="num-label">Frosted to clear</span>
-                <span class="num-unit" x-text="glassLabel"></span>
-              </div>
-              <input class="num-slider" type="range" min="0" max="100" step="5"
-                     :value="settings.glass_amount"
-                     @input="setGlassAmount($event.target.value)"
-                     aria-label="How much glass">
-              <p class="kind-note">
-                One end is a bathroom window, the other is a windowpane: as the
-                glass gets more transparent it also gets less diffused, so at
-                the far end you see the room sharply through it and only the
-                edge and its shadow say there is anything there. Text stays
-                fully opaque throughout.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-motion"/></svg>Motion</h3>
-        <div class="num-field">
-          <div class="num-head">
-            <span class="num-label">How much things move</span>
-            <span class="num-unit" x-text="motionLabel"></span>
-          </div>
-          <input class="num-slider" type="range" min="0" max="100" step="10"
-                 :value="settings.motion"
-                 @input="setMotion($event.target.value)"
-                 aria-label="How much things move">
-          <p class="kind-note">
-            Everything is timed against this, so it scales the whole interface
-            rather than switching individual things off. At nothing, the
-            spinners and shimmers stop too. If your phone is set to reduce
-            motion, that wins whatever this says.
-          </p>
-        </div>
-
         <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-palette"/></svg>Colour</h3>
         <div class="preset-row">
           <template x-for="preset in themePresets()" :key="preset.id">
@@ -2885,6 +2754,167 @@
         </div>
 
         <button class="wide" @click="resetTheme()">Reset appearance to defaults</button>
+
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-image"/></svg>Backdrop</h3>
+        <!-- One shared library, not a per-character list — every character's
+             automatic background pick (§ background_swap, registry.py) now
+             draws from the same images named and described here, in
+             Settings.background_meta (config.py). Tapping a thumbnail sets
+             it as the app's own fixed backdrop, same as the old tile grid
+             this replaced; the name and description feed the AI's own pick
+             instead, and are independent of what is on screen right now.
+             The eye is the third, separate question: whether the AI may
+             choose this image *at all* — off pulls it out of that pick
+             without deleting it or losing its place as a manual choice
+             here. -->
+        <p class="kind-note">Tap an image to use it as the backdrop.</p>
+        <div class="bg-row-none" :class="{ on: settings.background === 'none' }"
+             @click="setBackground('none')" role="button" tabindex="0"
+             @keydown.enter="setBackground('none')" @keydown.space.prevent="setBackground('none')">
+          No backdrop
+        </div>
+        <!-- Quick pick: thumbnail only, many to a line — naming, describing
+             and excluding one from the AI's own automatic pick are all a
+             second, deliberate step (§ the disclosure below), not something
+             this grid needs room for just to let you set what's on screen
+             right now. -->
+        <div class="bg-quick-grid">
+          <template x-for="b in backdrops" :key="b.name">
+            <button class="bg-quick-thumb" :class="{ on: settings.background === b.name }"
+                    @click="setBackground(b.name)"
+                    :style="`background-image:url('${b.url}')`"
+                    :aria-pressed="settings.background === b.name"
+                    :aria-label="`Use ${bgLabel(b.name)} as the backdrop`"></button>
+          </template>
+        </div>
+
+        <label class="wide file-btn">
+          <input type="file" accept="image/*" @change="uploadBackdrop($event)" hidden>
+          <span x-text="uploadingBg ? 'Uploading…' : 'Add an image'"></span>
+        </label>
+        <p class="kind-note" x-text="bgMsg"></p>
+
+        <!-- Name, describe or exclude one from the AI's own automatic pick
+             (§ background_swap, registry.py) — folded away by default so
+             the common case (just picking what's on screen) stays the
+             quick grid above it, one line per few images, not a scroll of
+             text fields nobody is editing today. -->
+        <button class="disclose" :class="{ open: showBgDetails }"
+                @click="showBgDetails = !showBgDetails" :aria-expanded="showBgDetails">
+          <svg class="disclose-arrow" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-back"/></svg>
+          <span>Names, descriptions &amp; auto-pick</span>
+        </button>
+        <div class="fold" :class="{ open: showBgDetails }">
+          <div class="fold-clip">
+            <p class="kind-note">
+              Name and describe an image so the AI can pick a fitting
+              backdrop on its own during a chat. The eye excludes one from
+              that automatic pick without removing it — it stays choosable
+              by hand above either way.
+            </p>
+            <div class="bg-list">
+              <template x-for="b in backdrops" :key="b.name">
+                <div class="bg-row" :class="{ on: settings.background === b.name }">
+                  <button class="bg-row-thumb" @click="setBackground(b.name)"
+                          :style="`background-image:url('${b.url}')`"
+                          :aria-pressed="settings.background === b.name"
+                          :aria-label="`Use ${bgLabel(b.name)} as the backdrop`"></button>
+                  <div class="bg-row-fields">
+                    <!-- The raw stored label, not bgLabel(b.name) — same fix as
+                         the music library's own name field: that falls back to
+                         the bare filename the moment the field is empty, and
+                         :value re-asserting it on every keystroke snapped the
+                         filename back before a new name could be typed. The
+                         filename still shows, just as a placeholder now. -->
+                    <input :value="bgMeta(b.name).label || ''" :placeholder="bgLabel(b.name)" maxlength="60"
+                           @input="setBgMeta(b.name, 'label', $event.target.value)">
+                    <textarea :value="bgMeta(b.name).description || ''" rows="2" maxlength="400"
+                              placeholder="What this shows — helps the AI pick it automatically."
+                              @input="setBgMeta(b.name, 'description', $event.target.value)"></textarea>
+                  </div>
+                  <div class="bg-row-actions">
+                    <button class="icon-btn" :class="{ on: bgMeta(b.name).auto !== false }"
+                            @click="setBgMeta(b.name, 'auto', bgMeta(b.name).auto === false)"
+                            :aria-pressed="bgMeta(b.name).auto !== false"
+                            :title="bgMeta(b.name).auto === false
+                              ? 'Excluded from the AI\'s automatic pick — tap to include'
+                              : 'Eligible for the AI\'s automatic pick — tap to exclude'">
+                      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                        <use :href="bgMeta(b.name).auto === false ? '#i-eye-off' : '#i-eye'"></use>
+                      </svg>
+                    </button>
+                    <button class="icon-btn danger" x-show="b.removable"
+                            :class="{ armed: confirmBg === b.name }" @click="deleteBackdrop(b)"
+                            :title="confirmBg === b.name ? 'Tap again to delete' : 'Delete'">
+                      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-delete"/></svg>
+                    </button>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+
+        <div class="num-field" x-show="settings.background !== 'none'">
+          <div class="num-head">
+            <span class="num-label">Backdrop fade</span>
+            <span class="num-unit" x-text="`${settings.background_dim}%`"></span>
+          </div>
+          <input class="num-slider" type="range" min="40" max="100" :value="settings.background_dim"
+                 @input="setBackgroundDim($event.target.value)" aria-label="Backdrop fade">
+          <p class="kind-note">Higher washes the image out further behind the text.</p>
+        </div>
+
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-glass"/></svg>Glass</h3>
+        <p class="note">
+          Frosts every surface so the room stays visible through the interface.
+          It layers over whichever palette you are using — it only changes how
+          solid a surface is, never what colour it is.
+        </p>
+        <label class="toggle">
+          <input type="checkbox" :checked="settings.glass"
+                 @change="setGlass($event.target.checked)">
+          <span>Frosted glass</span>
+        </label>
+        <div class="fold" :class="{ open: settings.glass }">
+          <div class="fold-clip">
+            <div class="num-field">
+              <div class="num-head">
+                <span class="num-label">Frosted to clear</span>
+                <span class="num-unit" x-text="glassLabel"></span>
+              </div>
+              <input class="num-slider" type="range" min="0" max="100" step="5"
+                     :value="settings.glass_amount"
+                     @input="setGlassAmount($event.target.value)"
+                     aria-label="How much glass">
+              <p class="kind-note">
+                One end is a bathroom window, the other is a windowpane: as the
+                glass gets more transparent it also gets less diffused, so at
+                the far end you see the room sharply through it and only the
+                edge and its shadow say there is anything there. Text stays
+                fully opaque throughout.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-motion"/></svg>Motion</h3>
+        <div class="num-field">
+          <div class="num-head">
+            <span class="num-label">How much things move</span>
+            <span class="num-unit" x-text="motionLabel"></span>
+          </div>
+          <input class="num-slider" type="range" min="0" max="100" step="10"
+                 :value="settings.motion"
+                 @input="setMotion($event.target.value)"
+                 aria-label="How much things move">
+          <p class="kind-note">
+            Everything is timed against this, so it scales the whole interface
+            rather than switching individual things off. At nothing, the
+            spinners and shimmers stop too. If your phone is set to reduce
+            motion, that wins whatever this says.
+          </p>
+        </div>
       </div>
     </template>
 
