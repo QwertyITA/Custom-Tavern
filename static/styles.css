@@ -251,6 +251,12 @@ body {
    reason: closer to the icon-btn's own hit area, not further out past it. */
 .bar-row { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; min-width: 0; }
 
+/* Sits in .who's own spot on the homepage (§ index.html) — same row,
+   same place, just three compact buttons instead of the character name
+   there is not yet one of. .icon-btn's own sizing carries all three, so
+   this is only the row that holds them. */
+.home-tabs { display: flex; align-items: center; gap: 2px; }
+
 .who {
   /* A button, but it has to look like the title it replaced. */
   background: none;

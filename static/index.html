@@ -355,11 +355,34 @@
          character, so it is the control that does that. The caret says so:
          plain bold text read as a title, not a control, until this gave it
          the same "opens something" mark a select or a dropdown carries. -->
-    <button class="who" @click="openCharacters()" :disabled="!character"
+    <button class="who" @click="openCharacters()" :disabled="!character" x-show="!showHome" x-cloak
             :aria-label="character ? `${character.name} — characters and chats` : 'Characters'">
       <span class="who-text" x-text="character ? character.name : ''"></span>
       <svg class="who-caret" x-show="character" x-cloak viewBox="0 0 24 24" aria-hidden="true"><use href="#i-down"/></svg>
     </button>
+
+    <!-- Reported live: Brain/Theme/Settings sitting a hamburger-tap away
+         cost a tap to even discover, on a header with nothing else in the
+         name's own spot to fill it. Right there instead, in the collapsed
+         header itself — not by auto-opening the fold-out row below (§ menu,
+         still closed by default here), which the same report asked against
+         just as directly. Cards and Story stay reachable the normal way,
+         behind the hamburger — this promotes the three the homepage's own
+         Quick options/Passes sections already duplicate the substance of,
+         not a wholesale replacement for the menu. Same openPanel calls and
+         icons as their own buttons in the fold-out row (§ menu-row below),
+         just a second, compact door onto them. -->
+    <div class="home-tabs" x-show="showHome" x-cloak>
+      <button class="icon-btn" @click="openPanel('brain')" aria-label="Model and engine" title="Brain">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-brain"/></svg>
+      </button>
+      <button class="icon-btn" @click="openPanel('theme')" aria-label="Appearance" title="Theme">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-theme"/></svg>
+      </button>
+      <button class="icon-btn" @click="openPanel('settings')" aria-label="Settings" title="Settings">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-gear"/></svg>
+      </button>
+    </div>
 
     <!-- The inline twin of the floating world-pill below (§ that comment
          for the full reasoning) — same fields, same refresh button, living
