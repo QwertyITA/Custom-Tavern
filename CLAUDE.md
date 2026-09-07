@@ -116,12 +116,25 @@ The load-bearing ideas, each of which has a test protecting it:
     duration it calls `dur("name")`, which reads the token — never a literal.
     The literals drifted last time: a 420ms animation was being waited on for
     460ms.
-  - **Linear is right in exactly three places**, all continuous with no start
-    or end to ease between: the refresh spinner, the composing-label shimmer
-    and the skeleton sweep. Easing any of them makes it hesitate once per
-    cycle. The streaming cursor is the fourth thing that does not ease, and it
-    is not linear either — it blinks on `steps(1, end)`, because a cursor is on
-    or off and a fade between the two reads as a pulse.
+  - **Linear is right in exactly five places**, all continuous with no start
+    or end to ease between: the refresh spinner, the composing-label shimmer,
+    the skeleton sweep, the channel light's scan arc and the aperture's two
+    scan rings. Easing any of them makes it hesitate once per cycle. The
+    streaming cursor is the one further thing that does not ease, and it is not
+    linear either — it blinks on `steps(1, end)`, because a cursor is on or off
+    and a fade between the two reads as a pulse. Note what the last two have in
+    common with the first three: they are rotations, not arrivals. Anything
+    that starts somewhere and stops somewhere is still eased.
+  - **Never put `--ease-spring` on a colour.** It overshoots past 1 on purpose
+    — that is what makes something land rather than merely arrive — and an
+    overshoot applied to a colour extrapolates past the target and clamps per
+    channel. The aperture's rings locked *bright yellow* the first time, from
+    keyframes that animated `border-color` to a rose accent on the spring. The
+    fix is not a gentler easing: it is that colour belongs in a transition or a
+    state rule, and the spring belongs on the transform. `--ease-back`
+    overshoots at the near end too, which is how it can drive a value
+    negative — that one bit `stroke-dasharray`, where a negative dash is not a
+    legal value at all.
   - **`content-visibility: auto` on a message row silently kills animations
     inside it.** Not just painting — style and layout for the whole subtree, so
     `getAnimations()` hands back a live animation whose effect is never

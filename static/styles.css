@@ -144,6 +144,18 @@
      an animation charging them for the privilege. */
   --dur-token-in: max(1ms, calc(200ms * var(--motion)));
 
+  /* The aperture (§ openLink, app.js) — the handshake that stands in front of
+     a chat while it loads. Four phases, four tokens, all read by the JS that
+     sequences them so there is still exactly one number per beat. `scan` is a
+     floor, not a length: it is the shortest the scan may last, and the real
+     wait is however long the chat takes to arrive. `reconnect` is the whole
+     abbreviated sequence for a chat that is already yours to re-enter. */
+  --dur-aperture-reach: max(1ms, calc(360ms * var(--motion)));
+  --dur-aperture-scan: max(1ms, calc(460ms * var(--motion)));
+  --dur-aperture-lock: max(1ms, calc(440ms * var(--motion)));
+  --dur-aperture-open: max(1ms, calc(340ms * var(--motion)));
+  --dur-aperture-reconnect: max(1ms, calc(500ms * var(--motion)));
+
   /* Frosted glass, off by default. `--glass-solid` is how much of the surface
      colour survives; the rest is whatever is behind it, which on this app is
      the tavern. Both are driven from one slider — more glass means both more
@@ -3812,6 +3824,7 @@ body {
    is what "the border flickers during long chats" actually was. `:has()`
    cannot disagree with the element it is matching. */
 .msg.sending,
+.msg.retry-row,
 .msg.collapsing,
 .msg.animating,
 .msg.streaming,
@@ -5193,3 +5206,316 @@ button:disabled:active,
 .num-slider:active::-webkit-slider-runnable-track {
   background: color-mix(in srgb, var(--accent) 24%, var(--line));
 }
+
+/* ---------------------------------------------------------------- channel
+
+   The link indicator in the header, and the fold behind it. Four states, one
+   glyph: nothing tried yet, carrying, open, broken. What separates them is
+   colour and *shape* first and motion second — under reduced motion every
+   animation below collapses to 1ms (§ the wildcard at the top of this file),
+   so a broken ring has to already be a split ring in its resting style rather
+   than one an animation put there. The animations only travel into the state
+   the CSS already describes. */
+.channel-light {
+  margin-left: auto;   /* the one thing pinned right in the bar row */
+  flex: 0 0 auto;
+  color: var(--muted);
+  transition: color var(--dur-fast) var(--ease-out);
+}
+.ch-glyph { width: 21px; height: 21px; overflow: visible; }
+.ch-ring, .ch-scan, .ch-wave {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  transform-origin: 12px 12px;
+}
+.ch-core { fill: currentColor; transform-origin: 12px 12px; }
+.ch-wave, .ch-scan { opacity: 0; }
+
+/* Nothing has been asked of it yet, and a dotted ring is the honest picture of
+   that: a circle that has not closed. */
+.channel-light.is-unknown { color: var(--muted); }
+.channel-light.is-unknown .ch-ring { stroke-dasharray: 1.5 3.6; }
+.channel-light.is-unknown .ch-core { opacity: .5; }
+
+/* Open: closed ring, and one carrier going out every few seconds. A pulse with
+   a long rest between beats, so it eases — nothing here is continuous. */
+.channel-light.is-open { color: var(--ok); }
+.channel-light.is-open .ch-wave { animation: channel-pulse 4.2s var(--ease-out) infinite; }
+@keyframes channel-pulse {
+  0%   { opacity: .5; transform: scale(.7); }
+  50%  { opacity: 0;  transform: scale(1.55); }
+  100% { opacity: 0;  transform: scale(1.55); }
+}
+
+/* Carrying: something is on the wire right now. The scan ring is the fourth
+   thing in this stylesheet that runs linear, and for the same reason as the
+   other three — it is a rotation with no start and no end to ease between, and
+   easing it makes it hesitate once per turn. */
+.channel-light.is-carrying { color: var(--accent); }
+.channel-light.is-carrying .ch-ring { opacity: .3; }
+.channel-light.is-carrying .ch-scan {
+  opacity: 1;
+  stroke-dasharray: 10 38;
+  animation: channel-scan 1.15s linear infinite;
+}
+@keyframes channel-scan { to { transform: rotate(360deg); } }
+
+/* Broken: the ring is split, and it stays split. Dead still — a dropped link
+   is not busy doing anything, and anything moving here would say it was. */
+.channel-light.is-broken { color: var(--error); }
+.channel-light.is-broken .ch-ring {
+  stroke-dasharray: 17 6.6;
+  stroke-dashoffset: 3;
+  /* --ease-out, not --ease-back: the anticipation phase would take the second
+     dash length below zero, which is not a legal dasharray, and the snap it
+     buys is invisible on a 21px glyph anyway. */
+  animation: channel-break var(--dur-base) var(--ease-out) both;
+}
+.channel-light.is-broken .ch-core { opacity: .55; }
+@keyframes channel-break {
+  from { stroke-dasharray: 47.2 0; stroke-dashoffset: 0; }
+  to   { stroke-dasharray: 17 6.6; stroke-dashoffset: 3; }
+}
+
+.channel-fold { background: var(--surface); }
+.channel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 4px 12px 10px;
+}
+.channel-row { display: flex; align-items: center; gap: 9px; }
+.channel-dot {
+  flex: 0 0 auto;
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.channel-dot.is-open { background: var(--ok); }
+.channel-dot.is-broken { background: var(--error); }
+.channel-dot.is-checking {
+  background: var(--accent);
+  animation: channel-waiting 1.3s var(--ease-in-out) infinite;
+}
+@keyframes channel-waiting { 50% { opacity: .3; } }
+.channel-id { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.channel-name { font-size: 13px; font-weight: 600; }
+.channel-meta {
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.channel-test, .channel-recheck {
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 12px;
+  transition: transform var(--dur-fast) var(--ease-out),
+              background var(--dur-fast) var(--ease-out);
+}
+.channel-test:active, .channel-recheck:active { transform: scale(.94); background: var(--panel); }
+.channel-test:disabled, .channel-recheck:disabled { opacity: .5; }
+.channel-recheck { align-self: flex-start; }
+
+/* ------------------------------------------------------------ signal lost
+
+   A send that failed, drawn as what it was: something that left, fell short of
+   the far side, and came back. Three beats on one timeline — reach, the tip
+   coming loose and dying, the line retracting — chained by delay rather than
+   by JavaScript, so there is no second copy of these numbers to drift out of
+   step with the first (§ --dur-message-send's own comment).
+
+   .retry-row is a .msg, and .msg carries content-visibility: auto, which does
+   not merely skip painting an off-screen row — it skips style and layout for
+   the whole subtree, so an animation inside one is handed back live by
+   getAnimations() while nothing ever moves. It is in the visible list below
+   for that reason and no other. */
+/* .msg is a flex row, so the strip has to claim a line of its own or it sits
+   beside the button and the far tick ends up looking like part of it — the
+   reach has to happen *above* the offer to try again, not next to it. It
+   starts at the row's own indent, which is where the reply would have begun. */
+.retry-row.lost { flex-wrap: wrap; }
+.signal-lost {
+  position: relative;
+  flex: 0 0 100%;
+  width: min(240px, 64%);
+  height: 12px;
+  margin: 0 0 7px 2px;
+}
+.sig-line {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 100%;
+  height: 1px;
+  transform: scaleX(0);
+  transform-origin: left center;
+  background: linear-gradient(
+    to right,
+    var(--accent),
+    color-mix(in srgb, var(--accent) 15%, transparent)
+  );
+  animation:
+    sig-reach var(--dur-slow) var(--ease-out) forwards,
+    sig-retract var(--dur-base) var(--ease-in-out) forwards;
+  animation-delay: 0ms, calc(var(--dur-slow) + var(--dur-base));
+}
+@keyframes sig-reach { to { transform: scaleX(.62); } }
+@keyframes sig-retract { from { transform: scaleX(.62); } to { transform: scaleX(0); } }
+
+/* The head of the signal. It travels with the line, then keeps going a few
+   px on its own once the line has stopped — coming loose is the moment the
+   whole thing turns from "reaching" into "not going to make it". */
+.sig-tip {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 4px; height: 4px;
+  margin-top: -2px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0;
+  animation:
+    sig-travel var(--dur-slow) var(--ease-out) forwards,
+    sig-die var(--dur-base) var(--ease-out) forwards;
+  animation-delay: 0ms, var(--dur-slow);
+}
+@keyframes sig-travel { from { left: 0; opacity: 1; } to { left: 62%; opacity: 1; } }
+@keyframes sig-die {
+  from { left: 62%; opacity: 1; transform: scale(1); }
+  to   { left: 73%; opacity: 0; transform: scale(.3); }
+}
+
+/* The far side. Never touched, which is the whole point of drawing it. */
+.sig-far {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  width: 2px; height: 9px;
+  margin-top: -4.5px;
+  border-radius: 1px;
+  background: var(--muted);
+  opacity: .45;
+}
+
+/* The offer to try again waits for the signal to finish failing. */
+.retry-row.lost .retry-btn {
+  animation: sig-offer var(--dur-base) var(--ease-back) both;
+  animation-delay: calc(var(--dur-slow) + var(--dur-base) + var(--dur-base));
+}
+@keyframes sig-offer {
+  from { opacity: 0; transform: translateY(6px) scale(.96); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* -------------------------------------------------------------- aperture
+
+   The handshake in front of a chat that is still loading (§ openLink, app.js).
+   Four phases as classes, sequenced from JS against the --dur-aperture-*
+   tokens, so the CSS and the code cannot disagree about how long a beat is. */
+.aperture {
+  position: fixed;
+  inset: 0;
+  z-index: 40;              /* over the sheet (30) and the homepage (20) */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 24px;
+  background: color-mix(in srgb, var(--bg) 84%, transparent);
+  backdrop-filter: blur(12px) saturate(1);
+  -webkit-backdrop-filter: blur(12px) saturate(1);
+  animation: aperture-in var(--dur-aperture-reach) var(--ease-out) both;
+}
+@keyframes aperture-in { from { opacity: 0; } to { opacity: 1; } }
+
+.aperture-stage { position: relative; width: 132px; height: 132px; }
+.ap-ring {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--accent) 72%, transparent);
+  /* The colour is a transition, never part of the lock keyframes below.
+     --ease-spring overshoots past 1 on purpose — that is what makes something
+     land rather than merely arrive — and an overshoot applied to a *colour*
+     extrapolates past the target and clamps per channel, which turned a rose
+     ring bright yellow at exactly the moment it was supposed to look right.
+     Springs are for transforms. */
+  transition: border-color var(--dur-base) var(--ease-out);
+}
+.ap-ring-1 { width: 132px; height: 132px; }
+.ap-ring-2 { width: 96px; height: 96px; border-style: dashed; }
+.ap-ring-3 { width: 60px; height: 60px; }
+.ap-core {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* Reach: the rings arrive from nothing, outermost first. */
+.aperture.phase-reach .ap-ring { animation: ap-arrive var(--dur-aperture-reach) var(--ease-out) both; }
+.aperture.phase-reach .ap-ring-2 { animation-delay: calc(var(--dur-aperture-reach) * .14); }
+.aperture.phase-reach .ap-ring-3 { animation-delay: calc(var(--dur-aperture-reach) * .28); }
+.aperture.phase-reach .ap-core { animation: ap-arrive var(--dur-aperture-reach) var(--ease-back) both; }
+@keyframes ap-arrive { from { opacity: 0; transform: scale(.25); } to { opacity: 1; transform: scale(1); } }
+
+/* Scan: looking for the other side, for however long that actually takes.
+   Rotation again, so linear again, for the same reason as the channel scan. */
+.aperture.phase-scan .ap-ring-2 { animation: ap-spin 2.6s linear infinite; }
+.aperture.phase-scan .ap-ring-3 { animation: ap-spin 3.4s linear infinite reverse; }
+.aperture.phase-scan .ap-core { animation: ap-breathe 1.7s var(--ease-in-out) infinite; }
+@keyframes ap-spin { to { transform: rotate(360deg); } }
+@keyframes ap-breathe { 50% { transform: scale(1.45); opacity: .75; } }
+
+/* Lock: the three rings converge on the middle one's size and settle there.
+   --ease-spring, because this is the one moment here that lands rather than
+   merely arrives: it crosses its mark and comes back to rest. */
+.aperture.phase-lock .ap-ring-1 { animation: ap-lock-in var(--dur-aperture-lock) var(--ease-spring) both; }
+.aperture.phase-lock .ap-ring-3 { animation: ap-lock-out var(--dur-aperture-lock) var(--ease-spring) both; }
+/* Solid from the lock onwards, which is also what hides the rotation being
+   dropped: a dashed ring stopping mid-turn snaps visibly, a plain circle
+   looks the same at every angle. */
+.aperture.phase-lock .ap-ring-2,
+.aperture.phase-open .ap-ring-2 { border-style: solid; }
+.aperture.phase-lock .ap-ring,
+.aperture.phase-open .ap-ring { border-color: var(--accent); }
+.aperture.phase-lock .ap-core { animation: ap-bloom var(--dur-aperture-lock) var(--ease-out) both; }
+@keyframes ap-lock-in { to { transform: scale(.727); } }
+@keyframes ap-lock-out { to { transform: scale(1.6); } }
+@keyframes ap-bloom {
+  0%   { transform: scale(1); }
+  45%  { transform: scale(2.1); opacity: 1; }
+  100% { transform: scale(1.2); opacity: .9; }
+}
+
+/* Open: the aperture widens past the screen and hands over the chat behind it. */
+.aperture.phase-open { animation: aperture-out var(--dur-aperture-open) var(--ease-in-out) both; }
+.aperture.phase-open .aperture-stage { animation: ap-open var(--dur-aperture-open) var(--ease-in-out) both; }
+@keyframes aperture-out { to { opacity: 0; } }
+@keyframes ap-open { to { transform: scale(5); opacity: 0; } }
+
+.aperture-line {
+  margin: 0;
+  min-height: 1.2em;
+  color: var(--muted);
+  font-size: 13px;
+  letter-spacing: .04em;
+  text-align: center;
+  animation: ap-line-in var(--dur-base) var(--ease-out) both;
+}
+.aperture.phase-lock .aperture-line,
+.aperture.phase-open .aperture-line { color: var(--accent); }
+@keyframes ap-line-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }

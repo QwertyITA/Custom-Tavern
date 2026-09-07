@@ -290,6 +290,71 @@ async def discover_models(payload: dict = Body(...)) -> dict:
     return {"ok": True, "models": models}
 
 
+# Long enough for a cold DNS lookup and a TLS handshake over a phone's mobile
+# data, short enough that the light settles while you are still looking at it.
+CHANNEL_PROBE_TIMEOUT = 12
+
+
+@app.post("/api/channel/check")
+async def check_channel() -> dict:
+    """Is there actually anything on the other end of each configured tier?
+
+    Deliberately *not* /api/settings/test's probe. That one asks for a real
+    generation, which on Horde means queueing behind everyone else and
+    spending kudos — fine for a button someone pressed on purpose, far too
+    expensive for something that runs on every app open. This asks each
+    backend which models it serves instead: one cheap request, no inference,
+    and it still proves the whole path end to end — DNS, the connection, the
+    key. The generation probe stays where it was, behind the per-backend
+    Test button.
+
+    Three states, not two. `Provider.list_models` answers [] rather than
+    raising when a backend has no way to enumerate (§ providers/base.py), and
+    an empty answer is not a reachable backend — it is no answer at all. That
+    reports "unknown", because claiming a link is open on the strength of a
+    request that proved nothing is exactly the lie this indicator exists to
+    stop telling.
+
+    One probe per distinct backend, not one per tier: three tiers pointing at
+    the same Horde key is one link, and probing it three times over would say
+    so three times and cost three requests.
+    """
+    tiers = dict(config.SETTINGS.tiers or {})
+    by_name = {b.name: b for b in config.SETTINGS.backends}
+    order = [g["tier"] for g in config.TIER_GROUPS]
+
+    # Backend name → the tiers riding on it, in the order the Brain panel and
+    # the homepage already list them, so the rows read the same everywhere.
+    wanted: dict[str, list[str]] = {}
+    for tier in sorted(tiers, key=lambda t: order.index(t) if t in order else len(order)):
+        wanted.setdefault(tiers[tier], []).append(tier)
+
+    async def probe(name: str, tier_ids: list[str]) -> dict:
+        row = {"name": name, "tiers": tier_ids, "kind": "", "error": "", "latency_ms": 0}
+        backend = by_name.get(name)
+        if backend is None:
+            # A tier pointing at a backend that was renamed or deleted. Broken
+            # for a reason no probe would ever discover, so say which.
+            return {**row, "state": "broken", "error": f"no backend named \u201c{name}\u201d is configured"}
+        row["kind"] = backend.kind
+        provider = providers.build(backend)
+        started = time.monotonic()
+        try:
+            models = await asyncio.wait_for(
+                provider.list_models(), timeout=CHANNEL_PROBE_TIMEOUT
+            )
+        except (providers.ProviderError, asyncio.TimeoutError, OSError) as exc:
+            return {**row, "state": "broken", "error": _safe_error(exc, backend.api_key)}
+        finally:
+            await provider.aclose()
+        row["latency_ms"] = round((time.monotonic() - started) * 1000)
+        row["models"] = len(models)
+        return {**row, "state": "open" if models else "unknown"}
+
+    rows = await asyncio.gather(*(probe(n, t) for n, t in wanted.items()))
+    return {"backends": list(rows)}
+
+
 # Short enough to read whole on a phone, and long enough to show every box:
 # a system prompt, both roles, and a turn boundary in each direction.
 PREVIEW_SYSTEM = "You are Wren, who runs the ferry. Stay in character."

@@ -941,6 +941,25 @@ function tavern() {
     // own manual pick). "proposed" is a pending action_card (§ musicRespond)
     // shown in the message flow; "playing" drives the <audio> element.
     music: { status: "none", track: null, character: null },
+
+    // The channel (§ .channel-light, index.html). What the tavern actually is,
+    // said out loud: every backend is a carrier, and this is whether anything
+    // is on the other end of one. `channelRuns` is the set of pass runs in
+    // flight right now, keyed by run id rather than counted, because a count
+    // drifts the moment one status event is delivered twice — which the SSE
+    // stream is explicitly allowed to do after a reconnect.
+    channelOpen: false,
+    channelChecking: false,
+    channelBackends: [],
+    channelRuns: {},
+    // A send that failed on the way out, which plays the reach that falls
+    // short (§ .signal-lost, styles.css). Distinct from `unanswered`: that one
+    // is also true after a deliberate Stop, and nothing failed to arrive when
+    // you were the one who called it off.
+    signalLost: false,
+
+    // The handshake standing in front of a chat while it loads (§ openLink).
+    aperture: { on: false, phase: "reach", line: "" },
     musicLibrary: [],
     // The one talking-avatar clip currently live, if any (AVATAR-VIDEO-
     // CONTRACT.md) — { messageId, url } for the single message it was
@@ -1320,6 +1339,10 @@ function tavern() {
         this.settings = softenMasks(await api.get("/api/settings"));
         this.applyTheme();
       } catch (_) { /* defaults are already in the stylesheet */ }
+      // Whether there is anything on the other end, asked once on the way in
+      // (§ checkChannel). Not awaited: it moves one small light, and nothing
+      // else on this screen is waiting to hear about it.
+      this.checkChannel();
       try {
         await this.loadCharacters();
         if (!this.characters.length) {
@@ -1679,16 +1702,23 @@ function tavern() {
     },
 
     async newChat(characterId) {
-      const id = characterId || this.characterId;
       this.error = "";
       try {
-        const chat = await api.post("/api/chats", { character_id: id });
-        this.chats = await api.get("/api/chats");
-        await this.openChat(chat.id);
-        this.closePanel();
+        await this.createChat(characterId);
       } catch (e) {
         this.error = errorText(e);
       }
+    },
+
+    // The same work, without the catch. openLink needs the failure to reach it
+    // — an aperture that locks onto a chat which never opened would be a lie
+    // told with an animation.
+    async createChat(characterId) {
+      const id = characterId || this.characterId;
+      const chat = await api.post("/api/chats", { character_id: id });
+      this.chats = await api.get("/api/chats");
+      await this.openChat(chat.id);
+      this.closePanel();
     },
 
     // Tapping a character row opens the conversation it was last in — the
@@ -1737,13 +1767,25 @@ function tavern() {
       return `${name} · ${chat.title || "untitled"}`;
     },
 
+    // Reconnecting, not connecting: this link was established a while ago and
+    // is only being re-entered, so it gets the short form (§ openLink).
     async continueHomeChat() {
-      if (this.homeContinueChatId) await this.openChat(this.homeContinueChatId);
+      const id = this.homeContinueChatId;
+      if (!id) return;
+      const chat = this.chats.find((c) => c.id === id);
+      const who = chat && this.characters.find((c) => c.id === chat.character_id);
+      await this.openLink(() => this.openChat(id), {
+        mode: "reconnect",
+        names: who ? [who.name] : [],
+      });
     },
 
     async startHomeChat(characterId) {
       this.homeNewChatOpen = false;
-      await this.newChat(characterId);
+      const who = this.characters.find((c) => c.id === characterId);
+      await this.openLink(() => this.createChat(characterId), {
+        names: who ? [who.name] : [],
+      });
     },
 
     // Presets live inside Brain rather than as a panel of their own (§
@@ -4035,6 +4077,232 @@ function tavern() {
       this.settings.background_meta = all;
     },
 
+    // ---- the channel ----
+    //
+    // Four states, and the rule between them is which piece of news is most
+    // worth showing: something happening right now beats a backend that was
+    // broken a minute ago, and one broken backend beats two working ones,
+    // because the working ones are not the thing you need to be told.
+    get channelState() {
+      if (Object.keys(this.channelRuns).length) return "carrying";
+      if (!this.channelBackends.length) return "unknown";
+      if (this.channelBackends.some((b) => b.state === "broken")) return "broken";
+      if (this.channelBackends.every((b) => b.state === "open")) return "open";
+      return "unknown";
+    },
+
+    channelLabel() {
+      const state = this.channelState;
+      if (state === "carrying") return "Channel — carrying";
+      if (state === "open") return "Channel — open";
+      if (state === "broken") {
+        const down = this.channelBackends.find((b) => b.state === "broken");
+        return `Channel — ${down ? down.name : "a backend"} is not answering`;
+      }
+      return "Channel — not established";
+    },
+
+    // Tier ids are internal; the labels are the ones already on the homepage
+    // and in Brain, so a row here names the same three things those do.
+    tierNames(tiers) {
+      const groups = this.settings.tier_groups || [];
+      return (tiers || [])
+        .map((t) => (groups.find((g) => g.tier === t) || {}).label || t)
+        .join(", ");
+    },
+
+    channelRowText(b) {
+      const where = this.tierNames(b.tiers);
+      if (b.testing) return "asking for a real reply…";
+      if (b.state === "broken") return b.error || "no answer";
+      if (b.state === "open") {
+        // "Answered" is only claimable after the generation probe. The cheap
+        // check proves the backend is reachable and no more, and saying more
+        // than it established is the exact thing this indicator exists not to do.
+        const how = b.tested
+          ? `answered in ${b.latency_ms} ms`
+          : (b.latency_ms ? `reachable in ${b.latency_ms} ms` : "reachable");
+        return where ? `${how} · ${where}` : how;
+      }
+      return where ? `couldn't say · ${where}` : "couldn't say";
+    },
+
+    toggleChannel() {
+      this.channelOpen = !this.channelOpen;
+      if (this.channelOpen && !this.channelBackends.length) this.checkChannel();
+    },
+
+    // The cheap check (§ POST /api/channel/check): what each backend serves,
+    // no inference, no kudos. This is the one that runs on its own.
+    async checkChannel() {
+      if (this.channelChecking) return;
+      this.channelChecking = true;
+      try {
+        const r = await api.post("/api/channel/check", {});
+        const before = new Map(this.channelBackends.map((b) => [b.name, b]));
+        this.channelBackends = (r.backends || []).map((b) => ({
+          ...b,
+          testing: !!(before.get(b.name) || {}).testing,
+          tested: false,
+        }));
+      } catch (e) {
+        // The tavern's own server not answering is its own kind of broken, and
+        // it is the one failure the backends can say nothing about.
+        this.channelBackends = [{
+          name: "This tavern", tiers: [], state: "broken", error: errorText(e),
+        }];
+      } finally {
+        this.channelChecking = false;
+      }
+    },
+
+    // The expensive probe, and only ever because someone pressed it: a real
+    // generation, which on Horde means a place in the queue and kudos spent.
+    async testChannel(row) {
+      const backend = (this.settings.backends || []).find((b) => b.name === row.name);
+      if (!backend || row.testing) return;
+      row.testing = true;
+      try {
+        const r = await api.post("/api/settings/test", backend);
+        row.state = r.ok ? "open" : "broken";
+        row.error = r.ok ? "" : (r.error || "no answer");
+        row.latency_ms = r.latency_ms || 0;
+        row.tested = !!r.ok;
+      } catch (e) {
+        row.state = "broken";
+        row.error = errorText(e);
+        row.tested = false;
+      } finally {
+        row.testing = false;
+      }
+    },
+
+    // Every pass run is also a report on the link it ran over — free, and
+    // truer than any probe, because it is the real traffic rather than a
+    // question about it.
+    channelSaw(run, running) {
+      if (running) this.channelRuns[run.id] = true;
+      else delete this.channelRuns[run.id];
+      if (run.status === "failed") this.linkBroke(run.tier, run.error);
+      else if (run.status === "done") this.linkHeld(run.tier);
+    },
+
+    linkHeld(tier) {
+      for (const b of this.channelBackends) {
+        if ((b.tiers || []).includes(tier) && b.state !== "open") {
+          b.state = "open";
+          b.error = "";
+        }
+      }
+    },
+
+    linkBroke(tier, error) {
+      let touched = false;
+      for (const b of this.channelBackends) {
+        if (!tier || (b.tiers || []).includes(tier)) {
+          b.state = "broken";
+          b.error = error || b.error || "no answer";
+          b.tested = false;
+          touched = true;
+        }
+      }
+      // Nothing on file for that tier — the failure is the first thing known
+      // about this link at all, so go and find out the rest.
+      if (!touched) this.checkChannel();
+      else this.probeSoon();
+    },
+
+    // One check per burst. A turn that fails usually fails every pass that was
+    // riding on it, and five failures inside a second are one piece of news.
+    probeSoon() {
+      clearTimeout(this._channelProbeTimer);
+      this._channelProbeTimer = setTimeout(() => this.checkChannel(), 1200);
+    },
+
+    // A send that never got there (§ runStream's error branch). Cleared and
+    // re-raised across a frame rather than simply set, so a second failure
+    // replays the animation instead of leaving the finished one on screen.
+    markSignalLost(tier, error) {
+      this.signalLost = false;
+      requestAnimationFrame(() => { this.signalLost = true; });
+      this.linkBroke(tier || "blocking", error);
+    },
+
+    // ---- opening the aperture ----
+    //
+    // Wraps the real work of getting into a chat in the handshake that covers
+    // it. The work starts immediately and runs underneath the whole sequence —
+    // the animation is what hides the half-built chat, not something the chat
+    // waits politely behind — and the scan holds for as long as the loading
+    // actually takes, with its own duration as a floor rather than a length.
+    // Every beat is read from the tokens (§ --dur-aperture-*, styles.css), so
+    // reduced motion collapses the theatre to nothing while the gate itself
+    // still gates.
+    async openLink(work, opts = {}) {
+      const { mode = "new", names = [] } = opts;
+      const reconnect = mode === "reconnect";
+      const who = names.length === 1 ? names[0] : "";
+      // A reconnection is one short beat split four ways: this chat is already
+      // yours, and making you watch the full handshake to re-enter it would be
+      // charging you for a door you have already opened.
+      const short = dur("aperture-reconnect", 500);
+      const beat = reconnect
+        ? { reach: short * 0.4, scan: short * 0.2, lock: short * 0.2, open: short * 0.2 }
+        : {
+            reach: dur("aperture-reach", 360),
+            scan: dur("aperture-scan", 460),
+            lock: dur("aperture-lock", 440),
+            open: dur("aperture-open", 340),
+          };
+
+      this.aperture = {
+        on: true,
+        phase: "reach",
+        line: reconnect ? "Reopening the channel…" : "Opening a channel…",
+      };
+      let failed = null;
+      const settled = Promise.resolve().then(work).catch((e) => { failed = e; });
+
+      await sleep(beat.reach);
+      this.aperture.phase = "scan";
+
+      const lines = reconnect
+        ? [who ? `Finding ${who} again…` : "Finding the way back…"]
+        : [
+            names.length > 1 ? `Reaching ${names.length} dimensions…` : "Reaching across…",
+            who ? `Looking for ${who}…` : "Looking for someone…",
+            "Handshake…",
+          ];
+      this.aperture.line = lines[0];
+      let at = 0;
+      // Slower than the beat itself: these are meant to be read, and a chat
+      // that takes eight seconds should not flicker through them.
+      const ticker = setInterval(() => {
+        at = (at + 1) % lines.length;
+        this.aperture.line = lines[at];
+      }, Math.max(420, beat.scan * 1.5));
+      await Promise.all([settled, sleep(beat.scan)]);
+      clearInterval(ticker);
+
+      if (failed) {
+        // There is nothing to open onto. Drop the overlay rather than lock onto
+        // a chat that never arrived, and let the error say what happened.
+        this.aperture.on = false;
+        this.error = errorText(failed);
+        this.markSignalLost("blocking", errorText(failed));
+        return false;
+      }
+
+      this.aperture.phase = "lock";
+      this.aperture.line = who ? `Connected — ${who}` : "Connected";
+      await sleep(beat.lock);
+
+      this.aperture.phase = "open";
+      await sleep(beat.open);
+      this.aperture.on = false;
+      return true;
+    },
+
     // ---- music (ROADMAP #39) ----
     //
     // Same shape as the backdrop trio above: load/upload/delete against the
@@ -4853,17 +5121,22 @@ function tavern() {
 
     async startGroupChat() {
       if (this.groupPicked.length < 2 || this.creatingGroupChat) return;
+      // Read before the picked list is cleared below, and the reason the
+      // aperture can say how many channels it is opening at once.
+      const names = this.groupPicked
+        .map((id) => (this.characters.find((c) => c.id === id) || {}).name)
+        .filter(Boolean);
       this.creatingGroupChat = true;
       this.error = "";
       try {
-        const chat = await api.post("/api/chats/group", { character_ids: this.groupPicked });
-        this.chats = await api.get("/api/chats");
-        this.groupPickerOpen = false;
-        this.groupPicked = [];
-        await this.openChat(chat.id);
-        this.closePanel();
-      } catch (e) {
-        this.error = errorText(e);
+        await this.openLink(async () => {
+          const chat = await api.post("/api/chats/group", { character_ids: this.groupPicked });
+          this.chats = await api.get("/api/chats");
+          this.groupPickerOpen = false;
+          this.groupPicked = [];
+          await this.openChat(chat.id);
+          this.closePanel();
+        }, { names });
       } finally {
         this.creatingGroupChat = false;
       }
@@ -5366,6 +5639,7 @@ function tavern() {
         case "pass_status": {
           this.mergeRun(event.run, event.turn);
           const running = event.run.status === "running" || event.run.status === "pending";
+          this.channelSaw(event.run, running);
           if (event.run.pass_id === "basic") {
             // Not while it is thinking: the reply pass reports itself as
             // running the moment it starts, which is *before* the model has
@@ -5628,6 +5902,7 @@ function tavern() {
       this.draft = "";
       this.staged = [];
       this.error = "";
+      this.signalLost = false;
       if (this.$refs.input) this.$refs.input.style.height = "auto";
       const speaker = this.nextSpeaker;
       this.nextSpeaker = "";
@@ -5650,6 +5925,7 @@ function tavern() {
     async retryTurn() {
       if (this.streaming || !this.chatId) return;
       this.error = "";
+      this.signalLost = false;
       this.scrollDown();
       // The message being answered, for the pacing's word count — it is
       // always the last one (§ the `unanswered` getter this button answers).
@@ -6213,6 +6489,11 @@ function tavern() {
 
             case "error":
               this.error = event.error;
+              // The ordinary failure, and the one worth drawing: the request
+              // itself was fine, the far side is what did not answer. The
+              // thrown-request branch below covers the rarer case where the
+              // tavern's own server could not be reached either.
+              this.markSignalLost("blocking", event.error);
               break;
 
             default:
@@ -6238,6 +6519,9 @@ function tavern() {
         } else {
           this.error = errorText(e);
           this.messages = this.messages.filter((m) => m.id !== "streaming");
+          // Nothing reached the far side. Say so where it happened, rather
+          // than only in a banner at the bottom of the screen (§ markSignalLost).
+          this.markSignalLost("blocking", errorText(e));
         }
         // A failed regeneration must not leave the message blank.
         if (swipeMessageId && this.regenPrevious) {

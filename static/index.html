@@ -457,6 +457,60 @@
         <svg class="icon" viewBox="0 0 24 24"><use href="#i-refresh"/></svg>
       </button>
     </div>
+
+    <!-- The channel light (§ channelState, app.js). Pinned right in both
+         modes: the homepage is where a backend gets chosen and a chat is
+         where one either answers or does not, and the same light answers
+         "is there anything actually on the other end" in both places.
+         Inline SVG rather than a sprite <use>, unlike every other icon in
+         this file, because its parts move independently of each other — a
+         <use> clone's shadow tree cannot be reached by a selector, and a
+         ring that splits open while a core keeps its colour is three
+         animated pieces, not one glyph. -->
+    <button class="icon-btn channel-light" :class="`is-${channelState}`"
+            @click="toggleChannel()" :aria-expanded="channelOpen"
+            aria-controls="channel-fold"
+            :aria-label="channelLabel()" :title="channelLabel()">
+      <svg class="ch-glyph" viewBox="0 0 24 24" aria-hidden="true">
+        <circle class="ch-wave" cx="12" cy="12" r="7.5"/>
+        <circle class="ch-ring" cx="12" cy="12" r="7.5"/>
+        <circle class="ch-scan" cx="12" cy="12" r="7.5"/>
+        <circle class="ch-core" cx="12" cy="12" r="2.6"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- What the light means, spelled out: one row per tier that is actually
+       configured, folded away until the light is tapped. Same .fold/.fold-clip
+       machinery as every other reveal here, so it grows the header rather than
+       floating over the chat — and --worldbar-h tracks that on its own
+       (§ initWorldbarHeight), the same way it already does for the menu row. -->
+  <div class="fold channel-fold" :class="{ open: channelOpen }" id="channel-fold">
+    <div class="fold-clip">
+      <div class="channel-body">
+        <template x-for="b in channelBackends" :key="b.name">
+          <div class="channel-row">
+            <span class="channel-dot" :class="`is-${b.state}`"></span>
+            <span class="channel-id">
+              <span class="channel-name" x-text="b.name"></span>
+              <span class="channel-meta" x-text="channelRowText(b)"></span>
+            </span>
+            <button class="channel-test" @click="testChannel(b)"
+                    :disabled="b.testing || channelChecking"
+                    x-text="b.testing ? 'Testing…' : 'Test'"></button>
+          </div>
+        </template>
+        <p class="kind-note" x-show="!channelBackends.length" x-cloak>
+          Nothing checked yet.
+        </p>
+        <!-- The cheap check, by hand. The per-row Test above asks for a real
+             generation (§ /api/settings/test) and costs what one costs; this
+             one only asks each backend what it serves, which is what runs on
+             its own after a failure. -->
+        <button class="channel-recheck" @click="checkChannel()" :disabled="channelChecking"
+                x-text="channelChecking ? 'Checking…' : 'Check again'"></button>
+      </div>
+    </div>
   </div>
 
   <!-- The row of destinations. Collapsed to nothing until the menu opens; see
@@ -1181,7 +1235,19 @@
        regenerating re-rolls the *previous* reply rather than writing the
        missing one — so without this there is no way back. It sits where the
        reply would have been, because that is the gap it fills. -->
-  <div class="msg assistant retry-row" x-show="unanswered" x-cloak>
+  <div class="msg assistant retry-row" :class="{ lost: signalLost }" x-show="unanswered" x-cloak>
+    <!-- The reach that falls short (§ signalLost, app.js). Only on a real
+         failure, never after a deliberate Stop — the retry row itself covers
+         both, but nothing was reaching for anything when you were the one who
+         called it off. The far tick at the right end is the other side, and it
+         is the point: the line leaves, dies partway, and pulls back without
+         ever touching it. aria-hidden because it says exactly what the button
+         under it already says in words. -->
+    <div class="signal-lost" x-show="signalLost" x-cloak aria-hidden="true">
+      <span class="sig-line"></span>
+      <span class="sig-tip"></span>
+      <span class="sig-far"></span>
+    </div>
     <button class="retry-btn" @click="retryTurn()">
       <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-refresh"/></svg>
       <span>No reply came — try again</span>
@@ -1428,6 +1494,30 @@
      nothing to "leave", only somewhere else to land. Below `.sheet` in
      z-index (§ styles.css) on purpose: opening Brain from the preset
      shortcut below still has to show up on top of this. -->
+<!-- Opening the aperture (§ openLink, app.js). Not decoration bolted onto a
+     load: it *is* the load. Starting a chat used to drop you straight into a
+     half-built one — the transcript, the cast and the first message all
+     arriving on their own schedule while you watched. This covers that until
+     the chat is genuinely ready, so the theatrics and the honest wait are the
+     same object. The rings converge and land on --ease-spring (§ CLAUDE.md:
+     the thing that arrives and comes to rest, which is what a lock is); the
+     scan ring underneath rotates on linear, because a rotation that eases
+     hesitates once per turn.
+     Reduced motion empties all of it — the durations are scaled by --motion
+     like every other token here, so the gate still gates and simply stops
+     performing. -->
+<section class="aperture" :class="`phase-${aperture.phase}`" x-show="aperture.on" x-cloak>
+  <div class="aperture-stage" aria-hidden="true">
+    <span class="ap-ring ap-ring-1"></span>
+    <span class="ap-ring ap-ring-2"></span>
+    <span class="ap-ring ap-ring-3"></span>
+    <span class="ap-core"></span>
+  </div>
+  <template x-for="l in [aperture.line]" :key="l">
+    <p class="aperture-line" x-text="l" aria-live="polite"></p>
+  </template>
+</section>
+
 <section class="homepage" x-show="showHome && characters.length" x-cloak>
   <div class="homepage-scroll">
     <h1 class="homepage-title">Custom Tavern</h1>
