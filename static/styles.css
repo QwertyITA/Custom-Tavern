@@ -2375,10 +2375,10 @@ body {
   max-width: 480px;
   width: 100%;
   margin: 0 auto;
-  padding: calc(24px + var(--safe-top)) 16px calc(24px + var(--safe-bottom));
+  padding: calc(14px + var(--safe-top)) 14px calc(14px + var(--safe-bottom));
 }
 .homepage-title {
-  margin: 0 0 18px;
+  margin: 0 0 12px;
   font-size: 20px;
 }
 /* Copied from .sheet-body h3 rather than relying on being inside .sheet-body
@@ -2396,15 +2396,15 @@ body {
   text-transform: uppercase;
   letter-spacing: .07em;
   color: var(--muted);
-  margin: 18px 0 8px;
+  margin: 12px 0 6px;
 }
 .homepage-continue {
   display: flex;
   align-items: center;
   gap: 10px;
   width: 100%;
-  margin-bottom: 14px;
-  padding: 12px 14px;
+  margin-bottom: 10px;
+  padding: 9px 12px;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--panel);
@@ -2424,17 +2424,17 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.homepage-actions { display: flex; flex-direction: column; gap: 8px; margin-bottom: 4px; }
+.homepage-actions { display: flex; flex-direction: column; gap: 6px; margin-bottom: 2px; }
 /* Same row shape the group picker already uses (§ .group-pick-row below),
    reused rather than restyled — one tap here starts the chat outright,
    where that one only checks a box, so no checkbox is drawn. */
-.homepage-picker { display: flex; flex-direction: column; gap: 2px; padding: 6px 0 4px; }
+.homepage-picker { display: flex; flex-direction: column; gap: 1px; padding: 4px 0 2px; }
 .homepage-pick-row {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 8px 4px;
+  padding: 6px 4px;
   border-radius: 8px;
   background: none;
   color: var(--text);
@@ -2443,7 +2443,7 @@ body {
   transition: background 140ms var(--ease-out);
 }
 .homepage-pick-row:active { background: var(--panel-2); }
-.homepage-suboption { padding-left: 30px; }
+.homepage-suboption { padding-left: 26px; }
 
 /* The compact pass-assignment row — reported not-compact against the first
    version, which reused .row.theme-row wholesale: a 44px-tall row built to
@@ -2456,8 +2456,8 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  min-height: 34px;
-  margin-bottom: 4px;
+  min-height: 30px;
+  margin-bottom: 2px;
   font-size: 12.5px;
 }
 .homepage-tier-row .row-label {
