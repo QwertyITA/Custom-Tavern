@@ -1380,6 +1380,126 @@
   </div>
 </div>
 
+<!-- The homepage (§ showHome, app.js): every launch lands here now, not
+     whichever chat happened to be open last — New chat, New group chat and
+     the quick settings below are the first thing tapped, not something a
+     chat away. Dismisses itself the instant a real chat opens (§ openChat
+     clears showHome), so it has no close button of its own — there is
+     nothing to "leave", only somewhere else to land. Below `.sheet` in
+     z-index (§ styles.css) on purpose: opening Brain from the preset
+     shortcut below still has to show up on top of this. -->
+<section class="homepage" x-show="showHome && characters.length" x-cloak>
+  <div class="homepage-scroll">
+    <h1 class="homepage-title">Custom Tavern</h1>
+
+    <!-- Only when there is actually somewhere to resume — a fresh install
+         with characters but no chats yet has nothing here, and New chat
+         below is the whole story instead. -->
+    <button class="homepage-continue" x-show="homeContinueChatId" x-cloak
+            @click="continueHomeChat()">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chats"/></svg>
+      <span class="homepage-continue-text">
+        <span class="homepage-continue-label">Continue</span>
+        <span class="homepage-continue-name" x-text="homeContinueLabel()"></span>
+      </span>
+    </button>
+
+    <div class="homepage-actions">
+      <button class="wide primary" @click="homeNewChatOpen = !homeNewChatOpen; groupPickerOpen = false">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plus"/></svg>
+        <span>New chat</span>
+      </button>
+      <button class="wide" @click="groupPickerOpen = !groupPickerOpen; homeNewChatOpen = false">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-people"/></svg>
+        <span>New group chat</span>
+      </button>
+    </div>
+
+    <!-- Picking who to talk to, one tap and done — no confirm step, unlike
+         the group picker below, since a solo chat has nothing to confirm. -->
+    <div class="fold" :class="{ open: homeNewChatOpen }">
+      <div class="fold-clip">
+        <div class="homepage-picker">
+          <template x-for="c in characters" :key="c.id">
+            <button class="homepage-pick-row" @click="startHomeChat(c.id)">
+              <span class="char-pfp">
+                <svg class="char-pfp-generic" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-person"/></svg>
+              </span>
+              <span class="char-name" x-text="c.name"></span>
+            </button>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <!-- Same picker, same state (groupPickerOpen/groupPicked/startGroupChat)
+         the roster's own "Group chat" button drives (§ index.html) — the
+         homepage is a second door onto it, not a second implementation. -->
+    <div class="fold" :class="{ open: groupPickerOpen }">
+      <div class="fold-clip">
+        <div class="group-picker">
+          <p class="kind-note">Pick at least two characters to start one chat with all of them in it.</p>
+          <template x-for="c in characters" :key="c.id">
+            <label class="group-pick-row">
+              <input type="checkbox" :checked="groupPicked.includes(c.id)" @change="toggleGroupPick(c.id)">
+              <span class="char-pfp">
+                <svg class="char-pfp-generic" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-person"/></svg>
+              </span>
+              <span class="char-name" x-text="c.name"></span>
+            </label>
+          </template>
+          <button class="wide primary" :disabled="groupPicked.length < 2 || creatingGroupChat"
+                  @click="startGroupChat()">
+            <span x-text="creatingGroupChat ? 'Starting…' : 'Start group chat'"></span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-ticket"/></svg>Passes</h3>
+    <p class="kind-note">Which backend each group of work uses — the same three from Brain, quicker to reach.</p>
+    <template x-for="g in settings.tier_groups || []" :key="g.tier">
+      <label class="row theme-row">
+        <span class="row-label wide-label" x-text="g.label"></span>
+        <select @change="setHomeTier(g.tier, $event.target.value)">
+          <template x-for="b in settings.backends || []" :key="b.name">
+            <option :value="b.name" :selected="(settings.tiers || {})[g.tier] === b.name" x-text="b.name"></option>
+          </template>
+        </select>
+      </label>
+    </template>
+    <!-- Paired with the assignment above, not off on its own — a preset is
+         the same three tiers set together in one tap, so the shortcut past
+         them belongs right where you'd otherwise set them by hand. -->
+    <button class="disclose" @click="openPresetsFromHome()">
+      <svg class="disclose-arrow" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-back"/></svg>
+      <span>Apply a preset instead</span>
+    </button>
+
+    <h3>Quick options</h3>
+    <label class="toggle">
+      <input type="checkbox" :checked="tierOn('foreground')" @change="toggleHomeTier('foreground')">
+      <span>Post-process</span>
+    </label>
+    <label class="toggle">
+      <input type="checkbox" :checked="tierOn('background')" @change="toggleHomeTier('background')">
+      <span>Secondary info generator</span>
+    </label>
+    <!-- Memory is the one setting from that whole tier worth a shortcut here
+         — everything else it also covers (scene, expressions, state) stays
+         in Brain, where the rest of this tier's own settings already live. -->
+    <div class="fold" :class="{ open: tierOn('background') }">
+      <div class="fold-clip">
+        <label class="toggle homepage-suboption">
+          <input type="checkbox" :checked="homeToggleStates.memory_pass !== false"
+                 @change="setHomeToggle('memory_pass', $event.target.checked)">
+          <span>Memory extraction</span>
+        </label>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- Every destination in the menu opens the same sheet with a different body.
      One sheet rather than four: they share the head, the scroll behaviour and
      the safe-area padding, and only ever one is on screen. -->

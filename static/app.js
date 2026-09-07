@@ -909,6 +909,24 @@ function tavern() {
     groupPickerOpen: false,
     groupPicked: [],
     creatingGroupChat: false,
+    // The homepage (§ boot): every launch lands here rather than silently
+    // resuming whatever chat was last open, so New chat/New group chat/
+    // quick settings are always the first thing tapped, not something
+    // buried a chat away. Cleared the moment any chat actually opens
+    // (§ openChat) — every path into a chat funnels through there, so this
+    // is the one place that has to remember to clear it. Only meaningful
+    // once a character exists at all; with none, the roster's own "Nobody
+    // here yet" empty state already is the first-run screen.
+    showHome: true,
+    homeNewChatOpen: false,
+    // Which chat "Continue" resumes — the last one localStorage remembers,
+    // or the most recently active one otherwise (§ boot). Empty when
+    // there's genuinely nothing to continue, which is what hides the card.
+    homeContinueChatId: "",
+    // Global-scope toggle states for the homepage's own Quick options (§
+    // loadHomeToggles) — a bare-bones read of the same /api/toggles this
+    // app already has, with no character/chat to scope against yet.
+    homeToggleStates: {},
     characterId: "",
     chatId: "",
     character: null,
@@ -1318,10 +1336,14 @@ function tavern() {
         }
         this.characterId = this.characters[0].id;
         this.chats = await api.get("/api/chats");
+        // The homepage (§ showHome) is what every launch lands on now,
+        // not whichever chat was last open — "Continue" there is this same
+        // lookup, just offered rather than jumped into automatically.
         const last = localStorage.getItem("tavern:chat");
-        if (last && this.chats.some((c) => c.id === last)) await this.openChat(last);
-        else if (this.chats.length) await this.openChat(this.chats[0].id);
-        else await this.newChat();
+        this.homeContinueChatId = (last && this.chats.some((c) => c.id === last))
+          ? last
+          : (this.chats[0]?.id || "");
+        this.loadHomeToggles();
       } catch (e) {
         this.error = errorText(e);
       }
@@ -1696,7 +1718,88 @@ function tavern() {
       }
     },
 
+    // ---- homepage (§ showHome) ----
+
+    // What the "Continue" card reads — a chat's title plus who it's with,
+    // the same pairing chat search already shows (§ chatHits above), just
+    // looked up from `characters` here since /api/chats itself carries no
+    // name, only the id.
+    homeContinueLabel() {
+      const chat = this.chats.find((c) => c.id === this.homeContinueChatId);
+      if (!chat) return "";
+      const name = this.characters.find((c) => c.id === chat.character_id)?.name || "—";
+      return `${name} · ${chat.title || "untitled"}`;
+    },
+
+    async continueHomeChat() {
+      if (this.homeContinueChatId) await this.openChat(this.homeContinueChatId);
+    },
+
+    async startHomeChat(characterId) {
+      this.homeNewChatOpen = false;
+      await this.newChat(characterId);
+    },
+
+    // Presets live inside Brain rather than as a panel of their own (§
+    // brainTab) — this is the shortcut past both taps that would otherwise
+    // take, landing straight on the tab.
+    async openPresetsFromHome() {
+      await this.openPanel("brain");
+      this.brainTab = "presets";
+    },
+
+    // Global-scope toggle reads for Quick options — no character or chat
+    // exists yet on the homepage, so this is the same /api/toggles the rest
+    // of the app uses, just asked with nothing to scope against, which
+    // resolves to the global default for each (§ registry.toggle_states).
+    async loadHomeToggles() {
+      try {
+        const data = await api.get("/api/toggles");
+        this.homeToggleStates = data.states || {};
+      } catch (_) { /* Quick options just stay at their defaults */ }
+    },
+
+    async setHomeToggle(id, enabled) {
+      this.homeToggleStates = { ...this.homeToggleStates, [id]: enabled };
+      try {
+        await api.post(`/api/toggles/${id}`, { enabled });
+      } catch (e) {
+        this.error = errorText(e);
+      }
+    },
+
+    // The compact backend-per-tier row (§ index.html) — settings.tiers
+    // itself previews live everywhere else in the app and waits for a
+    // separate Save; here, with no panel of its own to hold a pending
+    // change, picking a backend saves immediately, the same instant
+    // persistence the toggles above already have.
+    async setHomeTier(tier, backend) {
+      this.settings.tiers = { ...this.settings.tiers, [tier]: backend };
+      await this.saveSettings();
+    },
+
+    // Post-process/Secondary info's own on-off switch (§ index.html) — not
+    // toggleTier itself: that one only stages tiers_off in memory for
+    // Brain's own Save button to pick up later, which on a homepage with no
+    // Save of its own meant the switch visibly flipped and then silently
+    // reverted the moment the page next loaded. Same required-group guard,
+    // immediate persistence added.
+    async toggleHomeTier(tier) {
+      const group = (this.settings.tier_groups || []).find((g) => g.tier === tier);
+      if (group?.required) return;
+      const off = [...(this.settings.tiers_off || [])];
+      const at = off.indexOf(tier);
+      if (at >= 0) off.splice(at, 1);
+      else off.push(tier);
+      this.settings.tiers_off = off;
+      await this.saveSettings();
+    },
+
     async openChat(id) {
+      // Every path into a chat funnels through here (§ showHome) — the
+      // homepage dismisses itself the instant one actually opens, whichever
+      // button got you there.
+      this.showHome = false;
       // A portrait left enlarged in one chat has nothing to do with the next.
       this.bigPfp = "";
       // The transcript comes off a SQLite database on a phone, so this is a

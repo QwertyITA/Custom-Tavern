@@ -375,6 +375,23 @@ STscript (26).
       alone. `music_select`'s own track list also passes the artist to
       the model alongside the description, so it can be part of the
       pick, not just the write-up afterward.
+- [x] **47. A homepage.** Every launch lands here now, not silently
+      resuming whatever chat was last open (§ showHome, app.js) — New
+      chat and New group chat pickers, a compact backend-per-tier
+      assignment, quick on/off for Post-process and the Secondary info
+      generator (with Memory extraction folded under the latter), and a
+      shortcut straight to Brain's Presets tab, all one tap deep. A
+      "Continue" card sits above the two New buttons when there's
+      actually somewhere to resume, so the convenience of auto-resume
+      isn't lost, just no longer silent. Reuses rather than reimplements
+      wherever it can: the New chat/New group chat pickers and their
+      state are the same ones the roster's own buttons already drove,
+      and the tier-assignment dropdowns read the same `tier_groups`/
+      `backends` Brain's own Backends tab does. The one new thing is
+      immediate persistence — everywhere else in the app a settings
+      change previews live and waits for a Save button, but the
+      homepage has none of its own, so its toggles and dropdowns save
+      the instant they're touched instead.
 
 ## Undecided — needs a call
 
