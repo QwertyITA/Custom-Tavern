@@ -1472,7 +1472,13 @@
                   <span class="pfp-glow" :style="pfpEffectStyle(c.pfp_effect)" aria-hidden="true"></span>
                 </template>
               </span>
-              <span class="char-name" x-text="c.name"></span>
+              <!-- .char-id/.char-name/.char-meta, unmodified — the roster's
+                   own text column, so "X chats" reads exactly as it does
+                   there rather than a homepage-only approximation of it. -->
+              <span class="char-id">
+                <span class="char-name" x-text="c.name"></span>
+                <span class="char-meta" x-text="`${c.chats} chat${c.chats === 1 ? '' : 's'}`"></span>
+              </span>
             </button>
           </template>
         </div>
@@ -1500,7 +1506,10 @@
                   <span class="pfp-glow" :style="pfpEffectStyle(c.pfp_effect)" aria-hidden="true"></span>
                 </template>
               </span>
-              <span class="char-name" x-text="c.name"></span>
+              <span class="char-id">
+                <span class="char-name" x-text="c.name"></span>
+                <span class="char-meta" x-text="`${c.chats} chat${c.chats === 1 ? '' : 's'}`"></span>
+              </span>
             </label>
           </template>
           <button class="wide primary" :disabled="groupPicked.length < 2 || creatingGroupChat"

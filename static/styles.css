@@ -2020,12 +2020,13 @@ body {
    width on it. Still the same shared .pfp-slot machinery (ratio, glow,
    blank fallback), just a wider --pfp-w. */
 .pfp-slot-roster { --pfp-w: 52px; }
-/* The homepage's own New chat/New group chat pickers (§ index.html) —
-   smaller than the roster's own rows, since these are quick picks in a
-   list rather than the roster's full-height cards, but the same shape,
-   picture and glow rather than the plain round placeholder .char-pfp
-   drew regardless of what a character actually looks like. */
-.pfp-slot-home { --pfp-w: 32px; }
+/* The homepage's own New chat/New group chat pickers (§ index.html), and
+   the roster's own group picker (§ .group-pick-row) — a little smaller
+   than the roster's main rows since a picker is read at a glance rather
+   than lived in, but the same card shape, shape, picture and glow rather
+   than the plain round placeholder .char-pfp drew regardless of what a
+   character actually looks like. */
+.pfp-slot-home { --pfp-w: 42px; }
 
 /* Star on top, edit/export/delete stacked under it — one column at the
    head's own right edge, not a corner badge plus a separate full-width row
@@ -2193,18 +2194,24 @@ body {
 .roster-action-btn.on { color: var(--accent); border-color: var(--accent); background: var(--panel-2); }
 
 /* The picker: a fold's contents (§ .fold), same reveal this app already
-   uses everywhere a control needs to be tucked away until asked for. */
-.group-picker { display: flex; flex-direction: column; gap: 4px; padding: 4px 0 12px; }
+   uses everywhere a control needs to be tucked away until asked for.
+   Same card shape as the roster's own .char rows (border, radius,
+   background) rather than a plain list row — graphically the same kind
+   of character card, not a second, thinner-looking design for picking
+   one. */
+.group-picker { display: flex; flex-direction: column; gap: 7px; padding: 4px 0 12px; }
 .group-pick-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 4px;
-  border-radius: 8px;
-  transition: background 140ms var(--ease-out);
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-2);
+  transition: background 140ms var(--ease-out), border-color 140ms var(--ease-out);
 }
-.group-pick-row:active { background: var(--panel-2); }
-.group-pick-row .char-name { flex: 1; min-width: 0; }
+.group-pick-row:has(input:checked) { border-color: var(--accent); }
+.group-pick-row:active { background: var(--panel); }
 
 /* The row's own overflow glyph — narrower than an ordinary .glyph-btn since
    it carries nothing but one icon, kept close to .chat-when just before it. */
@@ -2431,24 +2438,27 @@ body {
   white-space: nowrap;
 }
 .homepage-actions { display: flex; flex-direction: column; gap: 6px; margin-bottom: 2px; }
-/* Same row shape the group picker already uses (§ .group-pick-row below),
-   reused rather than restyled — one tap here starts the chat outright,
-   where that one only checks a box, so no checkbox is drawn. */
-.homepage-picker { display: flex; flex-direction: column; gap: 1px; padding: 4px 0 2px; }
+/* Same card shape as the roster's own .char rows and the group picker
+   just above (§ .group-pick-row) — reported not graphically consistent
+   against the first version's plain, borderless list row. One tap here
+   starts the chat outright, where that one only checks a box, so no
+   checkbox is drawn, but otherwise the same card. */
+.homepage-picker { display: flex; flex-direction: column; gap: 7px; padding: 4px 0 2px; }
 .homepage-pick-row {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 6px 4px;
-  border-radius: 8px;
-  background: none;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-2);
   color: var(--text);
   font: inherit;
   text-align: left;
   transition: background 140ms var(--ease-out);
 }
-.homepage-pick-row:active { background: var(--panel-2); }
+.homepage-pick-row:active { background: var(--panel); }
 .homepage-suboption { padding-left: 26px; }
 
 /* The compact pass-assignment row — reported not-compact against the first
