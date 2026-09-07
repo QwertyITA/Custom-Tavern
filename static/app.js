@@ -919,10 +919,6 @@ function tavern() {
     // here yet" empty state already is the first-run screen.
     showHome: true,
     homeNewChatOpen: false,
-    // Which chat "Continue" resumes — the last one localStorage remembers,
-    // or the most recently active one otherwise (§ boot). Empty when
-    // there's genuinely nothing to continue, which is what hides the card.
-    homeContinueChatId: "",
     // Global-scope toggle states for the homepage's own Quick options (§
     // loadHomeToggles) — a bare-bones read of the same /api/toggles this
     // app already has, with no character/chat to scope against yet.
@@ -1336,13 +1332,6 @@ function tavern() {
         }
         this.characterId = this.characters[0].id;
         this.chats = await api.get("/api/chats");
-        // The homepage (§ showHome) is what every launch lands on now,
-        // not whichever chat was last open — "Continue" there is this same
-        // lookup, just offered rather than jumped into automatically.
-        const last = localStorage.getItem("tavern:chat");
-        this.homeContinueChatId = (last && this.chats.some((c) => c.id === last))
-          ? last
-          : (this.chats[0]?.id || "");
         this.loadHomeToggles();
       } catch (e) {
         this.error = errorText(e);
@@ -1719,6 +1708,23 @@ function tavern() {
     },
 
     // ---- homepage (§ showHome) ----
+
+    // Which chat "Continue" resumes — the last one localStorage remembers,
+    // or the most recently active one otherwise. A live getter, not a
+    // value snapshotted once at boot: locking the vault already refreshes
+    // `chats` to drop whatever it was hiding (§ lockVault's own
+    // reloadChats), but a plain field taken once at boot never noticed
+    // that — reported live as Continue still opening a chat that had just
+    // been vaulted, with no PIN asked, since a chat's own data isn't
+    // vault-gated, only which chats a listing shows. Reading live off
+    // `chats` on every access means the moment that list loses the chat,
+    // so does this. Empty when there's genuinely nothing to continue,
+    // which is what hides the card (§ index.html's own x-show).
+    get homeContinueChatId() {
+      const last = localStorage.getItem("tavern:chat");
+      if (last && this.chats.some((c) => c.id === last)) return last;
+      return this.chats[0]?.id || "";
+    },
 
     // What the "Continue" card reads — a chat's title plus who it's with,
     // the same pairing chat search already shows (§ chatHits above), just
