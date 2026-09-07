@@ -4153,6 +4153,7 @@ function tavern() {
         }];
       } finally {
         this.channelChecking = false;
+        this.closeChannelFold();
       }
     },
 
@@ -4194,6 +4195,15 @@ function tavern() {
           b.error = "";
         }
       }
+      this.closeChannelFold();
+    },
+
+    // The light is an alarm (§ x-show on .channel-light, index.html): it only
+    // exists in the header while something is broken, so a fold left open
+    // through the moment everything recovers would be stranded there with no
+    // button left to close it by hand.
+    closeChannelFold() {
+      if (this.channelOpen && this.channelState !== "broken") this.channelOpen = false;
     },
 
     linkBroke(tier, error) {

@@ -458,16 +458,19 @@
       </button>
     </div>
 
-    <!-- The channel light (§ channelState, app.js). Pinned right in both
-         modes: the homepage is where a backend gets chosen and a chat is
-         where one either answers or does not, and the same light answers
-         "is there anything actually on the other end" in both places.
-         Inline SVG rather than a sprite <use>, unlike every other icon in
-         this file, because its parts move independently of each other — a
-         <use> clone's shadow tree cannot be reached by a selector, and a
-         ring that splits open while a core keeps its colour is three
+    <!-- The channel light (§ channelState, app.js). An alarm, not a status
+         display: silent while every configured backend answers, and it only
+         earns a place in the header the moment one of them stops. Pinned
+         right in both modes for the same reason either way — the homepage is
+         where a backend gets picked and a chat is where one either answers or
+         does not, and both are exactly where "something stopped answering"
+         needs to surface. Inline SVG rather than a sprite <use>, unlike every
+         other icon in this file, because its parts move independently of each
+         other — a <use> clone's shadow tree cannot be reached by a selector,
+         and a ring that splits open while a core keeps its colour is three
          animated pieces, not one glyph. -->
     <button class="icon-btn channel-light" :class="`is-${channelState}`"
+            x-show="channelState === 'broken'" x-cloak
             @click="toggleChannel()" :aria-expanded="channelOpen"
             aria-controls="channel-fold"
             :aria-label="channelLabel()" :title="channelLabel()">
@@ -484,7 +487,13 @@
        configured, folded away until the light is tapped. Same .fold/.fold-clip
        machinery as every other reveal here, so it grows the header rather than
        floating over the chat — and --worldbar-h tracks that on its own
-       (§ initWorldbarHeight), the same way it already does for the menu row. -->
+       (§ initWorldbarHeight), the same way it already does for the menu row.
+       Left mounted (no x-show tied to the light's own visibility) so a fold
+       already open keeps reading correctly through the instant everything
+       recovers and the button above it disappears — app.js closes this on
+       its own the moment there is nothing broken left to explain (§
+       closeChannelFold), rather than leaving it stranded open with no button
+       left to close it by hand. -->
   <div class="fold channel-fold" :class="{ open: channelOpen }" id="channel-fold">
     <div class="fold-clip">
       <div class="channel-body">
