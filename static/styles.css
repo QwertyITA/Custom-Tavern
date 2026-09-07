@@ -2329,9 +2329,18 @@ body {
 
 /* ---------------------------------------------------------- homepage --- */
 
-/* Full-screen, like .sheet, but under it in z-index (§ index.html's own
-   comment) — opening Brain from the preset shortcut below still has to
-   land on top of this rather than behind it.
+/* Under the header (§ .worldbar, index.html), not over it — reported live:
+   the homepage was blocking everything else, because inset:0 covered the
+   menu button and the character switcher along with the chat, and nothing
+   on the homepage itself opened either one. `top: var(--worldbar-h)` is
+   the same measurement the floating world-pill already keys off — it
+   tracks the header's real rendered height live (§ initWorldbarHeight,
+   app.js watches it with a ResizeObserver), menu row folded open included,
+   so the homepage's own top edge follows the header growing or shrinking
+   rather than either guessing a pixel value or covering the header outright.
+   Below .sheet in z-index still (§ index.html's own comment) — opening
+   Brain from the preset shortcut, or the roster from the now-reachable
+   header, both still have to land on top of this, not behind it.
    The fixed shell itself does not scroll — .homepage-scroll, a flex child,
    does (exactly .sheet/.sheet-body's own split, copied on purpose rather
    than scrolling the fixed element directly). A `position:fixed` element
@@ -2343,7 +2352,10 @@ body {
    A non-scrolling fixed shell has nothing for that resize to disturb. */
 .homepage {
   position: fixed;
-  inset: 0;
+  top: var(--worldbar-h, 52px);
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 20;
   background: var(--surface-bg);
   display: flex;
