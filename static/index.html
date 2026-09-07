@@ -385,7 +385,7 @@
          no fields to tap, so its button just stays visible outright; there
          would be nothing else on it to open it with. -->
     <div class="world-pill world-pill-inline" :class="{ empty: !hasScene, open: pillOpen }"
-         x-show="!menu && (!hasScene || pillFitsInline())" x-cloak
+         x-show="!showHome && !menu && (!hasScene || pillFitsInline())" x-cloak
          @click="hasScene && (pillOpen = !pillOpen)"
          :role="hasScene ? 'button' : null" :tabindex="hasScene ? 0 : null"
          @keydown.enter="hasScene && (pillOpen = !pillOpen)"
@@ -1293,7 +1293,7 @@
 </div>
 
 <!-- (4) composer -->
-<footer class="composer">
+<footer class="composer" x-show="!showHome" x-cloak>
   <!-- Staged attachments (§19). Above the row rather than inside it: a chip
        with a filename on it is wider than a phone's composer, and pushing the
        text box sideways to fit one is worse than a line of its own. -->

@@ -1344,6 +1344,14 @@ function tavern() {
           ? last
           : (this.chats[0]?.id || "");
         this.loadHomeToggles();
+        // The header's own Cards/Story/Brain/Theme/Settings row (§ menu) is
+        // normally a tap away behind the hamburger, folded shut so it
+        // doesn't compete with the character name for space. There is no
+        // character name on the homepage — nothing there for it to compete
+        // with — so it starts open rather than making Brain/Theme/Settings
+        // a tap the person has to already know to make. openChat closes it
+        // again the moment a real chat opens, matching the ordinary default.
+        this.menu = true;
       } catch (e) {
         this.error = errorText(e);
       }
@@ -1798,8 +1806,11 @@ function tavern() {
     async openChat(id) {
       // Every path into a chat funnels through here (§ showHome) — the
       // homepage dismisses itself the instant one actually opens, whichever
-      // button got you there.
+      // button got you there. menu closes with it (§ boot's own comment on
+      // why it starts open there) — back to its ordinary default of staying
+      // out of the way until the hamburger is actually tapped.
       this.showHome = false;
+      this.menu = false;
       // A portrait left enlarged in one chat has nothing to do with the next.
       this.bigPfp = "";
       // The transcript comes off a SQLite database on a phone, so this is a
