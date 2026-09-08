@@ -8,11 +8,14 @@ provider — no network, no Ollama, no keys. Point a tier at a real backend in
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.environ.get("TAVERN_DATA_DIR", REPO_ROOT / "data"))
@@ -1149,8 +1152,47 @@ def save_settings(settings: Settings, path: Path | None = None) -> Path:
     return path
 
 
+# Set on the first attempt to import `webpush` and never reset — a broken
+# install stays broken until the process restarts, and retrying (and
+# re-logging) the same failing dlopen on every settings load or subscribe
+# attempt is pure waste. None means "not tried yet"; False means "tried and
+# it does not work here".
+_VAPID_CLASS: Any = None
+_VAPID_IMPORT_TRIED = False
+
+
+def _webpush_vapid() -> Any:
+    """The `webpush.VAPID` class, or None when this install cannot use it.
+
+    Not every phone can load it. `webpush` pulls in `cryptography`, whose
+    compiled Rust extension needs a wheel actually built for the device it
+    is running on — a plain `pip install` on Termux can end up with a PyPI
+    wheel built against glibc, which does not `dlopen` on Android's Bionic
+    libc at all. That happened live: `ImportError: dlopen failed: cannot
+    locate symbol "PyLong_Type"`, raised from `config.py`'s own module-level
+    import, which took the *entire app* down over a notifications
+    dependency nobody had even turned on yet — the one failure mode a
+    background feature must never be allowed to cause. Everything that
+    touches `webpush` now goes through this, and every one of those call
+    sites treats None as "notifications are unavailable on this install",
+    never as something to raise past.
+    """
+    global _VAPID_CLASS, _VAPID_IMPORT_TRIED
+    if not _VAPID_IMPORT_TRIED:
+        _VAPID_IMPORT_TRIED = True
+        try:
+            from webpush import VAPID
+
+            _VAPID_CLASS = VAPID
+        except Exception as exc:  # noqa: BLE001 — an unusable dependency, not a bug to propagate
+            log.warning("push notifications unavailable on this install: %s", exc)
+            _VAPID_CLASS = None
+    return _VAPID_CLASS
+
+
 def ensure_vapid_keys(settings: Settings) -> bool:
-    """Generate the VAPID key pair, if it does not exist yet.
+    """Generate the VAPID key pair, if it does not exist yet and this
+    install is actually able to (§ _webpush_vapid).
 
     Called eagerly at load time (§ _loaded_with_vapid_keys below), not only
     once something subscribes: the browser needs the *public* half to even
@@ -1168,9 +1210,11 @@ def ensure_vapid_keys(settings: Settings) -> bool:
     """
     if settings.vapid_private_key and settings.vapid_public_key_pem:
         return False
-    from webpush import VAPID  # deferred: only paid for once notifications are used
+    vapid = _webpush_vapid()
+    if vapid is None:
+        return False
 
-    private_pem, public_pem, application_key = VAPID.generate_keys()
+    private_pem, public_pem, application_key = vapid.generate_keys()
     settings.vapid_private_key = private_pem.decode()
     settings.vapid_public_key_pem = public_pem.decode()
     settings.vapid_public_key = application_key

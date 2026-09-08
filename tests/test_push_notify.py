@@ -274,3 +274,97 @@ def test_a_settings_save_does_not_wipe_vapid_keys_or_subscriptions(client, isola
 
     assert config.SETTINGS.vapid_public_key == before_key
     assert config.SETTINGS.push_subscriptions == before_subs
+
+
+# ------------------------------------------------- when webpush is unusable
+
+
+def test_the_app_survives_a_broken_webpush_install(monkeypatch):
+    """The exact failure reported live: `cryptography`'s compiled Rust
+    extension failing to dlopen on Termux (a PyPI wheel built for glibc,
+    not Android's Bionic libc) took the *entire app* down, because
+    ensure_vapid_keys ran at config.py's own module-import time with no
+    guard around the `from webpush import VAPID` it needs. Simulated here
+    by poisoning sys.modules the way a real ImportError would surface —
+    config.ensure_vapid_keys must degrade to "no keys", never raise."""
+    import sys
+
+    monkeypatch.setitem(sys.modules, "webpush", None)
+    monkeypatch.setattr(config, "_VAPID_IMPORT_TRIED", False)
+    monkeypatch.setattr(config, "_VAPID_CLASS", None)
+
+    settings = config.Settings()
+    assert config.ensure_vapid_keys(settings) is False
+    assert settings.vapid_public_key == ""
+    assert settings.vapid_private_key == ""
+
+
+def test_a_second_attempt_does_not_retry_the_failing_import(monkeypatch):
+    """§ _webpush_vapid's own reasoning — a broken install stays broken for
+    the process's lifetime; retrying (and re-logging) the same dlopen
+    failure on every settings load or every reply would just be noise.
+    `_VAPID_IMPORT_TRIED` is what makes that true: set on the first attempt,
+    read (never reset) on every one after."""
+    import sys
+
+    monkeypatch.setattr(config, "_VAPID_IMPORT_TRIED", False)
+    monkeypatch.setattr(config, "_VAPID_CLASS", None)
+    monkeypatch.setitem(sys.modules, "webpush", None)
+
+    config.ensure_vapid_keys(config.Settings())
+    assert config._VAPID_IMPORT_TRIED is True
+
+    # webpush "recovering" mid-process (impossible in reality — a dlopen
+    # failure does not un-happen — but the point is that the cache does not
+    # even check) still returns the cached None rather than trying again.
+    monkeypatch.delitem(sys.modules, "webpush", raising=False)
+    assert config.ensure_vapid_keys(config.Settings()) is False
+
+
+def test_send_all_does_not_raise_when_webpush_is_unusable(monkeypatch):
+    import sys
+
+    monkeypatch.setitem(sys.modules, "webpush", None)
+    monkeypatch.setattr(config, "_VAPID_IMPORT_TRIED", False)
+    monkeypatch.setattr(config, "_VAPID_CLASS", None)
+
+    _, _, subscription = _subscriber_keys()
+    settings = config.Settings(reply_notifications=True, push_subscriptions=[subscription])
+
+    calls = []
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: calls.append(1))
+
+    push_notify.send_all(settings, "Mira", "Hello.")  # must not raise
+    assert not calls
+
+
+def test_the_module_level_load_survives_a_broken_webpush(monkeypatch, tmp_path):
+    """The actual regression: `_loaded_with_vapid_keys` (§ config.py, run at
+    module-import time as `SETTINGS = _loaded_with_vapid_keys()`) used to
+    call `ensure_vapid_keys` with no guard around the `from webpush import
+    VAPID` it needs — so a broken `webpush` took the *entire app* down
+    before a single route could even be registered, since this runs before
+    main.py finishes importing config at all.
+
+    Calling the function directly rather than re-importing the module: a
+    real `importlib.reload(config)` was tried first and rebinds
+    `app.config.SETTINGS` to a new object while every other module that did
+    `from app.config import SETTINGS` (§ conftest.py) keeps pointing at the
+    old one — which corrupted a dozen unrelated tests later in the same run
+    the first time this was tried. This proves the same code path without
+    touching the process's one real config module."""
+    import sys
+
+    monkeypatch.setitem(sys.modules, "webpush", None)
+    monkeypatch.setattr(config, "_VAPID_IMPORT_TRIED", False)
+    monkeypatch.setattr(config, "_VAPID_CLASS", None)
+    # load_settings()'s own default path is DATA_DIR / "settings.json", read
+    # directly rather than through settings_path() — this dev sandbox's real
+    # data/settings.json already has a real key pair on disk from earlier
+    # testing, and without this the test found that instead of exercising
+    # the code path it means to.
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "settings_path", lambda: tmp_path / "settings.json")
+
+    loaded = config._loaded_with_vapid_keys()  # must not raise
+    assert loaded.vapid_public_key == ""

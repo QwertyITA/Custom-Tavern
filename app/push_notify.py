@@ -48,10 +48,10 @@ def _send_one(wp, title: str, body: str, sub: dict) -> str | None:
     slow subscriber must not cost the others their notification, and a
     reply that already reached the screen must never be undone by a
     notification failing to send about it."""
-    from webpush import WebPushSubscription
-
     endpoint = sub.get("endpoint", "")
     try:
+        from webpush import WebPushSubscription
+
         subscription = WebPushSubscription.model_validate(sub)
         message = wp.get(message={"title": title, "body": body}, subscription=subscription)
         response = httpx.post(
@@ -75,6 +75,13 @@ def send_all(settings: config.Settings, title: str, text: str) -> None:
     POST to the push service are blocking work httpx's sync client does
     here rather than pulling in a second, async-only push library for one
     call site.
+
+    Never raises: this runs fire-and-forget after a reply is already on its
+    way to the person who sent the message (§ scheduler.py's own call
+    site), and a background notification failing to send must never be
+    allowed to surface as a broken turn, an unhandled exception in a
+    tracked task, or — the one this was actually caught doing — the whole
+    process refusing to start.
     """
     if not settings.reply_notifications or not settings.push_subscriptions:
         return
@@ -83,21 +90,27 @@ def send_all(settings: config.Settings, title: str, text: str) -> None:
         return  # an action-only reply has nothing to say in a notification
 
     config.ensure_vapid_keys(settings)
-    from webpush import WebPush
+    if not settings.vapid_private_key:
+        return  # this install cannot do push at all (§ config._webpush_vapid)
 
-    wp = WebPush(
-        private_key=settings.vapid_private_key.encode(),
-        public_key=settings.vapid_public_key_pem.encode(),
-        subscriber=_VAPID_SUBSCRIBER,
-    )
+    try:
+        from webpush import WebPush
 
-    dead = [
-        endpoint
-        for sub in list(settings.push_subscriptions)
-        if (endpoint := _send_one(wp, title, body, sub)) is not None
-    ]
-    if dead:
-        settings.push_subscriptions = [
-            s for s in settings.push_subscriptions if s.get("endpoint") not in dead
+        wp = WebPush(
+            private_key=settings.vapid_private_key.encode(),
+            public_key=settings.vapid_public_key_pem.encode(),
+            subscriber=_VAPID_SUBSCRIBER,
+        )
+
+        dead = [
+            endpoint
+            for sub in list(settings.push_subscriptions)
+            if (endpoint := _send_one(wp, title, body, sub)) is not None
         ]
-        config.save_settings(settings)
+        if dead:
+            settings.push_subscriptions = [
+                s for s in settings.push_subscriptions if s.get("endpoint") not in dead
+            ]
+            config.save_settings(settings)
+    except Exception as exc:  # noqa: BLE001 — see this function's own docstring
+        log.warning("push notifications failed: %s", exc)
