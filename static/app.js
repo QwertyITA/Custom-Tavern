@@ -643,6 +643,25 @@ function splitParagraphs(text) {
   return parts.length ? parts : [""];
 }
 
+// A reply with the *action* text stripped out (§ markup.js's ACTION style,
+// mirrored from app/markup.py) — for a notification (§ notifyReply below),
+// read at a glance rather than acted out in a bubble, where stage direction
+// is noise rather than the texture it is written to add. The real tokenizer
+// rather than a `\*[^*]*\*` sweep on purpose: markup nests and models emit
+// unbalanced markers constantly, and that is exactly the case a fail-soft
+// scanner is for (§ markup.py's own docstring) — a naive regex would eat
+// text past a stray unmatched `*` that the tokenizer knows to leave alone.
+function actionFreeText(text) {
+  const runs = window.Markup ? window.Markup.parse(text) : null;
+  if (!runs) return String(text || "").trim();
+  return runs
+    .filter((run) => !run.styles.includes("action"))
+    .map((run) => run.text)
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 // Between one paragraph-bubble and the next while one is actively streaming
 // in (§ runStream's own reveal loop) — short by default, since it is only
 // meant as breathing room between bubbles that are already arriving quickly;
@@ -4313,6 +4332,78 @@ function tavern() {
       return true;
     },
 
+    // ---- background reply notifications ----
+    //
+    // A WhatsApp-style nudge for the one gap SSE cannot close on its own: the
+    // tab backgrounded (§ document.visibilityState) while a reply was still
+    // on its way. Opt-in and nothing more than that toggle — the browser's
+    // own permission prompt is disruptive enough without also being a
+    // surprise, so it only ever fires from a deliberate tap in Settings,
+    // never from the first message someone happens to send.
+
+    notifyNote() {
+      if (!("Notification" in window)) {
+        return "This browser doesn't support notifications.";
+      }
+      if (this.settings.reply_notifications && Notification.permission === "denied") {
+        return "Blocked at the browser level — the switch here can't override "
+          + "that. Allow notifications for this site in the browser's own "
+          + "settings, then try again.";
+      }
+      return "A reply that arrives while the app is minimized or in another "
+        + "tab shows up the way a message would — the words the character "
+        + "said, none of the *actions* around them. Tapping it brings you "
+        + "back here.";
+    },
+
+    async toggleReplyNotifications(checked) {
+      if (checked) {
+        // Not "if (Notification.permission !== 'granted')": asking again
+        // after a denial just fails silently a second time, and the note
+        // above already says why — no point spending the toggle's own
+        // click on a prompt that cannot appear.
+        if ("Notification" in window && Notification.permission === "default") {
+          try { await Notification.requestPermission(); } catch (_) { /* unsupported */ }
+        }
+      }
+      this.settings.reply_notifications = checked;
+      await this.saveSettings();
+    },
+
+    // Called from applyFinal's "reply" branch in runStream — never for a
+    // swipe (those arrive as "variant", a regeneration of something already
+    // on screen, not a new message someone was waiting on) — with the
+    // message that just landed. `document.visibilityState` rather than
+    // `document.hidden` for the same reason the spec prefers it: a tab that
+    // is visible but not the focused one (another app snapped beside it, a
+    // second monitor) still reads as "hidden" for `hidden`'s purposes on
+    // some engines, where visibilityState is the one actually standardised
+    // to mean "not on screen at all".
+    async notifyReply(message) {
+      if (!this.settings.reply_notifications) return;
+      if (document.visibilityState !== "hidden") return;
+      if (!("Notification" in window) || Notification.permission !== "granted") return;
+      if (!("serviceWorker" in navigator)) return;
+
+      const body = actionFreeText(message.text || "");
+      if (!body) return;              // an action-only reply has nothing to say here
+
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        await reg.showNotification(this.character?.name || "Custom Tavern", {
+          body: body.length > 200 ? `${body.slice(0, 199)}…` : body,
+          icon: "/static/icons/icon-192.png",
+          badge: "/static/icons/icon-192.png",
+          // One live notification per chat rather than a stack — a second
+          // reply while the first notification is still sitting there
+          // replaces it, the same collapsing WhatsApp itself does per
+          // conversation rather than one line per message.
+          tag: `tavern-reply-${this.chatId}`,
+          data: { chatId: this.chatId },
+        });
+      } catch (_) { /* a notification is a courtesy, never a requirement */ }
+    },
+
     // ---- music (ROADMAP #39) ----
     //
     // Same shape as the backdrop trio above: load/upload/delete against the
@@ -6352,6 +6443,9 @@ function tavern() {
           const message = { ...final.event.message, text: final.event.message.text };
           if (index === -1) this.messages.push(message);
           else this.messages[index] = message;
+          // Only here, not the swipe branch below — a regeneration is not a
+          // new message someone was waiting on (§ notifyReply's own comment).
+          this.notifyReply(message);
         } else {
           const message = this.messages.find((m) => m.id === final.event.message_id);
           if (message) {

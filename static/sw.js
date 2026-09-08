@@ -31,6 +31,23 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+// A reply notification (§ notifyReply, app.js), tapped. There is no
+// navigation to do — chatId is already whatever it was when the message was
+// sent, and the page reads it straight off localStorage on its own — so this
+// only has to find an existing tab and put it in front, or open one if the
+// app was closed rather than merely backgrounded.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      for (const client of list) {
+        if ("focus" in client) return client.focus();
+      }
+      return self.clients.openWindow ? self.clients.openWindow("/") : null;
+    })
+  );
+});
+
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (event.request.method !== "GET") return;

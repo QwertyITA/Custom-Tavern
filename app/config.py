@@ -524,6 +524,16 @@ class Settings:
     # settings reasoning about pacing independently.
     separate_paragraphs: bool = False
 
+    # Same client-side-only shape again: the server has no notion of a
+    # notification, this only decides whether static/app.js is allowed to ask
+    # the browser's own permission for one and then actually raise it (§
+    # notifyReply, app.js) once a reply lands while the tab is backgrounded.
+    # Off by default because the browser's own permission prompt is
+    # disruptive enough without also being unasked for — it only ever fires
+    # from ticking this box in Settings, never from the first message
+    # someone happens to send.
+    reply_notifications: bool = False
+
     # Whole-feature switches (Brain → Settings), off by default — both need a
     # service the app itself does not ship (a search engine, a lip-sync
     # renderer), so most installs will never touch either. Off hides every
@@ -924,6 +934,9 @@ def build_settings(payload: dict[str, Any], current: Settings) -> Settings:
     )
     settings.separate_paragraphs = bool(
         payload.get("separate_paragraphs", current.separate_paragraphs)
+    )
+    settings.reply_notifications = bool(
+        payload.get("reply_notifications", current.reply_notifications)
     )
     settings.feature_web_search = bool(
         payload.get("feature_web_search", current.feature_web_search)

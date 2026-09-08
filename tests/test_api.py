@@ -97,6 +97,18 @@ def test_separate_paragraphs_defaults_off_and_round_trips(client, isolated_setti
     assert client.get("/api/settings").json()["separate_paragraphs"] is True
 
 
+def test_reply_notifications_defaults_off_and_round_trips(client, isolated_settings):
+    """Same client-side-only shape again (§ notifyReply, app.js) — the server
+    only remembers whether the switch is on, it never raises anything itself."""
+    current = client.get("/api/settings").json()
+    assert current["reply_notifications"] is False
+
+    current["reply_notifications"] = True
+    body = client.put("/api/settings", json=current).json()
+    assert body["settings"]["reply_notifications"] is True
+    assert client.get("/api/settings").json()["reply_notifications"] is True
+
+
 def test_get_after_save_never_returns_the_real_key(client, isolated_settings):
     client.put("/api/settings", json={
         "backends": [{"name": "echo", "kind": "echo"},
