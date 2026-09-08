@@ -37,6 +37,7 @@ from .. import character_reactions
 from .. import config
 from .. import groups
 from .. import macros, memory as memory_store, regex_rules, repo, state as state_mod
+from .. import push_notify
 from .. import reply_length
 from .. import translation
 from .. import websearch
@@ -1166,6 +1167,19 @@ class PassScheduler:
         # SLICE_MUSIC_ROLEPLAY) — the nudge has now been narrated, so it
         # stops appearing in the next reply's prompt too.
         await self._consume_music_roleplay(ctx)
+
+        # A real message someone was waiting on — never fired from a swipe
+        # (§ _run_swipe below never calls this), which regenerates something
+        # already on screen rather than answering a message at all. Tracked
+        # the same as every other background task (§ _track) so it is
+        # neither orphaned nor allowed to hold the reply up — it starts after
+        # the reply is already on its way to the caller.
+        self._track(
+            ctx.chat_id,
+            asyncio.create_task(
+                asyncio.to_thread(push_notify.send_all, self.settings, ctx.character.name, reply)
+            ),
+        )
 
         yield {
             "type": "reply",

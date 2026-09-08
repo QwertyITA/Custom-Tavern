@@ -524,15 +524,30 @@ class Settings:
     # settings reasoning about pacing independently.
     separate_paragraphs: bool = False
 
-    # Same client-side-only shape again: the server has no notion of a
-    # notification, this only decides whether static/app.js is allowed to ask
-    # the browser's own permission for one and then actually raise it (§
-    # notifyReply, app.js) once a reply lands while the tab is backgrounded.
-    # Off by default because the browser's own permission prompt is
-    # disruptive enough without also being unasked for — it only ever fires
-    # from ticking this box in Settings, never from the first message
-    # someone happens to send.
+    # Whether a real reply is worth a real OS notification (§ app/push_notify.py,
+    # static/sw.js's "push" handler). Off by default — the browser's own
+    # permission prompt is disruptive enough without also being unasked for,
+    # so this only ever flips on from ticking the box in Settings.
     reply_notifications: bool = False
+
+    # Web Push (§ app/push_notify.py). A real VAPID key pair, generated once
+    # on first use (§ ensure_vapid_keys below) — what lets this server send a
+    # push through the browser's own push service without a third-party
+    # account. The private half never reaches the client (§ to_dict, which
+    # drops it the same way it drops vault_pin_hash); the public half is
+    # served plain, because a public key being public is the point of it.
+    vapid_private_key: str = ""
+    vapid_public_key_pem: str = ""
+    # The base64url "application server key" static/app.js hands to
+    # `pushManager.subscribe` — derived from vapid_public_key_pem, stored
+    # alongside it rather than recomputed on every request.
+    vapid_public_key: str = ""
+    # One entry per browser that subscribed (§ POST /api/push/subscribe) — a
+    # list rather than one, since nothing stops someone from opening this on
+    # more than one browser and wanting a reply on either. Matched and
+    # deduplicated by `endpoint`. Never served back to the client (§
+    # to_dict) — nothing there needs to read its own subscription back.
+    push_subscriptions: list[dict] = field(default_factory=list)
 
     # Whole-feature switches (Brain → Settings), off by default — both need a
     # service the app itself does not ship (a search engine, a lip-sync
@@ -687,6 +702,14 @@ class Settings:
         d.pop("vault_pin_hash", None)
         d.pop("vault_pin_salt", None)
         d["vault_configured"] = bool(self.vault_pin_hash)
+        # Same reasoning for the VAPID private key — a real signing key, and
+        # the client never needs it back: it only ever sends `vapid_public_key`
+        # to `pushManager.subscribe`. The PEM copy of the public key and the
+        # stored subscriptions are server bookkeeping the settings screen has
+        # no field for either, so neither is sent.
+        d.pop("vapid_private_key", None)
+        d.pop("vapid_public_key_pem", None)
+        d.pop("push_subscriptions", None)
         return d
 
 
@@ -938,6 +961,14 @@ def build_settings(payload: dict[str, Any], current: Settings) -> Settings:
     settings.reply_notifications = bool(
         payload.get("reply_notifications", current.reply_notifications)
     )
+    # vapid_* and push_subscriptions are never accepted from a payload — they
+    # are server-managed state (§ ensure_vapid_keys, POST /api/push/subscribe),
+    # not something the Settings form ever has a field for. Carried forward
+    # from `current` unconditionally, the same way vault_pin_hash is.
+    settings.vapid_private_key = current.vapid_private_key
+    settings.vapid_public_key_pem = current.vapid_public_key_pem
+    settings.vapid_public_key = current.vapid_public_key
+    settings.push_subscriptions = current.push_subscriptions
     settings.feature_web_search = bool(
         payload.get("feature_web_search", current.feature_web_search)
     )
@@ -1118,12 +1149,52 @@ def save_settings(settings: Settings, path: Path | None = None) -> Path:
     return path
 
 
-SETTINGS = load_settings()
+def ensure_vapid_keys(settings: Settings) -> bool:
+    """Generate the VAPID key pair, if it does not exist yet.
+
+    Called eagerly at load time (§ _loaded_with_vapid_keys below), not only
+    once something subscribes: the browser needs the *public* half to even
+    attempt `pushManager.subscribe` (§ subscribeToPush, app.js), which
+    happens before POST /api/push/subscribe is ever reached — generating
+    only when a subscription arrives is a chicken and egg that never
+    hatches, caught live (`vapid_public_key` was still "" the moment the
+    Settings toggle tried to use it). A P-256 key pair costs a fraction of a
+    millisecond to generate and, once persisted, is never generated again,
+    so there was no real cost eager generation was avoiding in the first
+    place. Returns whether it actually generated anything, so a caller that
+    also needs to save can skip the write when there was nothing new to
+    write — GET /api/settings relies on exactly that to stay side-effect
+    free (§ its own comment in main.py).
+    """
+    if settings.vapid_private_key and settings.vapid_public_key_pem:
+        return False
+    from webpush import VAPID  # deferred: only paid for once notifications are used
+
+    private_pem, public_pem, application_key = VAPID.generate_keys()
+    settings.vapid_private_key = private_pem.decode()
+    settings.vapid_public_key_pem = public_pem.decode()
+    settings.vapid_public_key = application_key
+    return True
+
+
+def _loaded_with_vapid_keys() -> Settings:
+    """load_settings(), guaranteed to come back with a VAPID key pair ready
+    (§ ensure_vapid_keys's own docstring for why this cannot wait for a
+    subscription to trigger it) — used at import time and by reload_settings
+    so a settings.json swapped out from under the process (§ isolated_settings
+    in tests, or a real file edited by hand) still ends up with one."""
+    settings = load_settings()
+    if ensure_vapid_keys(settings):
+        save_settings(settings)
+    return settings
+
+
+SETTINGS = _loaded_with_vapid_keys()
 
 
 def reload_settings() -> Settings:
     global SETTINGS
-    SETTINGS = load_settings()
+    SETTINGS = _loaded_with_vapid_keys()
     return SETTINGS
 
 

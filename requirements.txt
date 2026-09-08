@@ -1,5 +1,14 @@
-# Termux-friendly: no compiled extras. Do NOT use uvicorn[standard] (§2).
+# Termux-friendly: no compiled extras — except cryptography, pulled in
+# transitively by webpush below. That one Rust build is a cost this project
+# already pays for pydantic-core (§2's own comment on it); paying it a
+# second time for the same toolchain, for real Web Push notifications, is
+# not a second cost. webpush itself was picked over the more common
+# pywebpush specifically because pywebpush's own http_ece dependency ships a
+# legacy setup.py that fails outright under current setuptools — not a
+# foundation to build a phone install on. webpush needs nothing beyond
+# cryptography, pure-Python pyjwt, and pydantic (already required below).
 fastapi>=0.110
 uvicorn>=0.27
 httpx>=0.26
 pydantic>=2.6
+webpush>=1.0.6

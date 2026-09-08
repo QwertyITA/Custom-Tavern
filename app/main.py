@@ -148,6 +148,14 @@ async def health() -> dict:
 @app.get("/api/settings")
 async def get_settings() -> dict:
     """Masked — the browser never receives a real key."""
+    # In memory only, deliberately not saved here — a GET must not have a
+    # disk side effect (this one written to /nonexistent/settings.json,
+    # harmlessly in a real install but for real, on every test that reads
+    # this route without isolated_settings, before this was caught). This
+    # still guarantees static/app.js has a public key the moment it reads
+    # this response, which is all a mere read owes it; POST
+    # /api/push/subscribe is what persists a key pair someone actually used.
+    config.ensure_vapid_keys(config.SETTINGS)
     # config.SETTINGS, not the name imported at module load: saving rebinds the
     # one in config, and a stale copy here would show pre-save values.
     return {
@@ -421,6 +429,49 @@ async def reload_config() -> dict:
 
 
 # ------------------------------------------------------------------ vault
+
+
+# ------------------------------------------------------------------- push
+
+
+@app.post("/api/push/subscribe")
+async def push_subscribe(payload: dict = Body(...)) -> dict:
+    """A browser opting in (§ toggleReplyNotifications, app.js).
+
+    Body is a raw `PushSubscription.toJSON()` — {endpoint, keys: {p256dh,
+    auth}}. Upserted by endpoint: subscribing again with the same endpoint
+    (a browser re-subscribing after its own key rotation, still the same
+    origin) replaces rather than duplicates.
+    """
+    endpoint = str(payload.get("endpoint") or "").strip()
+    keys = payload.get("keys") or {}
+    p256dh = str(keys.get("p256dh") or "").strip()
+    auth = str(keys.get("auth") or "").strip()
+    if not endpoint or not p256dh or not auth:
+        raise HTTPException(400, "incomplete subscription")
+
+    config.ensure_vapid_keys(config.SETTINGS)
+    subs = [s for s in config.SETTINGS.push_subscriptions if s.get("endpoint") != endpoint]
+    subs.append({"endpoint": endpoint, "keys": {"p256dh": p256dh, "auth": auth}})
+    config.SETTINGS.push_subscriptions = subs
+    config.save_settings(config.SETTINGS)
+    return {"ok": True}
+
+
+@app.post("/api/push/unsubscribe")
+async def push_unsubscribe(payload: dict = Body(...)) -> dict:
+    """The other half of turning the Settings switch back off — called with
+    whatever endpoint the browser's own subscription object still names, so
+    this one browser stops hearing about replies without touching any other
+    device that subscribed."""
+    endpoint = str(payload.get("endpoint") or "").strip()
+    before = len(config.SETTINGS.push_subscriptions)
+    config.SETTINGS.push_subscriptions = [
+        s for s in config.SETTINGS.push_subscriptions if s.get("endpoint") != endpoint
+    ]
+    if len(config.SETTINGS.push_subscriptions) != before:
+        config.save_settings(config.SETTINGS)
+    return {"ok": True}
 
 
 def _vault_locked() -> bool:
