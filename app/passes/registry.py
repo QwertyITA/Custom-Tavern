@@ -288,8 +288,18 @@ CANONICAL_PASSES: list[PassDef] = [
             "specific, and plausible for the setting given.\n"
             "Never resolve it, never say how anyone reacts, and never contradict "
             "what just happened.\n"
+            "Before answering, weigh what you're about to add against the scene "
+            "as it actually stands: would it give the moment something — "
+            "texture, a hook worth reacting to, a reason to move — or would it "
+            "just cut across what's already happening? A quiet, tender, tense, "
+            "or otherwise delicate beat is rarely improved by a random "
+            "intrusion, and forcing one in anyway makes the scene worse, not "
+            "more alive. If the best intrusion you can think of would cheapen "
+            "or derail the moment rather than add to it, that is the same "
+            "answer as nothing plausible occurring to you at all.\n"
             'Reply with JSON only: {"event": "<one sentence>"}\n'
-            'Reply {"event": ""} if nothing would plausibly intrude right now.'
+            'Reply {"event": ""} if nothing would plausibly intrude right now, '
+            "or if intruding at all would only hurt the scene."
         ),
     ),
     PassDef(

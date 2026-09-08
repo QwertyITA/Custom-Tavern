@@ -30,28 +30,64 @@ def test_a_zero_chance_never_fires(sched, chat, character):
     """Zero is how the whole thing is switched off — no second flag that has to
     agree with the frequency."""
     definition = PassDef(id="x", trigger=Trigger(type="chance", probability=0.0))
-    ctx = a_context(chat, character, sched.settings)
-    assert not any(sched.trigger_fires(definition, ctx) for _ in range(200))
+    assert not any(
+        sched.trigger_fires(definition, a_context(chat, character, sched.settings, t))
+        for t in range(200)
+    )
 
 
 def test_a_certain_chance_always_fires(sched, chat, character):
     definition = PassDef(id="x", trigger=Trigger(type="chance", probability=1.0))
-    ctx = a_context(chat, character, sched.settings)
-    assert all(sched.trigger_fires(definition, ctx) for _ in range(50))
+    assert all(
+        sched.trigger_fires(definition, a_context(chat, character, sched.settings, t))
+        for t in range(50)
+    )
 
 
 def test_the_chance_is_roughly_the_frequency(sched, chat, character):
+    """Roughly the stated frequency across many *turns* — not many calls for
+    one turn, which is deterministic now (§ the block below) and would make
+    this either 0 or 2000 depending on the hash, not ~500."""
     definition = PassDef(id="x", trigger=Trigger(type="chance", probability=0.25))
-    ctx = a_context(chat, character, sched.settings)
-    fired = sum(sched.trigger_fires(definition, ctx) for _ in range(2000))
+    fired = sum(
+        sched.trigger_fires(definition, a_context(chat, character, sched.settings, t))
+        for t in range(2000)
+    )
     assert 350 < fired < 650, fired
+
+
+def test_the_same_turn_always_agrees_with_itself(sched, chat, character):
+    """The actual fix: swiping re-checks eligibility for the *same* turn
+    every time (§9 — only the variant landed on commits background passes,
+    but each candidate on the way there is still checked), and a fresh coin
+    flip per check turned one nominal 12% chance into several independent
+    ones for anyone who regenerates a lot — reported live as firing every
+    couple of messages instead of roughly one in eight. A turn's roll has to
+    be a property of the turn, not of how many times it was asked."""
+    definition = PassDef(id="x", trigger=Trigger(type="chance", probability=0.5))
+    ctx = a_context(chat, character, sched.settings, 7)
+    results = {sched.trigger_fires(definition, ctx) for _ in range(30)}
+    assert len(results) == 1
+
+
+def test_a_different_turn_gets_its_own_independent_roll(sched, chat, character):
+    """The determinism above must not collapse into "always the same answer
+    regardless of the turn" — different turns still land on both sides."""
+    definition = PassDef(id="x", trigger=Trigger(type="chance", probability=0.5))
+    results = {
+        sched.trigger_fires(definition, a_context(chat, character, sched.settings, t))
+        for t in range(40)
+    }
+    assert results == {True, False}
 
 
 @pytest.mark.parametrize("probability", [-1.0, 5.0])
 def test_a_probability_outside_the_range_is_clamped(sched, chat, character, probability):
     definition = PassDef(id="x", trigger=Trigger(type="chance", probability=probability))
-    ctx = a_context(chat, character, sched.settings)
-    results = {sched.trigger_fires(definition, ctx) for _ in range(50)}
+    results = {
+        sched.trigger_fires(definition, a_context(chat, character, sched.settings, t))
+        for t in range(50)
+    }
     assert results == ({False} if probability < 0 else {True})
 
 

@@ -20,6 +20,7 @@ ordered, and there is no global commit DAG.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import random
 import re
@@ -459,7 +460,23 @@ class PassScheduler:
         if trigger.type == "chance":
             # Free: a dice roll, no model call. The whole point of gating a pass
             # this way is that it costs nothing on the turns it does not fire.
-            return random.random() < max(0.0, min(1.0, trigger.probability))
+            #
+            # Deterministic per (chat, turn, pass) rather than a fresh
+            # `random.random()` on every call — this is re-evaluated on every
+            # swipe of the same turn, not just once (§9: only the variant
+            # someone lands on commits background passes, but eligibility is
+            # checked for each one on the way there), so a live dice roll
+            # here turned one nominal 12% chance into five or six independent
+            # ones for anyone who regenerates a lot: reported live as
+            # "something happens" firing every couple of messages instead of
+            # roughly one in eight. Hashing the turn itself means every
+            # swipe of the same turn agrees on the same answer — the roll
+            # belongs to the turn, not to how many times it was asked — while
+            # a genuinely different turn still gets its own independent one.
+            seed = f"{ctx.chat_id}:{ctx.turn}:{definition.id}"
+            digest = hashlib.sha256(seed.encode()).digest()
+            roll = int.from_bytes(digest[:8], "big") / 2**64
+            return roll < max(0.0, min(1.0, trigger.probability))
         if trigger.type == "on_signal":
             # The world-info pill's own empty-state fix, reported live: on a
             # brand new chat there is nothing to change *from* yet, so
