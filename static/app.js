@@ -4877,6 +4877,35 @@ function tavern() {
       }
       this.settings.vault_unlocked = false;
       await Promise.all([this.loadCharacters(), this.reloadChats()]);
+      // Both of those refresh the *lists* (§ _vault_hidden, main.py — vault
+      // enforcement is "hide from listings", not real per-resource access
+      // control on a single-user phone app), which does nothing for a chat
+      // already open on screen: its messages, its header, its composer were
+      // all fetched before the lock and nothing here re-fetches them. Left
+      // alone, locking the vault while sitting inside a vaulted character's
+      // chat locked everyone else out of it except the one place it was
+      // still fully readable. `character` carries `vaulted` regardless of
+      // lock state (only its visibility in a listing depends on that), so
+      // this is the one direct check needed — a chat with an ordinary
+      // character must not be touched by someone else's vault locking.
+      if (this.character && this.character.vaulted) {
+        this.closeToHome();
+      }
+    },
+
+    // The one place a chat gets closed out from under itself rather than
+    // switched away from by opening a different one (openChat's own
+    // showHome=false is the only other place this trio changes, and that
+    // path always has a new chat ready to take over in the same breath).
+    // Used only by lockVault above.
+    closeToHome() {
+      if (this.events) this.events.close();
+      this.events = null;
+      this.chatId = "";
+      this.character = null;
+      this.characterId = "";
+      this.messages = [];
+      this.showHome = true;
     },
 
     // The roster's one true order: whoever is open right now first — see
