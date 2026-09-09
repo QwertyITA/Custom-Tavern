@@ -2927,6 +2927,33 @@
         </label>
         <p class="kind-note" x-text="notifyNote()"></p>
 
+        <!-- The fallback for exactly the failure that motivated this (§
+             reinstallDeps, app.js): notifications turned on, silently unable
+             to work because the library they need failed to install right
+             the first time — no way to retry short of a shell, until now.
+             Folded away rather than sitting in the open: the common case is
+             that this was never needed at all. -->
+        <button class="disclose" :class="{ open: depsOpen }"
+                @click="depsOpen = !depsOpen" :aria-expanded="depsOpen">
+          <svg class="disclose-arrow" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-back"/></svg>
+          <span>Notifications not working?</span>
+        </button>
+        <div class="fold" :class="{ open: depsOpen }">
+          <div class="fold-clip">
+            <p class="note">
+              If the toggle above won't stay on, or a reply never shows up as
+              a real notification, the library it needs may have failed to
+              install correctly — a known failure on some phones (§ the
+              button below fixes exactly this). Reinstalling can take
+              several minutes the first time and needs the app restarted
+              afterward either way.
+            </p>
+            <button class="wide" @click="reinstallDeps()" :disabled="reinstallingDeps"
+                    x-text="reinstallingDeps ? 'Reinstalling… this can take a while' : 'Reinstall dependencies'"></button>
+            <p class="kind-note" x-show="reinstallMsg" x-text="reinstallMsg"></p>
+          </div>
+        </div>
+
         <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-edit"/></svg>Chat naming</h3>
         <label class="toggle" x-show="chatRenamePass()" x-cloak>
           <!-- x-show only hides this row — it does not stop Alpine

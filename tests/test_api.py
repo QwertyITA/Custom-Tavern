@@ -1959,3 +1959,67 @@ def test_reject_oversized_is_a_no_op_with_no_declared_length():
 
     request = Request({"type": "http", "headers": []})
     _reject_oversized(request, max_bytes=1000, message="too big")  # does not raise
+
+
+# ------------------------------------------------------- reinstall-deps
+
+
+def test_reinstall_deps_runs_pip_under_this_interpreter_and_reports_success(client, monkeypatch):
+    """§ start.sh's own install_deps, which this mirrors — the fallback for
+    a dependency (typically cryptography, for push notifications) that
+    installed wrong the first time."""
+    import asyncio
+    import sys
+
+    class FakeProc:
+        returncode = 0
+
+        async def communicate(self):
+            return b"Successfully installed webpush-1.0.6\n", None
+
+    captured = {}
+
+    async def fake_exec(*args, **kwargs):
+        captured["args"] = args
+        return FakeProc()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+
+    r = client.post("/api/system/reinstall-deps")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert "Successfully installed" in body["output"]
+
+    args = captured["args"]
+    assert args[0] == sys.executable
+    assert args[1:4] == ("-m", "pip", "install")
+    assert args[-1].endswith("requirements.txt")
+
+
+def test_reinstall_deps_reports_failure_with_pips_own_tail(client, monkeypatch):
+    import asyncio
+
+    class FakeProc:
+        returncode = 1
+
+        async def communicate(self):
+            return b"ERROR: could not build wheels for cryptography\n", None
+
+    async def fake_exec(*args, **kwargs):
+        return FakeProc()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+
+    body = client.post("/api/system/reinstall-deps").json()
+    assert body["ok"] is False
+    assert "could not build wheels" in body["output"]
+
+
+def test_reinstall_deps_rejects_a_concurrent_run(client, monkeypatch):
+    """One at a time — a double tap must not launch two overlapping pip
+    installs."""
+    from app import main
+
+    monkeypatch.setattr(main._REINSTALL_LOCK, "locked", lambda: True)
+    assert client.post("/api/system/reinstall-deps").status_code == 409

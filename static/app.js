@@ -965,6 +965,13 @@ function tavern() {
     channelChecking: false,
     channelBackends: [],
     channelRuns: {},
+
+    // The Settings fallback for a dependency (typically cryptography, for
+    // push notifications) that installed wrong the first time (§
+    // reinstallDeps below).
+    depsOpen: false,
+    reinstallingDeps: false,
+    reinstallMsg: "",
     // A send that failed on the way out, which plays the reach that falls
     // short (§ .signal-lost, styles.css). Distinct from `unanswered`: that one
     // is also true after a deliberate Stop, and nothing failed to arrive when
@@ -4413,6 +4420,30 @@ function tavern() {
         await api.post("/api/push/unsubscribe", { endpoint: sub.endpoint });
         await sub.unsubscribe();
       } catch (_) { /* best effort — the toggle still turns off either way */ }
+    },
+
+    // The fallback for a dependency that installed wrong the first time (§
+    // POST /api/system/reinstall-deps) — surfaced specifically for push's
+    // own cryptography, but the action itself is general: whatever
+    // requirements.txt says, reinstalled under the exact interpreter
+    // already running this. A real wait, not a fire-and-forget: on a phone
+    // this can take minutes (§ the note beside the button), so the request
+    // simply stays open until pip is actually done, and the button says so
+    // while it does.
+    async reinstallDeps() {
+      if (this.reinstallingDeps) return;
+      this.reinstallingDeps = true;
+      this.reinstallMsg = "";
+      try {
+        const r = await api.post("/api/system/reinstall-deps", {});
+        this.reinstallMsg = r.ok
+          ? "Done. Restart the app for this to take effect."
+          : `Failed — the last of what pip said:\n${(r.output || "").trim().slice(-600)}`;
+      } catch (e) {
+        this.reinstallMsg = errorText(e);
+      } finally {
+        this.reinstallingDeps = false;
+      }
     },
 
     // ---- music (ROADMAP #39) ----

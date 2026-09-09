@@ -12,6 +12,7 @@ import binascii
 import io
 import json
 import random
+import sys
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -472,6 +473,51 @@ async def push_unsubscribe(payload: dict = Body(...)) -> dict:
     if len(config.SETTINGS.push_subscriptions) != before:
         config.save_settings(config.SETTINGS)
     return {"ok": True}
+
+
+# One at a time — a double tap (or a slow connection retrying the same
+# request) launching two overlapping pip installs is pure waste, not a
+# second attempt at anything.
+_REINSTALL_LOCK = asyncio.Lock()
+
+
+@app.post("/api/system/reinstall-deps")
+async def reinstall_deps() -> dict:
+    """Re-runs `pip install -r requirements.txt` under this exact
+    interpreter (§ start.sh's own install_deps, which this mirrors) — the
+    fix for one specific failure: a dependency that installed wrong the
+    first time, typically `cryptography` for push notifications (§
+    app/push_notify.py, config.py's own `_webpush_vapid`), most often
+    because pip resolved a wheel built for a different platform than the
+    device actually is. Surfaced as a button in Settings for exactly the
+    case that motivated it — reported live: notifications enabled, silently
+    unable to work, with no way to retry the install short of a shell.
+
+    Blocking on purpose. This can take several minutes on a phone —
+    Termux has no prebuilt wheel for some packages and compiles from
+    source, the same wait start.sh's own comment already warns about for
+    pydantic-core — and the person who pressed the button is watching the
+    button, not doing something else with this connection. Never touches
+    this process's own already-imported modules: reinstalling fixes what's
+    on disk, and picking that up needs the app restarted, which the
+    response says plainly rather than the server attempting to restart
+    itself from inside the request that's asking it to.
+    """
+    if _REINSTALL_LOCK.locked():
+        raise HTTPException(409, "a reinstall is already running")
+    async with _REINSTALL_LOCK:
+        requirements = config.REPO_ROOT / "requirements.txt"
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, "-m", "pip", "install", "-r", str(requirements),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        raw, _ = await proc.communicate()
+        # The tail: pip's own progress noise on a slow build can run to
+        # thousands of lines, and the last few are where a real failure
+        # actually says what went wrong.
+        output = raw.decode(errors="replace")[-4000:]
+        return {"ok": proc.returncode == 0, "output": output}
 
 
 def _vault_locked() -> bool:
