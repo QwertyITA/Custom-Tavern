@@ -4354,6 +4354,14 @@ function tavern() {
       if (!("Notification" in window) || !("PushManager" in window) || !("serviceWorker" in navigator)) {
         return "This browser doesn't support push notifications.";
       }
+      // vapid_public_key only exists once the server side actually has
+      // webpush installed (§ config.ensure_vapid_keys) — empty here means
+      // requirements-push.txt was never installed, not a browser problem,
+      // and no permission prompt or subscription attempt can fix that.
+      if (!this.settings.vapid_public_key) {
+        return "Not installed on this server yet — see “Notifications not "
+          + "working?” below.";
+      }
       if (this.settings.reply_notifications && Notification.permission === "denied") {
         return "Blocked at the browser level — the switch here can't override "
           + "that. Allow notifications for this site in the browser's own "
@@ -4369,6 +4377,13 @@ function tavern() {
       if (checked) {
         if (!("Notification" in window) || !("PushManager" in window) || !("serviceWorker" in navigator)) {
           return this.flashHint("This browser can't do push notifications");
+        }
+        // Same check notifyNote() makes: an empty key means the server side
+        // was never installed (§ requirements-push.txt), not a browser
+        // problem — subscribing anyway would fail with a cryptic
+        // "invalid applicationServerKey" rather than saying so plainly.
+        if (!this.settings.vapid_public_key) {
+          return this.flashHint("Notifications aren't installed on this server yet");
         }
         // Not "if (Notification.permission !== 'granted')": asking again
         // after a denial just fails silently a second time, and notifyNote()
@@ -4422,14 +4437,12 @@ function tavern() {
       } catch (_) { /* best effort — the toggle still turns off either way */ }
     },
 
-    // The fallback for a dependency that installed wrong the first time (§
-    // POST /api/system/reinstall-deps) — surfaced specifically for push's
-    // own cryptography, but the action itself is general: whatever
-    // requirements.txt says, reinstalled under the exact interpreter
-    // already running this. A real wait, not a fire-and-forget: on a phone
-    // this can take minutes (§ the note beside the button), so the request
-    // simply stays open until pip is actually done, and the button says so
-    // while it does.
+    // Installs requirements-push.txt (§ POST /api/system/reinstall-deps) —
+    // push's own cryptography, deliberately not part of the app's own
+    // install any more, under the exact interpreter already running this.
+    // A real wait, not a fire-and-forget: on a phone this can take minutes
+    // (§ the note beside the button), so the request simply stays open
+    // until pip is actually done, and the button says so while it does.
     async reinstallDeps() {
       if (this.reinstallingDeps) return;
       this.reinstallingDeps = true;

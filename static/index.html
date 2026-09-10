@@ -2927,12 +2927,16 @@
         </label>
         <p class="kind-note" x-text="notifyNote()"></p>
 
-        <!-- The fallback for exactly the failure that motivated this (§
-             reinstallDeps, app.js): notifications turned on, silently unable
-             to work because the library they need failed to install right
-             the first time — no way to retry short of a shell, until now.
-             Folded away rather than sitting in the open: the common case is
-             that this was never needed at all. -->
+        <!-- The library this needs (§ requirements-push.txt) is deliberately
+             NOT part of the app's own install — it pulls in a real compiled
+             extension (cryptography), and every phone paying that cost for a
+             feature most installs will never turn on is the wrong default.
+             This is the one place it gets installed, on demand, either the
+             first time (the common case now) or again after a failed one (§
+             reinstallDeps, app.js — reported live: a wheel resolved for the
+             wrong platform, which dlopen failed on at runtime). Folded away
+             rather than sitting in the open, since the toggle above already
+             explains what's on offer. -->
         <button class="disclose" :class="{ open: depsOpen }"
                 @click="depsOpen = !depsOpen" :aria-expanded="depsOpen">
           <svg class="disclose-arrow" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-back"/></svg>
@@ -2941,15 +2945,16 @@
         <div class="fold" :class="{ open: depsOpen }">
           <div class="fold-clip">
             <p class="note">
-              If the toggle above won't stay on, or a reply never shows up as
-              a real notification, the library it needs may have failed to
-              install correctly — a known failure on some phones (§ the
-              button below fixes exactly this). Reinstalling can take
-              several minutes the first time and needs the app restarted
-              afterward either way.
+              Push needs one more piece that isn't part of the app's own
+              install by default, to keep every other install lighter — so
+              if the toggle above won't stay on, this is very likely why.
+              Installing it can take several minutes the first time (longer
+              on some phones, which compile it from source) and needs the
+              app restarted afterward either way. Safe to press again if a
+              first attempt failed partway.
             </p>
             <button class="wide" @click="reinstallDeps()" :disabled="reinstallingDeps"
-                    x-text="reinstallingDeps ? 'Reinstalling… this can take a while' : 'Reinstall dependencies'"></button>
+                    x-text="reinstallingDeps ? 'Installing… this can take a while' : 'Install notification support'"></button>
             <p class="kind-note" x-show="reinstallMsg" x-text="reinstallMsg"></p>
           </div>
         </div>

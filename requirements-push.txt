@@ -1,0 +1,26 @@
+# Push notifications (§ app/push_notify.py) — optional, not installed by
+# `pip install -r requirements.txt`. Installed on demand, either by hand
+# (`pip install -r requirements-push.txt`) or from the app itself: turn on
+# "Notify when a reply arrives" in Settings, and if it doesn't work, the
+# "Reinstall dependencies" button folded under "Notifications not working?"
+# runs exactly this file.
+#
+# webpush pulls in cryptography, a real Rust-compiled extension — the one
+# genuinely heavy dependency in this project, and the reason this lives in
+# its own file rather than the always-installed one. On a phone that means
+# either a prebuilt wheel for the device's actual platform (Termux's own
+# `pkg install python-cryptography`, built for Android's Bionic libc, is
+# the reliable one — a plain `pip install` can resolve a manylinux wheel
+# built for glibc instead, which fails to dlopen at runtime: the exact
+# failure this was split out to stop inflicting on every install) or several
+# minutes compiling from source, the same wait §2 already documents for
+# pydantic-core. The app runs completely normally without this — a missing
+# webpush degrades to "notifications unavailable", never a reason the
+# server won't start (§ config._webpush_vapid, app/push_notify.py).
+#
+# webpush itself was picked over the more common pywebpush specifically
+# because pywebpush's own http_ece dependency ships a legacy setup.py that
+# fails outright under current setuptools — not a foundation to build a
+# phone install on. webpush needs nothing beyond cryptography, pure-Python
+# pyjwt, and pydantic (already required by requirements.txt).
+webpush>=1.0.6

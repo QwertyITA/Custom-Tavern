@@ -483,15 +483,17 @@ _REINSTALL_LOCK = asyncio.Lock()
 
 @app.post("/api/system/reinstall-deps")
 async def reinstall_deps() -> dict:
-    """Re-runs `pip install -r requirements.txt` under this exact
-    interpreter (§ start.sh's own install_deps, which this mirrors) — the
-    fix for one specific failure: a dependency that installed wrong the
-    first time, typically `cryptography` for push notifications (§
-    app/push_notify.py, config.py's own `_webpush_vapid`), most often
-    because pip resolved a wheel built for a different platform than the
-    device actually is. Surfaced as a button in Settings for exactly the
-    case that motivated it — reported live: notifications enabled, silently
-    unable to work, with no way to retry the install short of a shell.
+    """Installs requirements-push.txt — webpush and what it pulls in,
+    `cryptography` above all — under this exact interpreter. Not
+    requirements.txt: that one is already satisfied by definition, since
+    this process is running at all, and push is deliberately the one thing
+    NOT installed by default any more (§ requirements.txt's own comment) —
+    a dependency that installed wrong the first time, typically because pip
+    resolved a wheel built for a different platform than the device
+    actually is (§ config.py's own `_webpush_vapid`). Surfaced as a button
+    in Settings for exactly the case that motivated it — reported live:
+    notifications enabled, silently unable to work, with no way to retry
+    the install short of a shell.
 
     Blocking on purpose. This can take several minutes on a phone —
     Termux has no prebuilt wheel for some packages and compiles from
@@ -506,7 +508,7 @@ async def reinstall_deps() -> dict:
     if _REINSTALL_LOCK.locked():
         raise HTTPException(409, "a reinstall is already running")
     async with _REINSTALL_LOCK:
-        requirements = config.REPO_ROOT / "requirements.txt"
+        requirements = config.REPO_ROOT / "requirements-push.txt"
         proc = await asyncio.create_subprocess_exec(
             sys.executable, "-m", "pip", "install", "-r", str(requirements),
             stdout=asyncio.subprocess.PIPE,

@@ -1965,9 +1965,10 @@ def test_reject_oversized_is_a_no_op_with_no_declared_length():
 
 
 def test_reinstall_deps_runs_pip_under_this_interpreter_and_reports_success(client, monkeypatch):
-    """§ start.sh's own install_deps, which this mirrors — the fallback for
-    a dependency (typically cryptography, for push notifications) that
-    installed wrong the first time."""
+    """§ requirements-push.txt — webpush and cryptography are deliberately
+    NOT in the always-installed requirements.txt any more, so this is what
+    installs them, on demand, rather than re-running requirements.txt
+    (already satisfied by definition, since this process is running)."""
     import asyncio
     import sys
 
@@ -1994,7 +1995,18 @@ def test_reinstall_deps_runs_pip_under_this_interpreter_and_reports_success(clie
     args = captured["args"]
     assert args[0] == sys.executable
     assert args[1:4] == ("-m", "pip", "install")
-    assert args[-1].endswith("requirements.txt")
+    assert args[-1].endswith("requirements-push.txt")
+
+
+def test_requirements_push_txt_actually_exists_and_names_webpush():
+    """The one thing every assumption above rests on — a typo in the
+    filename here would pass every mocked test above and fail silently on
+    a real phone with pip saying "no such file"."""
+    from app import config
+
+    path = config.REPO_ROOT / "requirements-push.txt"
+    assert path.exists()
+    assert "webpush" in path.read_text()
 
 
 def test_reinstall_deps_reports_failure_with_pips_own_tail(client, monkeypatch):
