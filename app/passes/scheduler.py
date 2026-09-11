@@ -516,6 +516,28 @@ class PassScheduler:
         if trigger.type == "on_text":
             if not trigger.pattern:
                 return False
+            # Scoped to music_select specifically, same as the scene
+            # special-case just above — reported live: the person picked a
+            # track by hand (§ /api/chats/{id}/music, main.py — status
+            # already "playing") and said "here, listen to this song," and
+            # the pass went ahead and proposed a *different* one anyway,
+            # talking right over the track just started. The pattern has no
+            # way to tell "play something" from "listen to what I just put
+            # on" — both say the same words — so this checks the one thing
+            # that actually distinguishes them: whether something is
+            # already playing or already sitting on an unanswered proposal.
+            # Either way there is nothing for this pass to add — a person
+            # who wants something *else* can always pick a different track
+            # by hand, which starts it immediately with no model call at
+            # all, or decline/end the current one first.
+            if definition.id == "music_select":
+                playing = state_mod.read_slice(self.db, ctx.chat_id, state_mod.SLICE_MUSIC)
+                if (
+                    playing
+                    and isinstance(playing["value"], dict)
+                    and playing["value"].get("status") in ("playing", "proposed")
+                ):
+                    return False
             try:
                 return bool(
                     re.search(trigger.pattern, f"{ctx.user_text}\n{ctx.reply_text}", re.IGNORECASE)

@@ -452,6 +452,46 @@ def test_music_select_does_not_fire_on_an_unrelated_turn(sched, chat, character,
     assert not sched.trigger_fires(definition, ctx)
 
 
+def test_music_select_does_not_fire_over_a_track_already_playing(sched, chat, character):
+    """Reported live: a track picked by hand (status already "playing"),
+    then "here, listen to this song" in chat — and music_select went
+    ahead and proposed a *different* track, talking right over the one
+    just started. The pattern can't tell "play something" from "listen to
+    what I just put on" apart; the current state can."""
+    sync(state_mod.write_slice(
+        sched.db, chat["id"], SLICE_MUSIC,
+        {"status": "playing", "track": "already-playing.mp3", "character": None},
+        source_turn=1, source_pass="manual",
+    ))
+    definition = next(d for d in registry.all_passes(sched.db) if d.id == "music_select")
+    ctx = context(chat, character, user_text="Here, listen to this song.")
+    assert not sched.trigger_fires(definition, ctx)
+
+
+def test_music_select_does_not_fire_over_an_unanswered_proposal(sched, chat, character):
+    """Same reasoning while a card is already up and nobody has answered
+    it yet — a second mention of music must not race it to propose over
+    itself."""
+    sync(state_mod.write_slice(
+        sched.db, chat["id"], SLICE_MUSIC,
+        {"status": "proposed", "track": "already-proposed.mp3", "character": "Mira"},
+        source_turn=1, source_pass="music_select",
+    ))
+    definition = next(d for d in registry.all_passes(sched.db) if d.id == "music_select")
+    ctx = context(chat, character, user_text="Do you want to listen to some music together?")
+    assert not sched.trigger_fires(definition, ctx)
+
+
+def test_music_select_fires_again_once_nothing_is_playing(sched, chat, character):
+    """The guard is about *something already in play*, not about
+    music_select forever — once the track has ended (§ POST
+    /api/chats/{id}/music/ended clearing state.music), a fresh request
+    goes through exactly as before."""
+    definition = next(d for d in registry.all_passes(sched.db) if d.id == "music_select")
+    ctx = context(chat, character, user_text="Can you put on some music?")
+    assert sched.trigger_fires(definition, ctx)
+
+
 def test_music_select_excludes_a_track_marked_auto_false(sched, chat, character, tmp_path, monkeypatch):
     name = _seed_track(tmp_path, monkeypatch)
     monkeypatch.setattr(sched.settings, "music_meta", {name: {"auto": False}})
@@ -653,6 +693,34 @@ def test_music_select_never_runs_on_an_ordinary_turn(sched, chat, character, tmp
         (chat["id"],),
     )
     assert not rows
+
+
+def test_a_manual_pick_is_not_overridden_by_the_persons_own_message_about_it(
+    sched, chat, character, tmp_path, monkeypatch
+):
+    """The exact bug reported live: pick a track by hand (the manual
+    endpoint's own write, § POST /api/chats/{id}/music, main.py), then say
+    "here, listen to this song" — and the pass must not spend a model
+    call proposing a different one over it, pre-reply or otherwise."""
+    _seed_track(tmp_path, monkeypatch, "already-playing.mp3")
+    _seed_track(tmp_path, monkeypatch, "other.mp3")
+    monkeypatch.setattr(sched.settings, "music_meta", {})
+    sync(state_mod.write_slice(
+        sched.db, chat["id"], SLICE_MUSIC,
+        {"status": "playing", "track": "already-playing.mp3", "character": None},
+        source_turn=0, source_pass="manual",
+    ))
+
+    sync(turn(sched, chat["id"], "Here, listen to this song."))
+
+    rows = sched.db.query(
+        "SELECT status FROM pass_runs WHERE chat_id=? AND pass_id='music_select'",
+        (chat["id"],),
+    )
+    assert not rows, "no model call at all — not even one that agrees"
+    value = read_slice(sched.db, chat["id"], SLICE_MUSIC)["value"]
+    assert value["status"] == "playing"
+    assert value["track"] == "already-playing.mp3"
 
 
 def test_a_deferred_ask_still_trails_the_reply(sched, chat, character, tmp_path, monkeypatch):

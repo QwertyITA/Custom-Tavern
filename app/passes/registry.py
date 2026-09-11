@@ -232,6 +232,17 @@ CANONICAL_PASSES: list[PassDef] = [
         # the track by title. Firing it there sets ctx.music_picked, which
         # keeps this same trigger from matching the reply text a second
         # time once the background passes launch afterward.
+        #
+        # Also reported live: trigger_fires (scheduler.py) refuses this
+        # specific pass outright — before either the pre-reply pick or the
+        # ordinary background one ever spends a model call — whenever
+        # state.music already holds "playing" or an unanswered "proposed".
+        # The pattern alone cannot tell "play something" from "listen to
+        # what I just put on" apart — a track picked by hand, then "here,
+        # listen to this song" in chat, got a second, different track
+        # proposed right over the one just started, because nothing here
+        # ever checked what was already happening before reaching for a
+        # new one.
         trigger=Trigger(
             type="on_text",
             pattern=r"\b(jukebox|radio|stereo|record player|turntable|boombox|speakers?)\b"

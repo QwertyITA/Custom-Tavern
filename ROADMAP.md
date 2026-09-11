@@ -247,7 +247,16 @@ STscript (26).
       `search_block` scopes its own results, so it never lingers into a
       later reply that never asked. A reply that brings up music on its
       own initiative has nothing to pre-empt — it still goes through the
-      pass the usual way, after the fact.
+      pass the usual way, after the fact. Also fixed: `trigger_fires`
+      (scheduler.py) now refuses `music_select` outright — before either
+      the pre-reply pick or the ordinary background one ever spends a
+      model call — whenever `state.music` already holds "playing" or an
+      unanswered "proposed". Reported live: a track picked by hand, then
+      "here, listen to this song" in chat, got a *second*, different
+      track proposed right over the one just started — the trigger
+      pattern has no way to tell "play something" from "listen to what I
+      just put on" apart, so this checks the one thing that actually
+      does: whether something is already in play.
 - [ ] **40. Time-in-chat timer, per character.** Tracks how long the user has
       actually been engaged with a character, not just how long the tab has
       sat open. Counts while active, then holds for a 5-minute window from
