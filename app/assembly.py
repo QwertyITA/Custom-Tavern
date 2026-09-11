@@ -212,27 +212,42 @@ def pending_event(db: Database, chat_id: str) -> str:
     return str(value.get("event") or "").strip()
 
 
-def pending_music(db: Database, chat_id: str, settings: Settings) -> str:
+def pending_music(db: Database, chat_id: str, settings: Settings, turn: int = 0) -> str:
     """What the character currently knows about music, if anything.
 
-    Two mutually exclusive sources, each consumed its own way. A real
-    "playing" state.music lasts the whole song — cleared only when the
-    client reports it ended (§ POST /api/chats/{id}/music/ended) — so this
-    keeps returning the same line every turn for as long as that lasts,
-    unlike pending_event below. "Just roleplay" is a one-shot nudge
-    (state.music_roleplay), used by the very next reply exactly the way
-    pending_event's own intrusion is, then marked used.
+    Three sources, each consumed its own way. A real "playing" state.music
+    lasts the whole song — cleared only when the client reports it ended
+    (§ POST /api/chats/{id}/music/ended) — so this keeps returning the same
+    line every turn for as long as that lasts, unlike pending_event below.
+
+    A fresh "proposed" — one music_select itself just wrote for *this* turn
+    (§ PassScheduler._run_music_pick) — is scoped to that one turn exactly
+    like search_block's own results below: the pick happens before the
+    reply now specifically so this reply can name it, and a proposal still
+    sitting unanswered on some later turn must not keep getting repeated
+    into every reply after it, the way "currently playing" deliberately
+    does. Before this, the reply had already gone out generic ("turns on
+    some music") by the time a track was even chosen — reported live as
+    the character never once naming what it just put on.
+
+    "Just roleplay" is a one-shot nudge (state.music_roleplay), used by the
+    very next reply exactly the way pending_event's own intrusion is, then
+    marked used.
     """
     playing = read_slice(db, chat_id, SLICE_MUSIC)
-    if playing and isinstance(playing["value"], dict) and playing["value"].get("status") == "playing":
+    if playing and isinstance(playing["value"], dict):
+        status = playing["value"].get("status")
         track = str(playing["value"].get("track") or "").strip()
-        if track:
+        if status == "playing" and track:
             # The title (plus artist, if set) — not the description
             # (§ Settings.music_meta, config.py) — a person recognises a
             # song by its name, not by the mood note written to help the AI
             # pick it.
             title = music_display(track, settings.music_meta)
             return f"Currently playing: {title}."
+        if status == "proposed" and track and playing["source_turn"] == turn:
+            title = music_display(track, settings.music_meta)
+            return f"You just decided to play: {title}. Mention it by name."
 
     roleplay = read_slice(db, chat_id, SLICE_MUSIC_ROLEPLAY)
     if roleplay and isinstance(roleplay["value"], dict) and not roleplay["value"].get("used"):
@@ -544,7 +559,7 @@ def build_reply_context(
         if (event := pending_event(db, chat["id"]))
         else "",
         "music": f"## Music\n{music}"
-        if (music := pending_music(db, chat["id"], settings))
+        if (music := pending_music(db, chat["id"], settings, current_turn))
         else "",
         # The card's own last word. It belongs after the history — that is the
         # whole point of the field, and where a card puts the instruction it

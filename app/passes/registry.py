@@ -221,6 +221,17 @@ CANONICAL_PASSES: list[PassDef] = [
         # case of one already covered — added alongside share/recommend/
         # suggest for the same reason (a character offering a track is
         # exactly the moment this pass exists for).
+        #
+        # Also called *before* the reply now (§ PassScheduler._run_music_pick,
+        # scheduler.py), against user_text alone — ctx.reply_text doesn't
+        # exist yet at that point, so the same on_text pattern here just
+        # naturally reduces to "did the person's own message ask for
+        # music". Reported live: run only ever after the fact as it
+        # originally was, the reply had already been written generic by
+        # the time a track was even picked, so it could never once name
+        # the track by title. Firing it there sets ctx.music_picked, which
+        # keeps this same trigger from matching the reply text a second
+        # time once the background passes launch afterward.
         trigger=Trigger(
             type="on_text",
             pattern=r"\b(jukebox|radio|stereo|record player|turntable|boombox|speakers?)\b"

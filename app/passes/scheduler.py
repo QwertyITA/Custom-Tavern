@@ -163,6 +163,15 @@ class TurnContext:
     # Where the verbatim window starts. The summary pass covers what is before
     # it and nothing after, so it never describes a turn the model can read.
     window_from: int = 0
+    # Set by _run_music_pick when it actually calls music_select before the
+    # reply, so _launch_background's own eligible() never fires the same
+    # pass a second time against the same turn (§ _run_music_pick).
+    music_picked: bool = False
+    # music_select's "ask" line, held here when _run_music_pick's call to
+    # it fires pre-reply (§ _handler_music_select) — posted as its own
+    # message right after the reply goes out, the same trailing order it
+    # already had back when the whole pass ran only after the reply.
+    deferred_music_ask: str = ""
 
     @property
     def chat_id(self) -> str:
@@ -415,6 +424,11 @@ class PassScheduler:
             if definition.id == "basic" or not definition.enabled:
                 continue
             if definition.id in disabled:
+                continue
+            # Already spent this turn's music_select call before the reply
+            # (§ _run_music_pick) — never a second one against the reply
+            # text too, which trigger_fires would otherwise happily allow.
+            if definition.id == "music_select" and ctx.music_picked:
                 continue
             # A whole group switched off in the panel (§3). Cheaper than
             # disabling its passes one at a time, and it is the switch someone
@@ -731,11 +745,23 @@ class PassScheduler:
         async for event in self._run_search(ctx, user_text):
             yield event
 
+        # --- also outside the reply pass, but a model call in its own right
+        # (§ _run_music_pick) — only when the person's own message just
+        # asked for music, so the reply itself can know what got picked.
+        await self._run_music_pick(ctx)
+
         async for event in self._run_reply(ctx):
             yield event
 
         if not ctx.message_id:
             return  # the reply failed; nothing downstream is meaningful
+
+        # The pick above found nothing in the library and the character
+        # chose to ask about it instead (§ _handler_music_select) — held
+        # until now so the ask still trails the reply, the same order it
+        # had when the whole pass ran only after the fact.
+        if ctx.deferred_music_ask:
+            self._post_music_ask(chat_id, ctx.character.id, ctx.deferred_music_ask)
 
         # --- non-blocking passes: parallel, write-on-arrival (§5.5) ---
         launched = self._launch_background(ctx)
@@ -805,6 +831,34 @@ class PassScheduler:
             "count": len(results),
             "sources": [r["url"] for r in results if r["url"]],
         }
+
+    async def _run_music_pick(self, ctx: TurnContext) -> None:
+        """Pick a track before the reply, when the person's own message just
+        asked for one — so the reply about to be written can name what got
+        chosen (§ pending_music, assembly.py) instead of talking about music
+        in the abstract while a separate card catches up on the actual track
+        a turn later. Reported live: by the time music_select ran — always
+        after the fact, against the reply that had just gone out — the
+        reply itself had already been written with no way to know what it
+        was about to be offered, so it never once named a track by title.
+
+        Same definition, same trigger, same handler as the ordinary
+        background pass (§ _launch_background/_handler_music_select) — this
+        only ever pre-empts what on_text can already tell from the user's
+        own message: ctx.reply_text is still empty here, so trigger_fires
+        matches against user_text alone. A reply that brings up music on
+        its own initiative has nothing to pre-empt yet (the reply doesn't
+        exist), and still goes through the pass the usual way afterward.
+        """
+        definition = registry.get_pass(self.db, "music_select")
+        if definition is None:
+            return
+        disabled = registry.passes_disabled_by_toggle(self.db, ctx.toggle_states)
+        if not self.eligible([definition], ctx, disabled):
+            return
+        ctx.music_picked = True
+        run_id = self._record_run(ctx, definition, "pending")
+        await self._execute(ctx, definition, run_id)
 
     async def _run_reply(self, ctx: TurnContext) -> AsyncIterator[dict]:
         definition = registry.get_pass(self.db, "basic")
@@ -1670,6 +1724,21 @@ class PassScheduler:
 
         return handle
 
+    def _post_music_ask(self, chat_id: str, character_id: str, ask: str) -> None:
+        """The character's own line inviting the person to add a track,
+        posted as a real message (§ music_select's prompt, registry.py) —
+        shared by the ordinary post-reply handler below and by
+        _run_music_pick's deferred call, so the two ways this can fire
+        write the exact same message shape."""
+        message = repo.add_message(
+            self.db, chat_id, "assistant", ask, speaker_id=character_id,
+        )
+        repo.set_music_ask(self.db, message["variant_id"], "pending")
+        self._emit(
+            chat_id,
+            {"type": "message", "message": repo.get_message(self.db, message["id"])},
+        )
+
     def _handler_music_select(self, ctx: TurnContext):
         async def handle(payload: dict) -> bool:
             # Re-read fresh rather than trusting the list _build_pass_input
@@ -1694,14 +1763,21 @@ class PassScheduler:
                 ask = re.sub(r"\s+", " ", str(payload.get("ask") or "")).strip(" \"'")
                 if not ask:
                     ask = random.choice(_MUSIC_ASK_FALLBACKS)
-                message = repo.add_message(
-                    self.db, ctx.chat_id, "assistant", ask, speaker_id=ctx.character.id,
-                )
-                repo.set_music_ask(self.db, message["variant_id"], "pending")
-                self._emit(
-                    ctx.chat_id,
-                    {"type": "message", "message": repo.get_message(self.db, message["id"])},
-                )
+                if ctx.music_picked:
+                    # Set only by _run_music_pick, right before it calls
+                    # this same pass pre-reply — reply_text itself isn't a
+                    # safe signal here: plenty of tests (and the odd
+                    # exotic caller) run this handler straight off a
+                    # hand-built context that never bothers to set it,
+                    # even for what is otherwise an ordinary post-reply
+                    # call. Hold the offer rather than posting it now, so
+                    # it still trails the reply once _answer gets to it (§
+                    # _answer's own deferred_music_ask check) instead of
+                    # asking about music before answering what the person
+                    # just said.
+                    ctx.deferred_music_ask = ask
+                    return True
+                self._post_music_ask(ctx.chat_id, ctx.character.id, ask)
                 return True
             write = await state_mod.write_slice(
                 self.db,
@@ -1710,7 +1786,13 @@ class PassScheduler:
                 {"status": "proposed", "track": chosen, "character": ctx.character.name},
                 source_turn=ctx.turn,
                 source_pass="music_select",
-                variant_id=ctx.variant_id,
+                # None, not "", when this ran pre-reply (§ _run_music_pick):
+                # ctx.variant_id has no reply variant yet to bind to at that
+                # point, the same reasoning search's own pre-reply write
+                # already follows (§ _run_search) — a swipe only ever
+                # replaces the reply, never the message that asked for
+                # music, so this has nothing to roll back to either way.
+                variant_id=ctx.variant_id or None,
             )
             if write.accepted:
                 self._emit(

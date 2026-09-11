@@ -235,7 +235,19 @@ STscript (26).
       request rather than left open. The multi-device case: exactly one
       now-playing state per chat, so whichever device's `ended` fires first
       is what ends it everywhere, the same answer group chats' shared state
-      already gives everything else.
+      already gives everything else. Later fixed to run *before* the reply
+      instead of after it, whenever the person's own message is what asked
+      for music (`PassScheduler._run_music_pick`, called from `_answer`
+      right where the web search step already runs pre-reply) — reported
+      live: firing only after the fact, as it originally did, meant the
+      reply had already gone out generic ("turns on some music") by the
+      time a track was even picked, so the character could never once name
+      what it had just put on. `pending_music` now feeds the pick straight
+      back into that same turn's reply, scoped to it exactly the way
+      `search_block` scopes its own results, so it never lingers into a
+      later reply that never asked. A reply that brings up music on its
+      own initiative has nothing to pre-empt — it still goes through the
+      pass the usual way, after the fact.
 - [ ] **40. Time-in-chat timer, per character.** Tracks how long the user has
       actually been engaged with a character, not just how long the tab has
       sat open. Counts while active, then holds for a 5-minute window from

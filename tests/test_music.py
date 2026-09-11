@@ -9,7 +9,7 @@ from app.config import Settings
 from app.passes import registry
 from app.state import SLICE_MUSIC, SLICE_MUSIC_ROLEPLAY, read_slice
 
-from .conftest import sync
+from .conftest import events_of, sync, turn
 from .test_scheduler import context
 
 TRACK_BYTES = b"not really audio, just bytes with the right extension"
@@ -357,6 +357,45 @@ def test_deleting_the_ask_message_withdraws_it(client, db, chat):
     assert repo.get_message(db, ask["id"]) is None
 
 
+# -------------------------------------------------------------- pending_music
+
+
+def test_pending_music_names_a_track_proposed_this_very_turn(db, chat):
+    """The reply that is about to be written gets to know what was just
+    chosen for it (§ PassScheduler._run_music_pick) — scoped to the exact
+    turn the proposal was made on, the same as search_block's own results."""
+    _propose(db, chat["id"], "song.mp3")
+    line = assembly.pending_music(db, chat["id"], Settings(), 1)
+    assert "You just decided to play" in line
+    assert "song.mp3" not in line  # the title/stem, never the raw filename
+
+
+def test_pending_music_stays_silent_about_a_proposal_from_an_earlier_turn(db, chat):
+    """Otherwise an unanswered proposal would keep getting mentioned into
+    every reply after it, forever — the same reasoning search_block already
+    applies to its own stale results."""
+    _propose(db, chat["id"], "song.mp3")
+    assert assembly.pending_music(db, chat["id"], Settings(), 2) == ""
+
+
+def test_pending_music_ignores_a_proposal_with_no_turn_given(db, chat):
+    """The default `turn=0` never matches a real proposal's source_turn, so
+    a caller that forgets to pass one gets silence, not a stale mention."""
+    _propose(db, chat["id"], "song.mp3")
+    assert assembly.pending_music(db, chat["id"], Settings()) == ""
+
+
+def test_pending_music_still_names_whats_playing_regardless_of_turn(db, chat):
+    """"Currently playing" is not turn-scoped — it lasts the whole song (§
+    pending_music's own docstring), unlike a still-unanswered proposal."""
+    sync(state_mod.write_slice(
+        db, chat["id"], SLICE_MUSIC,
+        {"status": "playing", "track": "song.mp3", "character": "Mira"},
+        source_turn=1, source_pass="music_select",
+    ))
+    assert "Currently playing" in assembly.pending_music(db, chat["id"], Settings(), 9)
+
+
 # ------------------------------------------------------------- music_select
 
 
@@ -559,6 +598,94 @@ def test_music_select_asks_when_nothing_fits_and_the_character_wants_to(
     assert ask["role"] == "assistant"
     assert ask["text"] == "Got anything better than this old thing? Add something."
     assert ask["music_ask"] == "pending"
+
+
+# ------------------------------------------------- music_select, pre-reply
+
+
+def test_music_select_picks_the_track_before_the_reply_is_written(
+    sched, chat, character, tmp_path, monkeypatch
+):
+    """The whole point of the fix: the person asked for music in their own
+    message, so the pick happens before the reply — not after it, the way
+    every other music_select case above still does — and never fires a
+    second time once the background passes for this turn launch."""
+    name = _seed_track(tmp_path, monkeypatch)
+    monkeypatch.setattr(sched.settings, "music_meta", {})
+
+    events = sync(turn(sched, chat["id"], "Can you put on some music?"))
+
+    queued = events_of(events, "background_queued")
+    assert not queued or "music_select" not in queued[0]["passes"]
+
+    rows = sched.db.query(
+        "SELECT status FROM pass_runs WHERE chat_id=? AND pass_id='music_select'",
+        (chat["id"],),
+    )
+    assert len(rows) == 1, "picked once, not again after the reply too"
+    assert rows[0]["status"] == "done"
+
+    value = read_slice(sched.db, chat["id"], SLICE_MUSIC)["value"]
+    assert value == {"status": "proposed", "track": name, "character": character.name}
+
+    # No reply variant existed yet when this was written, so nothing to bind
+    # a rollback to (§ _handler_music_select) — the same shape a pre-reply
+    # web search result already stores.
+    write_row = sched.db.query_one(
+        "SELECT variant_id FROM state_writes WHERE chat_id=? AND slice_name=? "
+        "ORDER BY id DESC LIMIT 1",
+        (chat["id"], SLICE_MUSIC),
+    )
+    assert write_row["variant_id"] is None
+
+
+def test_music_select_never_runs_on_an_ordinary_turn(sched, chat, character, tmp_path, monkeypatch):
+    """Nothing about music in the person's own message means nothing to
+    pre-empt (§ _run_music_pick) — and, on the echo backend, nothing in
+    the reply either, so this still never runs at all this turn."""
+    _seed_track(tmp_path, monkeypatch)
+    monkeypatch.setattr(sched.settings, "music_meta", {})
+
+    sync(turn(sched, chat["id"], "Tell me about the weather outside."))
+
+    rows = sched.db.query(
+        "SELECT status FROM pass_runs WHERE chat_id=? AND pass_id='music_select'",
+        (chat["id"],),
+    )
+    assert not rows
+
+
+def test_a_deferred_ask_still_trails_the_reply(sched, chat, character, tmp_path, monkeypatch):
+    """Nothing in the library fits, so the pick resolves to an "ask" instead
+    of a track (§ _handler_music_select) — held back until the reply has
+    gone out, so the ordering a person sees stays: the character answers
+    first, then separately asks about adding a track, same as when the
+    whole pass fired only after the reply existed."""
+    from app.providers import echo as echo_provider
+
+    _seed_track(tmp_path, monkeypatch)
+    monkeypatch.setattr(sched.settings, "music_meta", {})
+    monkeypatch.setattr(echo_provider, "_first_music_id", lambda request: "none")
+    monkeypatch.setattr(
+        echo_provider, "_music_ask_text", lambda request: "Got a track worth adding?",
+    )
+
+    events = sync(turn(sched, chat["id"], "Could you put on some music?"))
+
+    assert read_slice(sched.db, chat["id"], SLICE_MUSIC) is None, "not a track proposal"
+    messages = repo.list_messages(sched.db, chat["id"])
+    # user -> reply -> ask, in that order — the ask never jumps ahead of
+    # the reply it was deferred past.
+    assert [m["role"] for m in messages[-3:]] == ["user", "assistant", "assistant"]
+    ask = messages[-1]
+    assert ask["text"] == "Got a track worth adding?"
+    assert ask["music_ask"] == "pending"
+    # And still exactly one music_select call for the whole turn.
+    rows = sched.db.query(
+        "SELECT status FROM pass_runs WHERE chat_id=? AND pass_id='music_select'",
+        (chat["id"],),
+    )
+    assert len(rows) == 1
 
 
 def test_consume_music_roleplay_marks_a_note_used_exactly_once(sched, chat, character):
