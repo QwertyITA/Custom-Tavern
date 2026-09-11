@@ -6225,6 +6225,30 @@ function tavern() {
       this.$nextTick(() => requestAnimationFrame(() => this.followGrowth(message, bubble)));
     },
 
+    // The failure counterpart to followGrowth's own release, for runStream's
+    // finally (§ its "no token ever arrived" comment there) — a swipe that
+    // never got a single token back, so there is nothing to chase, only a
+    // pill-sized bubble to open back out. By the time this runs the catch
+    // block above has already put the original text back, so measuring
+    // "natural" already measures *that* text's own size — one animated hop
+    // to it, the same eased settle a real reply's growth ends on, rather
+    // than followGrowth's repeating chase (there is nothing incrementally
+    // arriving to chase). This did not exist at all until a live swipe
+    // failure threw `this.releaseRegenPin is not a function` out of
+    // finally — which, thrown mid-finally, skipped every line after it,
+    // regenId included, and was the actual cause of a swipe error leaving
+    // the bubble stuck showing the typing cue with nothing left running.
+    releaseRegenPin(messageId) {
+      const bubble = this.bubbleFor(messageId);
+      if (!bubble) return;
+      const natural = this.measureNatural(bubble);
+      this.pinTo(bubble, `${natural.width}px`, `${natural.height}px`);
+      setTimeout(() => {
+        this.setPin(bubble, "", "");
+        bubble.classList.remove("clipping", "chasing");
+      }, BUBBLE_RESIZE_MS());
+    },
+
     // Keeps a growing bubble's pinned size chasing the text as it streams in,
     // each step covered by the same eased transition (§ .bubble) that the
     // shrink-to-pill uses — rather than pinning once to the first chunk and
