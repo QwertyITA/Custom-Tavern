@@ -3983,10 +3983,18 @@ function tavern() {
       this.revealArmed = false;
       this.streaming = true;
       this.impersonating = true;
+      // The one streaming path that never had one, which is the whole reason
+      // the stop button did nothing here: the button shows on `streaming`
+      // (§ index.html's send/stop pair) and calls stopGenerating(), which
+      // aborts `streamAbort` — and this left it null, so the guard there
+      // simply fell through and the draft kept arriving.
+      this.streamAbort = new AbortController();
       this.draft = "";
       let buffer = "";
       try {
-        const response = await fetch(`/api/chats/${this.chatId}/impersonate`, { method: "POST" });
+        const response = await fetch(`/api/chats/${this.chatId}/impersonate`, {
+          method: "POST", signal: this.streamAbort.signal,
+        });
         if (!response.ok) throw await apiError(response);
         for await (const event of sseStream(response)) {
           if (event.type === "delta") {
@@ -3999,10 +4007,16 @@ function tavern() {
           }
         }
       } catch (e) {
-        this.error = errorText(e);
+        // Stopping is something the user did on purpose. Whatever had already
+        // arrived stays in the composer — this is a draft to be rewritten
+        // before it counts as said, so half of one is still worth more than
+        // an empty box (same reasoning as runStream's own cancel path).
+        if (e.name === "AbortError") this.flashHint("Stopped");
+        else this.error = errorText(e);
       } finally {
         this.streaming = false;
         this.impersonating = false;
+        this.streamAbort = null;
         // The composer grew while the text arrived; let it settle to the size
         // the final draft actually needs.
         this.$nextTick(() => {
@@ -6937,7 +6951,10 @@ function tavern() {
           }
         }
       } catch (e) {
-        pacer.flush();
+        // No pacer here: that one is `runStream`'s own local (§ makePacer),
+        // and reaching for it from this scope threw ReferenceError instead of
+        // handling the stop — so stopping a continue never said "Stopped" and
+        // never reloaded, it just blew up on the way out.
         if (e.name === "AbortError") {
           this.flashHint("Stopped");
           await this.reloadMessages();
