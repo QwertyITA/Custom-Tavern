@@ -229,3 +229,28 @@ CREATE TABLE IF NOT EXISTS personas (
     created_at  REAL NOT NULL,
     updated_at  REAL NOT NULL
 );
+
+-- How long you have actually spent in a chat (roadmap 40). One row per
+-- *session*: a stretch of confirmed-active presence, opened by the first
+-- heartbeat and extended by each one after it (§ repo.mark_active).
+--
+-- A session is deliberately made of heartbeats rather than of a start and a
+-- close. A close never arrives reliably — the tab is killed, the phone
+-- sleeps, Termux is swapped out — and a clock that counts up to "now"
+-- credits every one of those with the whole time until someone notices. The
+-- time a session is worth is last_seen_at - started_at and nothing else, so
+-- the worst an abandoned one can cost is the single interval between its
+-- final two beats. Which also makes the total honestly conservative: it
+-- under-counts the tail of every session by one beat, and never over-counts.
+--
+-- No character_id here. A group chat belongs to all of its members, so time
+-- in it counts for each of them, and that is a join through chat_members
+-- rather than a column that would have to pick one (§ repo.list_chats, which
+-- resolves a chat's membership the same way for the same reason).
+CREATE TABLE IF NOT EXISTS chat_sessions (
+    id           TEXT PRIMARY KEY,
+    chat_id      TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+    started_at   REAL NOT NULL,
+    last_seen_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_chat ON chat_sessions(chat_id, last_seen_at);

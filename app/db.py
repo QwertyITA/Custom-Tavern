@@ -172,7 +172,7 @@ class Database:
             self._writer_thread.join(timeout=5)
 
 
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 
 def _run_migration_step(conn: sqlite3.Connection, step: str) -> None:
     """Apply one migration statement, tolerating one that has already landed.
@@ -327,6 +327,21 @@ MIGRATIONS: dict[int, list[str]] = {
     # 'pending' is unanswered, 'awaiting_upload' is answered yes and waiting
     # on a track.
     17: ["ALTER TABLE message_variants ADD COLUMN music_ask TEXT NOT NULL DEFAULT ''"],
+    # Time actually spent in a chat (roadmap 40). A CREATE rather than an
+    # ALTER, so schema.sql's own IF NOT EXISTS already covers the
+    # create-from-nothing path and this is a no-op there — it exists for a
+    # database that predates the table. Nothing is backfilled: there is no
+    # record of presence before this, and inventing one from message
+    # timestamps would credit a chat left open overnight with the whole night.
+    18: [
+        "CREATE TABLE IF NOT EXISTS chat_sessions ("
+        "  id TEXT PRIMARY KEY,"
+        "  chat_id TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,"
+        "  started_at REAL NOT NULL,"
+        "  last_seen_at REAL NOT NULL)",
+        "CREATE INDEX IF NOT EXISTS idx_chat_sessions_chat "
+        "ON chat_sessions(chat_id, last_seen_at)",
+    ],
 }
 
 

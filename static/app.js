@@ -222,6 +222,28 @@ const SUGGEST_EDIT_PRESETS = [
 const KILL_HOLD_MS = 7000;
 // How long a one-line confirmation ("Copied") stays on screen.
 const HINT_MS = 1900;
+
+// ---- time actually spent in a chat (roadmap 40) ----
+//
+// The clock is made of heartbeats, and a heartbeat is only sent while the
+// page is visible *and* something has been touched inside PRESENCE_IDLE_MS.
+// That is the whole anti-farming story, and each half of it matters: the
+// visibility check is what stops a phone in a pocket, and the idle check is
+// what stops a phone face-up on a desk. Neither can be satisfied by leaving
+// the tab open, which is the thing being guarded against.
+//
+// Reading counts. That is why there is an idle *window* rather than a rule
+// that only counts the moments something is tapped — a long reply takes a
+// minute to read and not touching anything while you read it is engagement,
+// not absence. Two minutes is the longest that stays honest: enough to read
+// the longest reply this app will produce and think about an answer, short
+// enough that walking away costs almost nothing, since the clock can never
+// run past the last beat anyway.
+const PRESENCE_IDLE_MS = 120_000;
+// How often a beat goes out while active. Also the resolution of the whole
+// counter: a sitting is worth last-beat minus first-beat, so this is both
+// the granularity and the most a finished sitting can under-count by.
+const PRESENCE_BEAT_MS = 20_000;
 // A character's own line, on the other hand, is a sentence to actually read —
 // longer than a two-word toast earns.
 const REACTION_BUBBLE_MS = 3400;
@@ -1106,6 +1128,18 @@ function tavern() {
     sendingId: "",
     // Live while a reply is streaming, so it can be called off.
     streamAbort: null,
+    // Presence (roadmap 40). `lastTouch` is bumped by any real interaction;
+    // everything else is derived from it, so there is one thing to keep
+    // right. `afk` is only ever read by the UI — the beat checks the clock
+    // itself rather than trusting a flag some re-render might have missed.
+    lastTouch: Date.now(),
+    afk: false,
+    // Active milliseconds this sitting, and how many bells have already
+    // rung for them. Counting rings rather than tracking a deadline means a
+    // bell can never fire twice for the same stretch, and the setting can
+    // change mid-sitting without stranding a timer that was already running.
+    bellActiveMs: 0,
+    bellsRung: 0,
     draftCharacter: { id: "", name: "" },
     // The alternates are a list on the card and a paragraph-separated textarea
     // in the editor. Held separately so the textarea can be edited freely —
@@ -1382,6 +1416,149 @@ function tavern() {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register("/sw.js").catch(() => {});
       }
+      // Last, and never awaited: the clock should not be able to hold up the
+      // first paint of a chat, and it has nothing to say until a beat or two
+      // has gone by anyway (roadmap 40).
+      this.startPresence();
+    },
+
+    // ---- presence: time actually spent here (roadmap 40) ----
+
+    // Every real interaction lands here. Deliberately a wide net — tapping,
+    // typing, scrolling and dragging are all someone being present, and a
+    // narrower list would have penalised whichever way of using the app was
+    // left off it. Passive and on the capture phase so nothing can swallow
+    // them on the way down, and so a scroller never waits on this to paint.
+    startPresence() {
+      const touch = () => this.markActive();
+      for (const name of ["pointerdown", "pointermove", "keydown", "wheel", "touchstart", "scroll"]) {
+        document.addEventListener(name, touch, { passive: true, capture: true });
+      }
+      // Coming back to the tab is itself an interaction: the alternative is
+      // a beat sent the instant it becomes visible on the strength of a
+      // touch from an hour ago, which is exactly the farming this guards
+      // against — and, the other way, making someone tap once before the
+      // clock they can see restarts.
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) this.markActive();
+      });
+      this._presenceTimer = setInterval(() => this.presenceBeat(), PRESENCE_BEAT_MS);
+    },
+
+    markActive() {
+      this.lastTouch = Date.now();
+      if (this.afk) this.afk = false;
+    },
+
+    // Whether this moment counts. Both halves are checked here, at the
+    // moment of use, rather than cached into `afk` by a listener — a flag is
+    // one more thing that can be stale, and this is the one place that must
+    // not be.
+    presentNow() {
+      return !document.hidden && Date.now() - this.lastTouch < PRESENCE_IDLE_MS;
+    },
+
+    presenceBeat() {
+      const present = this.presentNow();
+      this.afk = !present;
+      if (!present) return;
+      // The bell counts time in the tavern, not time in a chat, so it ticks
+      // here whether or not one is open (§ ringBell).
+      this.bellActiveMs += PRESENCE_BEAT_MS;
+      this.checkBell();
+      if (!this.chatId) return;
+      // Fire and forget: a dropped beat costs this interval and nothing
+      // else, and a failed one must never raise a banner over the chat.
+      fetch(`/api/chats/${this.chatId}/active`, { method: "POST" }).catch(() => {});
+    },
+
+    // ---- the tavern bell ----
+
+    checkBell() {
+      const minutes = Number(this.settings.tavern_bell_minutes || 0);
+      if (!minutes) return;
+      const due = Math.floor(this.bellActiveMs / (minutes * 60_000));
+      if (due > this.bellsRung) {
+        this.bellsRung = due;
+        this.ringBell();
+      }
+    },
+
+    // Synthesised rather than a bundled sound file: a bell is two decaying
+    // sine partials, which is a dozen lines here against an audio asset to
+    // ship, decode and keep in the repo — and this one is already the right
+    // length and never has to be fetched on a phone with no signal.
+    ringBell() {
+      try {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        const ctx = this._bellCtx || (this._bellCtx = new Ctx());
+        // Autoplay policy parks a context created before the first gesture;
+        // by the time a bell is due there has been one, so this resumes.
+        if (ctx.state === "suspended") ctx.resume().catch(() => {});
+        const now = ctx.currentTime;
+        // A struck bell is a fundamental plus an inharmonic partial above
+        // it, the upper one decaying faster — a single sine reads as a test
+        // tone rather than as something hit.
+        for (const [freq, gain, seconds] of [[784, 0.25, 2.2], [1976, 0.09, 1.1]]) {
+          const osc = ctx.createOscillator();
+          const amp = ctx.createGain();
+          osc.type = "sine";
+          osc.frequency.value = freq;
+          amp.gain.setValueAtTime(0.0001, now);
+          amp.gain.exponentialRampToValueAtTime(gain, now + 0.01);
+          amp.gain.exponentialRampToValueAtTime(0.0001, now + seconds);
+          osc.connect(amp).connect(ctx.destination);
+          osc.start(now);
+          osc.stop(now + seconds);
+        }
+      } catch (_) { /* no audio here; the counter is the feature, not the sound */ }
+    },
+
+    // Saved on the spot rather than waiting for the Save button: it is one
+    // choice from a fixed list with nothing to review, and the ring below is
+    // the confirmation — which is also the point of ringing it. Waiting a
+    // quarter of an hour to find out whether the sound works at all, on a
+    // phone that may have muted the tab, is not a thing to ask of anyone.
+    async setBellMinutes(value) {
+      const minutes = Number(value) || 0;
+      this.settings.tavern_bell_minutes = minutes;
+      // The stretch already served is spent either way: changing the length
+      // starts the next one from here rather than firing immediately
+      // because the old count happened to be past the new boundary.
+      this.bellActiveMs = 0;
+      this.bellsRung = 0;
+      if (minutes) this.ringBell();
+      await this.saveSettings();
+    },
+
+    // ---- reading the counters back ----
+    //
+    // There is no endpoint for these: a character row and a chat row each
+    // carry their own `time` (§ repo.list_characters/list_chats), and the
+    // roster refetches both the moment its panel opens, so the numbers are
+    // already fresh wherever they are drawn. A separate call would have been
+    // a third round trip for figures two existing ones were about to bring.
+
+    // "4h 12m", "12m", "40s" — never "0h 0m 40s". One unit below the largest
+    // is as much as anyone reads off a line in a list, and a total under a
+    // minute is the one case where seconds are the only honest thing to show.
+    timeLabel(seconds) {
+      const total = Math.max(0, Math.round(Number(seconds) || 0));
+      if (total < 60) return `${total}s`;
+      const hours = Math.floor(total / 3600);
+      const minutes = Math.floor((total % 3600) / 60);
+      return hours ? `${hours}h ${minutes}m` : `${minutes}m`;
+    },
+
+    // The line above a character's own chat history. Left empty when there
+    // is nothing yet, so a character you have never sat with shows no
+    // summary at all rather than a row of zeroes.
+    timeSummary(character) {
+      const stat = (character && character.time) || { seconds: 0, sessions: 0, average: 0 };
+      if (!stat.sessions) return "";
+      const sittings = `${stat.sessions} sitting${stat.sessions === 1 ? "" : "s"}`;
+      return `${this.timeLabel(stat.seconds)} total · ${sittings} · ${this.timeLabel(stat.average)} average`;
     },
 
     // ---- sliders that do not answer a scroll ----

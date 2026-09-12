@@ -28,6 +28,12 @@ MASK = "***"
 
 VALID_KINDS = ("echo", "ollama", "llamacpp", "openai", "horde")
 VALID_TEMPLATES = ("auto", "messages", "chatml", "llama3", "mistral", "plain", "custom")
+
+# What the tavern bell can be set to, in minutes (roadmap 40). A fixed set
+# rather than a free number: the whole point is a rhythm you stop noticing
+# you chose, and a box accepting 7 invites fiddling with it instead. 0 is off
+# and is not listed — that is the toggle beside it, not a duration.
+BELL_CHOICES = (15, 30, 45, 60)
 # Whether a backend that has a reasoning switch should use it, in the order the
 # three buttons sit in. "auto" sends nothing and leaves the decision to the
 # model's own template, which is the right default now that a reply which never
@@ -592,6 +598,13 @@ class Settings:
     search_key: str = ""
     search_results: int = 4
 
+    # The tavern bell (roadmap 40). Rings after each stretch of *active*
+    # time in the app — the same heartbeat the time counters are made of, so
+    # a phone face-down on the table never rings. 0 is off; anything else is
+    # one of BELL_CHOICES. Minutes rather than seconds because that is the
+    # only unit the setting is ever offered in.
+    tavern_bell_minutes: int = 0
+
     # Talking avatar (AVATAR-VIDEO-CONTRACT.md). No bundled provider, same
     # reasoning as search above: a lip-sync render needs a real GPU, which is
     # never this phone, so this is a URL you point at a service you run
@@ -964,6 +977,20 @@ def build_settings(payload: dict[str, Any], current: Settings) -> Settings:
     settings.reply_notifications = bool(
         payload.get("reply_notifications", current.reply_notifications)
     )
+    # Off, or one of the four offered lengths (§ BELL_CHOICES). Anything else
+    # is refused rather than rounded to the nearest one: a value that is not
+    # on the dial did not come from the dial, and quietly turning it into a
+    # neighbour would hide whatever sent it.
+    bell = payload.get("tavern_bell_minutes", current.tavern_bell_minutes)
+    try:
+        bell = int(bell)
+    except (TypeError, ValueError):
+        raise SettingsError("tavern_bell_minutes must be a whole number") from None
+    if bell and bell not in BELL_CHOICES:
+        raise SettingsError(
+            f"tavern_bell_minutes must be 0 or one of {', '.join(map(str, BELL_CHOICES))}"
+        )
+    settings.tavern_bell_minutes = bell
     # vapid_* and push_subscriptions are never accepted from a payload — they
     # are server-managed state (§ ensure_vapid_keys, POST /api/push/subscribe),
     # not something the Settings form ever has a field for. Carried forward

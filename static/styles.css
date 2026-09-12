@@ -2179,6 +2179,21 @@ body {
 .chat-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-when { color: var(--muted); font-size: 11px; flex: none; }
 .chat-empty { color: var(--muted); font-size: 12px; padding: 8px; }
+/* The head of a character's own history: what every row below it adds up to
+   (roadmap 40). Reads as a caption rather than as another chat — same muted
+   colour as .chat-when, and a rule under it so the list proper starts
+   somewhere visible. */
+.chat-time-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 8px;
+  margin-bottom: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  border-bottom: 1px solid var(--line);
+}
+.chat-time-summary .icon-sm { flex: none; width: 13px; height: 13px; }
 .chat-group-badge { flex: none; display: inline-flex; color: var(--muted); }
 .chat-group-badge .icon-btn-glyph { width: 13px; height: 13px; }
 

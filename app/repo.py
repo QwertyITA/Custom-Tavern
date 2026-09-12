@@ -64,6 +64,9 @@ def list_characters(db: Database) -> list[dict]:
         row["character_id"]: row["n"]
         for row in db.query("SELECT character_id, COUNT(*) AS n FROM chats GROUP BY character_id")
     }
+    # Same reasoning as the counts above: one grouped query here, or one more
+    # round trip per row on a phone (roadmap 40).
+    times = character_time(db)
     out: list[dict] = []
     # Starred first, then by name. Not by recency: a roster that reorders
     # itself as you use it is one you have to re-read every time.
@@ -100,6 +103,10 @@ def list_characters(db: Database) -> list[dict]:
                 # instead of a generic toast, without a second round trip.
                 "reactions": card.get("reactions") if isinstance(card.get("reactions"), dict) else {},
                 "chats": counts.get(row["id"], 0),
+                # Total, sittings and the average sitting (§ _stat). Zeroes
+                # rather than absent, so the roster never has to ask whether
+                # the key is there before drawing a row.
+                "time": times.get(row["id"], _stat(0, 0)),
                 "favourite": bool(row["favourite"]),
                 "vaulted": bool(card.get("vaulted")),
             }
@@ -329,6 +336,9 @@ def list_chats(db: Database, character_id: str | None = None) -> list[dict]:
             f"SELECT c.id, c.character_id, c.title, c.created_at, c.updated_at, {member_ids_sql} "
             "FROM chats c ORDER BY c.updated_at DESC"
         )
+    # One grouped query for the whole list, for the same reason the member
+    # ids are gathered in the SELECT above rather than per row (roadmap 40).
+    times = chat_time(db)
     chats = []
     for row in rows:
         chat = dict(row)
@@ -338,6 +348,7 @@ def list_chats(db: Database, character_id: str | None = None) -> list[dict]:
         # groups.is_group uses, restated here so a list of chats does not
         # cost one query per row to know which of them are group chats.
         chat["is_group"] = len(chat["member_ids"]) > 1
+        chat["time"] = times.get(chat["id"], _stat(0, 0))
         chats.append(chat)
     return chats
 
@@ -950,3 +961,94 @@ def search_chats(db: Database, query: str, limit: int = 40) -> list[dict]:
         {"needle": needle, "limit": limit},
     )
     return [dict(row) for row in rows]
+
+
+# ------------------------------------------------------- time in chat (§40)
+
+# How long a gap between two heartbeats still counts as the same sitting.
+# Comfortably more than the client's own beat interval, so a slow request or a
+# missed beat extends the session it belongs to rather than splitting it in
+# two; comfortably less than the client's idle cutoff, so a real absence
+# always lands as a new session and the gap itself is never inside one.
+SESSION_GAP = 90.0
+
+
+def mark_active(db: Database, chat_id: str, at: float | None = None) -> None:
+    """Record that someone is, right now, actually in this chat.
+
+    Called from the client's heartbeat, which only fires while the page is
+    visible *and* something has been touched recently (§ app.js, markActive) —
+    so every one of these is a confirmed-present moment rather than an open
+    tab. The accounting is all here: extend the sitting this beat belongs to,
+    or open a new one when the last beat is too old to be the same sitting.
+
+    Never moves last_seen_at backwards. Two devices in the same chat, or a
+    retried request, would otherwise be able to shorten a session by landing
+    out of order.
+    """
+    stamp = now() if at is None else float(at)
+
+    def _mark(conn: sqlite3.Connection) -> None:
+        row = conn.execute(
+            "SELECT id, last_seen_at FROM chat_sessions WHERE chat_id=? "
+            "ORDER BY last_seen_at DESC LIMIT 1",
+            (chat_id,),
+        ).fetchone()
+        if row is not None and stamp - row["last_seen_at"] <= SESSION_GAP:
+            conn.execute(
+                "UPDATE chat_sessions SET last_seen_at=? WHERE id=? AND last_seen_at<?",
+                (stamp, row["id"], stamp),
+            )
+            return
+        conn.execute(
+            "INSERT INTO chat_sessions(id, chat_id, started_at, last_seen_at) VALUES(?,?,?,?)",
+            (new_id(), chat_id, stamp, stamp),
+        )
+
+    db.write_sync(_mark)
+
+
+def _stat(seconds: float, sessions: int) -> dict:
+    """The same three numbers everywhere they are reported. `average` is per
+    sitting rather than per day or per message: "how long do I usually stay"
+    is the question the number answers."""
+    seconds = max(0.0, float(seconds or 0.0))
+    sessions = int(sessions or 0)
+    return {
+        "seconds": round(seconds, 1),
+        "sessions": sessions,
+        "average": round(seconds / sessions, 1) if sessions else 0.0,
+    }
+
+
+def chat_time(db: Database) -> dict[str, dict]:
+    """Time per chat, keyed by chat id. Chats nobody has sat in are absent
+    rather than present with zeroes — the caller defaults them, and a roster
+    of untouched chats should not pay for rows that say nothing."""
+    return {
+        row["chat_id"]: _stat(row["seconds"], row["sessions"])
+        for row in db.query(
+            "SELECT chat_id, SUM(last_seen_at - started_at) AS seconds, "
+            "COUNT(*) AS sessions FROM chat_sessions GROUP BY chat_id"
+        )
+    }
+
+
+def character_time(db: Database) -> dict[str, dict]:
+    """Time per character, keyed by character id — every chat they are a
+    member of, not only the ones started from them (§ list_chats, same
+    reasoning). A group chat therefore counts in full for each member: an
+    hour spent with three characters in the room is an hour spent with each
+    of them, and splitting it three ways would answer a question nobody
+    asked.
+    """
+    return {
+        row["character_id"]: _stat(row["seconds"], row["sessions"])
+        for row in db.query(
+            "SELECT m.character_id AS character_id, "
+            "       SUM(s.last_seen_at - s.started_at) AS seconds, "
+            "       COUNT(*) AS sessions "
+            "FROM chat_sessions s JOIN chat_members m ON m.chat_id = s.chat_id "
+            "GROUP BY m.character_id"
+        )
+    }

@@ -257,21 +257,53 @@ STscript (26).
       pattern has no way to tell "play something" from "listen to what I
       just put on" apart, so this checks the one thing that actually
       does: whether something is already in play.
-- [ ] **40. Time-in-chat timer, per character.** Tracks how long the user has
+- [x] **40. Time-in-chat timer, per character.** Tracks how long the user has
       actually been engaged with a character, not just how long the tab has
-      sat open. Counts while active, then holds for a 5-minute window from
-      the last interaction before it stops — scrolling the chat, sending a
-      message, regenerating and deleting a message all count as an
-      interaction and restart the window, so a phone left open on the chat
-      does not run the clock indefinitely. Open questions before this is
-      buildable: where the accumulated time is kept and shown (per
-      character? per chat, rolled up to the character?), whether it survives
-      across sessions and devices, and how to keep the clock itself cheap —
-      a live ticking counter is the wrong shape for something that only
-      needs to know "was there activity in the last 5 minutes"; more likely
-      a single last-interaction timestamp bumped on each interaction, with
-      elapsed time computed from it on read rather than polled continuously.
-      Recorded on request; not started, not designed.
+      sat open. The open questions, answered: time is kept **per chat** and
+      rolled up to the character through `chat_members`, so a group chat
+      counts in full for each of its members (an hour with three of them is
+      an hour with each, and the roster already lists a group chat in every
+      member's history for the same reason); it survives across sessions and
+      devices because it lives in the database rather than in a tab; and the
+      clock is not a clock at all but a table of *sittings*
+      (`chat_sessions`, migration 18), each worth its last heartbeat minus
+      its first. Nothing anywhere reads the wall clock to decide what a
+      sitting is worth, which is the one property that stops an abandoned
+      tab accruing until somebody notices — the most an interrupted sitting
+      can cost is the single interval between its final two beats, so the
+      total under-counts slightly and can never over-count.
+
+      A beat goes out every 20s, and only while the page is **visible** and
+      something has been touched in the last **two minutes**. Both halves
+      matter and neither is redundant: visibility is what stops a phone in a
+      pocket, the idle window is what stops one face-up on a desk, and
+      leaving a tab open satisfies neither. The window exists at all because
+      reading is engagement — a long reply takes a minute to read, and not
+      touching anything while you read it is not absence. Tapping, typing,
+      scrolling, dragging and returning to the tab all count as touching;
+      a narrower list would have penalised whichever way of using the app
+      was left off it. A gap wider than 90s is not inside a sitting, so an
+      absence is never counted *and* splits the sitting in two, which is
+      what makes the average honest. The client never sends a timestamp —
+      one that could name the time could name an afternoon of it.
+
+      Shown where the question gets asked: total beside a character's chat
+      count in the roster, each chat's own total on its row in that
+      character's history, and total / sittings / average at the head of
+      that list. No endpoint of its own — the two lists the roster already
+      fetches carry it.
+- [x] **40b. The tavern bell.** Optionally rings every 15, 30, 45 or 60
+      minutes (Settings → Time in the tavern). Counts the same *active*
+      time the counters above are made of, not wall-clock time, so it never
+      rings at a sleeping phone. Synthesised through the Web Audio API
+      rather than shipped as an audio file: a struck bell is two decaying
+      sine partials, which is a dozen lines against an asset to ship,
+      decode and keep in the repo. Rings once when you pick a length, since
+      waiting a quarter of an hour to discover whether the sound works at
+      all — on a phone that may have muted the tab — is not a thing to ask
+      of anyone. Counts rings rather than running a timer, so changing the
+      length mid-sitting cannot strand one and the same stretch can never
+      ring twice.
 - [x] **41. Message reactions.** React to one of the character's own
       replies with one of six fixed emoji (heart/laugh/cry/wow/angry/
       thumbs-up) from the message wheel — the `soon: true` placeholder

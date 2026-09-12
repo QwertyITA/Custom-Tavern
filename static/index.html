@@ -124,6 +124,15 @@
       <circle cx="12" cy="12" r="8.4"/>
       <path d="M12 7.2V12l3.2 2"/>
     </g>
+    <!-- Time *accumulated*, which is a different reading from either clock
+         already here: i-time is what hour it is in the story, i-history is
+         "what happened before". An hourglass is the one shape that means a
+         quantity of time rather than a point in it (roadmap 40). -->
+    <g id="i-hourglass">
+      <path d="M7 3.6h10M7 20.4h10"/>
+      <path d="M8 3.6v3.1c0 1.9 4 3.7 4 5.3s-4 3.4-4 5.3v3.1"/>
+      <path d="M16 3.6v3.1c0 1.9-4 3.7-4 5.3s4 3.4 4 5.3v3.1"/>
+    </g>
     <g id="i-refresh">
       <path d="M20 12a8 8 0 1 1-2.4-5.7"/>
       <path d="M20 4.2V9h-4.8"/>
@@ -2959,6 +2968,29 @@
           </div>
         </div>
 
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-hourglass"/></svg>Time in the tavern</h3>
+        <!-- Rings on *active* time, not wall-clock time: the same heartbeat
+             the per-character counters are made of (§ app.js, presenceBeat),
+             so a phone left face-down never rings and a bell always means
+             "you have been here this long" rather than "this long has
+             passed somewhere". -->
+        <label class="row">
+          <span>Ring a bell every</span>
+          <select @change="setBellMinutes($event.target.value)">
+            <option value="0" :selected="!Number(settings.tavern_bell_minutes)">Off</option>
+            <template x-for="m in [15, 30, 45, 60]" :key="m">
+              <option :value="m" :selected="Number(settings.tavern_bell_minutes) === m"
+                      x-text="`${m} minutes`"></option>
+            </template>
+          </select>
+        </label>
+        <p class="kind-note">
+          Counts only time you are actually here — the clock stops while the
+          app is in the background, and after two minutes without a tap,
+          scroll or keystroke. Choosing a length rings it once, so you know
+          what to listen for.
+        </p>
+
         <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-edit"/></svg>Chat naming</h3>
         <label class="toggle" x-show="chatRenamePass()" x-cloak>
           <!-- x-show only hides this row — it does not stop Alpine
@@ -3478,7 +3510,16 @@
                     <svg class="icon-sm icon-vault" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-lock"/></svg>
                   </span>
                 </span>
-                <span class="char-meta" x-text="`${c.chats} chat${c.chats === 1 ? '' : 's'}`"></span>
+                <!-- Time actually spent with this character, beside the
+                     chat count it belongs next to (roadmap 40). Only once
+                     there is any: a character you have never sat with reads
+                     "2 chats", not "2 chats · 0s". -->
+                <span class="char-meta">
+                  <span x-text="`${c.chats} chat${c.chats === 1 ? '' : 's'}`"></span>
+                  <span x-show="c.time && c.time.sessions" x-cloak
+                        x-text="` · ${timeLabel(c.time.seconds)}`"
+                        :title="`Total time spent with ${c.name}`"></span>
+                </span>
               </div>
               <!-- One corner column, not a corner plus a row of its own
                    below the head: star on top since a mark of favour reads
@@ -3552,6 +3593,14 @@
             </div>
 
             <ul class="chat-list" x-show="historyFor === c.id" x-cloak>
+              <!-- Total, sittings and the average sitting, over every chat
+                   this character is in (roadmap 40). At the head of the list
+                   rather than on the row above it: the per-chat breakdown is
+                   the list itself, and this is what it adds up to. -->
+              <li class="chat-time-summary" x-show="timeSummary(c)" x-cloak>
+                <svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-hourglass"/></svg>
+                <span x-text="timeSummary(c)"></span>
+              </li>
               <template x-for="chat in chatsFor(c.id)" :key="chat.id">
                 <li :class="{ active: chat.id === chatId }">
                   <div class="chat-row">
@@ -3566,7 +3615,12 @@
                         <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-people"/></svg>
                       </span>
                       <span class="chat-title" x-text="chat.title || 'untitled'"></span>
-                      <span class="chat-when" x-text="whenLabel(chat)"></span>
+                      <span class="chat-when">
+                        <span x-text="whenLabel(chat)"></span>
+                        <span x-show="chat.time && chat.time.sessions" x-cloak
+                              x-text="` · ${timeLabel(chat.time.seconds)}`"
+                              :title="chat.time ? `${timeLabel(chat.time.seconds)} over ${chat.time.sessions} sitting${chat.time.sessions === 1 ? '' : 's'}` : ''"></span>
+                      </span>
                     </button>
                     <input class="chat-rename" x-show="renamingChat === chat.id" x-cloak
                            :value="chat.title" @keydown.enter="saveChatName(chat, $event.target.value)"

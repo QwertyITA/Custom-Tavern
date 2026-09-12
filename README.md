@@ -361,6 +361,44 @@ There are no tags and no folders, on purpose. One flag answers the question
 anyone actually has of a roster this size ("which of these do I use"), and a
 taxonomy for a dozen characters is more work to maintain than to scroll past.
 
+### How long you've spent
+
+Every character row shows the time you have actually spent with them, beside
+its chat count. Open *Recent chats* under a row and the list carries the same
+number per chat, with a line over it totalling all of them: how long
+altogether, how many separate sittings, and how long the average one ran.
+
+"Actually spent" is the whole point, so the clock is fussier than an open tab.
+It only runs while the app is in front of you *and* something has been touched
+in the last two minutes — a tap, a keystroke, a scroll, a drag, or coming back
+to the tab. Backgrounding the app stops it immediately, because a phone in a
+pocket is not a conversation.
+
+The two-minute window is there because reading counts. A long reply takes a
+minute to read and not touching anything while you read it is engagement, not
+absence. Walking away instead costs you at most those two minutes, and a gap
+longer than that is not recorded at all — it also ends the sitting, so the
+next thing you do starts a new one and the average stays honest.
+
+Nothing is ever credited past the last moment you were confirmed to be there,
+so a chat left open on a locked phone, a killed tab, or Termux swapped out in
+the night all stop the clock where they stopped you. The totals lean slightly
+low for that reason. They will never lean high.
+
+Group chats count in full for everyone in them: an hour with three characters
+in the room is an hour with each of them, not twenty minutes apiece.
+
+### The bell
+
+*Settings → Time in the tavern.* Off by default; set it to 15, 30, 45 or 60
+minutes and it rings a soft bell each time that much time has gone by.
+
+It counts the same active time as the counters above, not the clock on the
+wall — so it will not ring at a phone you left face-down, and an hour of
+bell means an hour you were actually here. Picking a length rings it once
+straight away, so you know what you are listening for and whether your phone
+is going to let you hear it at all.
+
 ### Locked
 
 The lock icon next to the panel's close button. Not encryption — a display

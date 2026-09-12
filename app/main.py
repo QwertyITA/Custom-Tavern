@@ -2565,6 +2565,28 @@ async def pass_runs(chat_id: str, turn: int | None = None, limit: int = 60) -> l
     return [dict(row) for row in rows]
 
 
+@app.post("/api/chats/{chat_id}/active")
+async def mark_chat_active(chat_id: str) -> dict:
+    """The heartbeat behind "how long have I spent with this character"
+    (roadmap 40).
+
+    Deliberately thin, and deliberately trusting nothing the client says about
+    *when*: the time is stamped here. A client that could send its own
+    timestamps could also send a very old one and a very new one and claim the
+    afternoon. All it gets to say is "I am here now", and it only says that
+    while the page is visible and something has been touched recently
+    (§ app.js, markActive) — every other check lives in repo.mark_active.
+
+    404s rather than silently accepting a chat that no longer exists, so a
+    stale tab beating against a deleted chat does not quietly accrue rows.
+    """
+    db = get_db()
+    if repo.get_chat(db, chat_id) is None:
+        raise HTTPException(404, "chat not found")
+    repo.mark_active(db, chat_id)
+    return {"ok": True}
+
+
 @app.get("/api/chats/{chat_id}/cost")
 async def cost(chat_id: str) -> dict:
     """Proves the gating works: spend per pass and per turn (§14)."""
