@@ -622,6 +622,76 @@ def test_horde_never_raises_the_request_to_fill_a_bigger_worker(monkeypatch):
     assert _submitted_context(calls) == 2048
 
 
+def test_an_absurd_context_lands_on_the_best_worker_not_on_nothing(monkeypatch):
+    """"If I put context to 9999999999, does it go to the highest possible?"
+    — yes, and by two separate floors: settings storage caps what can be
+    saved at all, and the submitted job is then cut to an actual worker.
+    The whole chain, from the number as typed to the number on the wire."""
+    from app import config as config_module
+    from app.providers import horde as horde_module
+
+    monkeypatch.setattr(horde_module, "POLL_INTERVAL", 0.01)
+    # 1. What a settings save does with it: clamped, never rejected.
+    stored = config_module._positive(9999999999, 0, low=0, high=1_000_000)
+    assert stored == 1_000_000
+
+    calls: list[dict] = []
+    workers = [
+        {"name": "w1", "models": ["koboldcpp/x"], "max_context_length": 8192,
+         "max_length": 512},
+    ]
+    # 2. and 3. What build_payload makes of it (Horde's own ceiling) and what
+    # generate finally submits (the worker's real window).
+    provider = horde_wired(_worker_handler(workers, calls), timeout=5.0, context=stored)
+    assert provider.build_payload(_horde_request())["params"]["max_context_length"] == (
+        LIMITS["max_context_length"][1]
+    )
+    assert sync(provider.generate(_horde_request())).text == "hi there"
+    assert _submitted_context(calls) == 8192
+
+
+def test_an_absurd_context_falls_back_to_hordes_ceiling_with_no_pool_to_read(monkeypatch):
+    """Same number, with nothing readable about the pool: the highest Horde
+    itself permits, which is the highest possible answer available."""
+    from app.providers import horde as horde_module
+
+    monkeypatch.setattr(horde_module, "POLL_INTERVAL", 0.01)
+    calls: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/status/workers"):
+            return httpx.Response(404, json={})
+        if request.url.path.endswith("/status/models"):
+            return httpx.Response(200, json=[{"name": "koboldcpp/x"}])
+        if request.url.path.endswith("/generate/text/async"):
+            calls.append(json.loads(request.content))
+            return httpx.Response(202, json={"id": "job1"})
+        return httpx.Response(
+            200,
+            json={
+                "done": True, "faulted": False,
+                "generations": [{"text": "hi there", "model": "m"}],
+            },
+        )
+
+    provider = horde_wired(handler, timeout=5.0, context=1_000_000)
+    sync(provider.generate(_horde_request()))
+    assert _submitted_context(calls) == LIMITS["max_context_length"][1] == 32000
+
+
+def test_an_absurd_context_never_reaches_the_prompt_assembler_either(monkeypatch):
+    """The other half of it: context_limit feeds the prompt budget (§
+    PassScheduler._fitted), and it must not hand 1,000,000 to the assembler
+    just because that is what was typed in."""
+    calls: list[dict] = []
+    workers = [
+        {"name": "w1", "models": ["koboldcpp/x"], "max_context_length": 8192,
+         "max_length": 512},
+    ]
+    provider = horde_wired(_worker_handler(workers, calls), timeout=5.0, context=1_000_000)
+    assert sync(provider.context_limit()) == 8192
+
+
 def test_horde_leaves_the_request_alone_when_no_worker_serves_the_model(monkeypatch):
     """Nothing readable about the pool for *these* models means nothing to
     clamp against — the request goes out exactly as configured rather than
