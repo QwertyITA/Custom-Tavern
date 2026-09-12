@@ -417,31 +417,15 @@ def _horde_request() -> GenRequest:
     return GenRequest(messages=[{"role": "user", "content": "hi"}])
 
 
-def test_horde_fails_fast_when_no_worker_can_ever_fulfil_the_job(monkeypatch):
-    """The exact bug: Horde's own first poll already says nothing online can
-    fulfil this — a model offline, or a context too large for any worker —
-    yet the old loop just kept sleeping and polling for the rest of the
-    timeout regardless, since nothing ever looked at this field at all."""
-    from app.providers import horde as horde_module
-
-    monkeypatch.setattr(horde_module, "POLL_INTERVAL", 0.01)
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path.endswith("/generate/text/async"):
-            return httpx.Response(202, json={"id": "job1"})
-        return httpx.Response(
-            200, json={"done": False, "faulted": False, "is_possible": False}
-        )
-
-    provider = horde_wired(handler, timeout=5.0)
-    with pytest.raises(ProviderError, match="no worker online"):
-        sync(provider.generate(_horde_request()))
-
-
-def test_horde_keeps_polling_a_job_thats_merely_queued(monkeypatch):
-    """is_possible only ever short-circuits an *impossible* job — the
-    ordinary "still in the queue" case (is_possible true) polls through to
-    completion exactly as it always did."""
+def test_horde_ignores_is_possible_and_keeps_polling(monkeypatch):
+    """Tried once as a fast-fail, reverted the same day: `is_possible` is a
+    snapshot of who happens to be online *this instant*, not a verdict that
+    holds for the whole wait — Horde's pool is volunteers cycling on and
+    off, and a `false` reading routinely flips to a real answer within the
+    timeout. Reported live: unchanged settings that had been working
+    started failing immediately, every time, the moment this field was
+    trusted at all. A job that answers a poll or two after reporting
+    `is_possible: false` must complete normally, not raise."""
     from app.providers import horde as horde_module
 
     monkeypatch.setattr(horde_module, "POLL_INTERVAL", 0.01)
@@ -453,7 +437,7 @@ def test_horde_keeps_polling_a_job_thats_merely_queued(monkeypatch):
         calls["n"] += 1
         if calls["n"] < 3:
             return httpx.Response(
-                200, json={"done": False, "faulted": False, "is_possible": True}
+                200, json={"done": False, "faulted": False, "is_possible": False}
             )
         return httpx.Response(
             200,
@@ -470,9 +454,10 @@ def test_horde_keeps_polling_a_job_thats_merely_queued(monkeypatch):
 
 
 def test_horde_still_times_out_when_nothing_ever_finishes(monkeypatch):
-    """The deadline itself is unaffected by the is_possible check — a job
-    that stays merely "queued" forever still gives up after the configured
-    timeout, same as before."""
+    """A job that never actually completes still gives up after the
+    configured timeout — is_possible being ignored (above) does not mean
+    a genuinely hopeless job waits forever, only that it waits the same
+    plain timeout everything else does."""
     from app.providers import horde as horde_module
 
     monkeypatch.setattr(horde_module, "POLL_INTERVAL", 0.01)
@@ -481,7 +466,7 @@ def test_horde_still_times_out_when_nothing_ever_finishes(monkeypatch):
         if request.url.path.endswith("/generate/text/async"):
             return httpx.Response(202, json={"id": "job1"})
         return httpx.Response(
-            200, json={"done": False, "faulted": False, "is_possible": True}
+            200, json={"done": False, "faulted": False, "is_possible": False}
         )
 
     provider = horde_wired(handler, timeout=0.05)

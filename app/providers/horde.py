@@ -336,19 +336,20 @@ class HordeProvider(Provider):
                 raise ProviderError(f"horde: poll returned unreadable data: {exc}") from exc
             if status.get("faulted"):
                 raise ProviderError("horde: job faulted")
-            # Horde's own verdict that nothing online can ever fulfil this —
-            # wrong model, a context too large for any worker, or the whole
-            # kind offline — not merely slow to pick up. Reported live: the
-            # backend "isn't working", stuck on the typing cue for the whole
-            # timeout, when Horde itself already knew within one poll that no
-            # worker would ever answer. Waiting out the rest of the deadline
-            # for a job Horde itself has already written off is the bug.
-            if status.get("is_possible") is False:
-                raise ProviderError(
-                    "horde: no worker online can fulfil this request right now "
-                    "— check the model picked on the Backends tab, or try "
-                    "again once one comes online"
-                )
+            # NOT `is_possible` here, on purpose, even though Horde reports
+            # it. Tried once, reverted the same day: it reads as "nothing
+            # online can ever serve this" but is really just a snapshot of
+            # who happens to be connected *right now* — Horde's pool is
+            # volunteer workers cycling on and off continuously, so a model
+            # with nobody online this second routinely has someone pick it
+            # up a minute later, well inside the timeout below. Failing the
+            # instant one poll came back false broke exactly the setups this
+            # was meant to help: reported live, unchanged settings that had
+            # been working, now failing immediately every time, because the
+            # snapshot at that one poll happened to catch a quiet moment.
+            # Whatever genuinely never resolves still ends in the plain
+            # timeout below — slower, but never wrong the way a false
+            # "impossible" is.
             if status.get("done"):
                 break
 
