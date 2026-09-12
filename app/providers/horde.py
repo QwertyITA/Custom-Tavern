@@ -304,22 +304,51 @@ class HordeProvider(Provider):
             # Horde says exactly which field it rejected, in the body. Without
             # it the error is just "400 Bad Request", which is unactionable.
             raise ProviderError(f"horde: submit rejected: {_reason(exc.response)}") from exc
-        except (httpx.HTTPError, KeyError) as exc:
+        except (httpx.HTTPError, KeyError, ValueError) as exc:
             raise ProviderError(f"horde: submit failed: {exc}") from exc
 
         deadline = asyncio.get_running_loop().time() + self.config.timeout
         while True:
-            if asyncio.get_running_loop().time() > deadline:
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
                 raise ProviderError("horde: timed out waiting for a worker")
-            await asyncio.sleep(POLL_INTERVAL)
+            await asyncio.sleep(min(POLL_INTERVAL, remaining))
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                raise ProviderError("horde: timed out waiting for a worker")
             try:
-                check = await client.get(f"/generate/text/status/{job_id}")
+                # Bounded to whatever is left of the deadline above, not the
+                # full configured timeout again on every single poll — reported
+                # live as a "stuck" backend: one hung poll request, on its own
+                # full timeout, could run past the deadline that was supposed
+                # to be the whole wait, and only the *next* iteration ever
+                # re-checked it. A floor under it so the last poll before the
+                # deadline is not cut down to something too short to complete
+                # at all.
+                check = await client.get(
+                    f"/generate/text/status/{job_id}", timeout=max(remaining, 5.0)
+                )
                 check.raise_for_status()
                 status = check.json()
             except httpx.HTTPError as exc:
                 raise ProviderError(f"horde: poll failed: {exc}") from exc
+            except ValueError as exc:
+                raise ProviderError(f"horde: poll returned unreadable data: {exc}") from exc
             if status.get("faulted"):
                 raise ProviderError("horde: job faulted")
+            # Horde's own verdict that nothing online can ever fulfil this —
+            # wrong model, a context too large for any worker, or the whole
+            # kind offline — not merely slow to pick up. Reported live: the
+            # backend "isn't working", stuck on the typing cue for the whole
+            # timeout, when Horde itself already knew within one poll that no
+            # worker would ever answer. Waiting out the rest of the deadline
+            # for a job Horde itself has already written off is the bug.
+            if status.get("is_possible") is False:
+                raise ProviderError(
+                    "horde: no worker online can fulfil this request right now "
+                    "— check the model picked on the Backends tab, or try "
+                    "again once one comes online"
+                )
             if status.get("done"):
                 break
 

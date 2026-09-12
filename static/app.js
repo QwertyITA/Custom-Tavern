@@ -6703,6 +6703,23 @@ function tavern() {
               // thrown-request branch below covers the rarer case where the
               // tavern's own server could not be reached either.
               this.markSignalLost("blocking", event.error);
+              // The turn is over — nothing is still coming for the gate's own
+              // timers (§ realistic above) to reveal, so they must not be left
+              // to run their course. Reported live: a backend that fails fast
+              // (Horde with no worker for the model, or any quick rejection)
+              // sent this error well inside the silence window, and the timers
+              // — never cancelled, since only an error case ends the stream
+              // and nothing here used to touch them — went on to open the
+              // typing cue *after* the failure was already known and hold it
+              // up for the rest of their course, reading as the reply being
+              // stuck rather than already failed. Cancelling the pending timer
+              // and resolving the gate right here means the one still waiting
+              // on it (just below, once this loop ends) proceeds immediately
+              // into `finally` instead of waiting out a pace that has nothing
+              // left to pace.
+              clearTimeout(realisticTimer);
+              gateOpen = true;
+              if (gateOpenResolve) gateOpenResolve();
               break;
 
             default:

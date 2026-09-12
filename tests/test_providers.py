@@ -394,6 +394,130 @@ def test_an_explicit_models_list_wins_over_the_model_field():
     assert provider.build_payload(GenRequest())["models"] == ["a", "b"]
 
 
+# ---------------------------------------------- horde: the submit/poll loop
+#
+# Reported live: the backend "isn't working anymore, stuck in typing" — the
+# poll loop had no way to tell "merely queued" from "no worker will ever
+# answer this" apart, so both looked the same: silence for the whole
+# configured timeout.
+
+
+def horde_wired(handler, **overrides):
+    """A horde provider whose HTTP goes to `handler` instead of a machine —
+    same shape as ollama's own `wired` above, one call bypassing the lazy
+    `client()` construction with a mocked transport."""
+    provider = horde_provider(model="koboldcpp/x", **overrides)
+    provider._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="http://horde.test"
+    )
+    return provider
+
+
+def _horde_request() -> GenRequest:
+    return GenRequest(messages=[{"role": "user", "content": "hi"}])
+
+
+def test_horde_fails_fast_when_no_worker_can_ever_fulfil_the_job(monkeypatch):
+    """The exact bug: Horde's own first poll already says nothing online can
+    fulfil this — a model offline, or a context too large for any worker —
+    yet the old loop just kept sleeping and polling for the rest of the
+    timeout regardless, since nothing ever looked at this field at all."""
+    from app.providers import horde as horde_module
+
+    monkeypatch.setattr(horde_module, "POLL_INTERVAL", 0.01)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/generate/text/async"):
+            return httpx.Response(202, json={"id": "job1"})
+        return httpx.Response(
+            200, json={"done": False, "faulted": False, "is_possible": False}
+        )
+
+    provider = horde_wired(handler, timeout=5.0)
+    with pytest.raises(ProviderError, match="no worker online"):
+        sync(provider.generate(_horde_request()))
+
+
+def test_horde_keeps_polling_a_job_thats_merely_queued(monkeypatch):
+    """is_possible only ever short-circuits an *impossible* job — the
+    ordinary "still in the queue" case (is_possible true) polls through to
+    completion exactly as it always did."""
+    from app.providers import horde as horde_module
+
+    monkeypatch.setattr(horde_module, "POLL_INTERVAL", 0.01)
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/generate/text/async"):
+            return httpx.Response(202, json={"id": "job1"})
+        calls["n"] += 1
+        if calls["n"] < 3:
+            return httpx.Response(
+                200, json={"done": False, "faulted": False, "is_possible": True}
+            )
+        return httpx.Response(
+            200,
+            json={
+                "done": True, "faulted": False,
+                "generations": [{"text": "hi there", "model": "m"}],
+            },
+        )
+
+    provider = horde_wired(handler, timeout=5.0)
+    result = sync(provider.generate(_horde_request()))
+    assert result.text == "hi there"
+    assert calls["n"] == 3
+
+
+def test_horde_still_times_out_when_nothing_ever_finishes(monkeypatch):
+    """The deadline itself is unaffected by the is_possible check — a job
+    that stays merely "queued" forever still gives up after the configured
+    timeout, same as before."""
+    from app.providers import horde as horde_module
+
+    monkeypatch.setattr(horde_module, "POLL_INTERVAL", 0.01)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/generate/text/async"):
+            return httpx.Response(202, json={"id": "job1"})
+        return httpx.Response(
+            200, json={"done": False, "faulted": False, "is_possible": True}
+        )
+
+    provider = horde_wired(handler, timeout=0.05)
+    with pytest.raises(ProviderError, match="timed out"):
+        sync(provider.generate(_horde_request()))
+
+
+def test_horde_wraps_unreadable_json_on_submit(monkeypatch):
+    """A submit response that is not valid JSON at all used to escape as a
+    bare ValueError — not one of the types _run_reply's own except clause
+    knows about (scheduler.py), so it would have skipped that handler
+    entirely instead of turning into a clean "reply failed" error."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(202, content=b"not json")
+
+    provider = horde_wired(handler)
+    with pytest.raises(ProviderError, match="submit failed"):
+        sync(provider.generate(_horde_request()))
+
+
+def test_horde_wraps_unreadable_json_on_poll(monkeypatch):
+    from app.providers import horde as horde_module
+
+    monkeypatch.setattr(horde_module, "POLL_INTERVAL", 0.01)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/generate/text/async"):
+            return httpx.Response(202, json={"id": "job1"})
+        return httpx.Response(200, content=b"not json")
+
+    provider = horde_wired(handler, timeout=5.0)
+    with pytest.raises(ProviderError, match="poll returned unreadable data"):
+        sync(provider.generate(_horde_request()))
+
+
 # --------------------------------------------------- ollama: reasoning models
 #
 # Reported from a real run: a thinking model on Ollama answered every turn with
