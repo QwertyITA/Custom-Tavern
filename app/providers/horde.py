@@ -295,6 +295,29 @@ class HordeProvider(Provider):
                 "tab; Horde does not accept a job with none named"
             )
         payload = self.build_payload(request)
+        # Clamped down to what a currently-connected worker for these models
+        # can actually serve, when the configured (or default) context asks
+        # for more than that. Horde matches workers against the requested
+        # `max_context_length` itself, not against how much of it the prompt
+        # actually uses — a ceiling set above every online worker's own
+        # window means Horde can never match a worker to the job at all, no
+        # matter how long the timeout runs, which reads as "not working" from
+        # the outside rather than as a settings mismatch. Same probe
+        # `context_limit()` already uses to fit the *prompt* to what a
+        # backend can hold (§ PassScheduler._fitted, scheduler.py) — usually
+        # already warm by the time this runs, so this rarely costs a second
+        # network round trip. Only ever lowers what gets asked for: a smaller
+        # configured value is still honoured as a deliberate choice, and
+        # `_probe_context` itself already falls back to Horde's flat ceiling
+        # with nothing to clamp against when no selected model reports a
+        # context size at all (undocumented field — § _probe_context's own
+        # comment), which leaves this exactly as it was before for that case.
+        available = await self._probe_context()
+        requested = payload["params"]["max_context_length"]
+        if available and available < requested:
+            payload["params"]["max_context_length"] = int(
+                _clamp(available, *LIMITS["max_context_length"])
+            )
         client = self.client()
         try:
             submit = await client.post("/generate/text/async", json=payload)

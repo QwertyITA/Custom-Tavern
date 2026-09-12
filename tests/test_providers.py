@@ -503,6 +503,107 @@ def test_horde_wraps_unreadable_json_on_poll(monkeypatch):
         sync(provider.generate(_horde_request()))
 
 
+# ------------------------------------------- horde: context, clamped to fit
+#
+# "If some settings are too much (context too high), it goes to the maximum
+# available to guarantee functionality" — Horde matches workers against the
+# *requested* max_context_length itself, not against how much of it the
+# prompt actually uses, so a ceiling above every online worker's own window
+# means Horde can never match a worker at all, no matter how long the
+# timeout runs. That reads as "not working" from the outside; it is a
+# settings mismatch this can correct for instead of failing on.
+
+
+def _submitted_context(calls: list[dict]) -> int:
+    return calls[0]["params"]["max_context_length"]
+
+
+def test_horde_clamps_the_submitted_context_down_to_what_a_worker_reports(monkeypatch):
+    from app.providers import horde as horde_module
+
+    monkeypatch.setattr(horde_module, "POLL_INTERVAL", 0.01)
+    calls: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/status/models"):
+            return httpx.Response(
+                200, json=[{"name": "koboldcpp/x", "max_context_length": 4096}]
+            )
+        if request.url.path.endswith("/generate/text/async"):
+            calls.append(json.loads(request.content))
+            return httpx.Response(202, json={"id": "job1"})
+        return httpx.Response(
+            200,
+            json={
+                "done": True, "faulted": False,
+                "generations": [{"text": "hi there", "model": "m"}],
+            },
+        )
+
+    provider = horde_wired(handler, timeout=5.0, context=16000)
+    result = sync(provider.generate(_horde_request()))
+    assert result.text == "hi there"
+    assert _submitted_context(calls) == 4096
+
+
+def test_horde_never_raises_the_submitted_context_above_what_was_configured(monkeypatch):
+    from app.providers import horde as horde_module
+
+    monkeypatch.setattr(horde_module, "POLL_INTERVAL", 0.01)
+    """A smaller configured value is a deliberate choice — the probe only
+    ever lowers, never fills back up to a bigger worker's own window."""
+    calls: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/status/models"):
+            return httpx.Response(
+                200, json=[{"name": "koboldcpp/x", "max_context_length": 32000}]
+            )
+        if request.url.path.endswith("/generate/text/async"):
+            calls.append(json.loads(request.content))
+            return httpx.Response(202, json={"id": "job1"})
+        return httpx.Response(
+            200,
+            json={
+                "done": True, "faulted": False,
+                "generations": [{"text": "hi there", "model": "m"}],
+            },
+        )
+
+    provider = horde_wired(handler, timeout=5.0, context=2048)
+    sync(provider.generate(_horde_request()))
+    assert _submitted_context(calls) == 2048
+
+
+def test_horde_leaves_context_unclamped_when_nothing_is_reported(monkeypatch):
+    from app.providers import horde as horde_module
+
+    monkeypatch.setattr(horde_module, "POLL_INTERVAL", 0.01)
+    """Undocumented field (§ _probe_context's own comment) — when a
+    deployment's /status/models carries none of the common context keys at
+    all, behaviour is exactly what it was before this existed: the
+    configured value goes through untouched."""
+    calls: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/status/models"):
+            return httpx.Response(200, json=[{"name": "koboldcpp/x"}])
+        if request.url.path.endswith("/generate/text/async"):
+            calls.append(json.loads(request.content))
+            return httpx.Response(202, json={"id": "job1"})
+        return httpx.Response(
+            200,
+            json={
+                "done": True, "faulted": False,
+                "generations": [{"text": "hi there", "model": "m"}],
+            },
+        )
+
+    provider = horde_wired(handler, timeout=5.0, context=16000)
+    sync(provider.generate(_horde_request()))
+    assert _submitted_context(calls) == 16000
+
+
 # --------------------------------------------------- ollama: reasoning models
 #
 # Reported from a real run: a thinking model on Ollama answered every turn with
