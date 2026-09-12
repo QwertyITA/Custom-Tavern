@@ -1134,12 +1134,23 @@ function tavern() {
     // itself rather than trusting a flag some re-render might have missed.
     lastTouch: Date.now(),
     afk: false,
-    // Active milliseconds this sitting, and how many bells have already
-    // rung for them. Counting rings rather than tracking a deadline means a
-    // bell can never fire twice for the same stretch, and the setting can
-    // change mid-sitting without stranding a timer that was already running.
-    bellActiveMs: 0,
+    // When this visit started, and how many bells have already rung for it.
+    //
+    // A wall-clock mark rather than a counter of active ticks, and that is
+    // the whole difference: minimising the browser must not stop the bell
+    // (it is a "you have been at this a while" nudge, and a nudge that only
+    // counts foreground seconds never arrives). An accumulator could not
+    // have survived it either way — a backgrounded tab's timers are frozen
+    // on Android, so there is nothing to accumulate *with*. Read the clock
+    // instead and the gap simply closes itself on the way back.
+    //
+    // Counting rings rather than tracking a deadline means the same stretch
+    // can never ring twice, and a length changed mid-visit cannot strand a
+    // timer that was already running.
+    bellSince: Date.now(),
     bellsRung: 0,
+    bellMsg: "",
+    uploadingBell: false,
     draftCharacter: { id: "", name: "" },
     // The alternates are a list on the card and a paragraph-separated textarea
     // in the editor. Held separately so the textarea can be edited freely —
@@ -1397,6 +1408,14 @@ function tavern() {
       // (§ checkChannel). Not awaited: it moves one small light, and nothing
       // else on this screen is waiting to hear about it.
       this.checkChannel();
+      // Before the roster, not after it (roadmap 40). What follows returns
+      // early on an install with no characters yet — which used to mean the
+      // clock and the bell never started at all on a fresh install, and
+      // stayed unstarted until the next reload after making one. Nothing
+      // here needs the roster, and it is never awaited: the clock must not
+      // be able to hold up the first paint, and it has nothing to say until
+      // a beat or two has gone by anyway.
+      this.startPresence();
       try {
         await this.loadCharacters();
         if (!this.characters.length) {
@@ -1416,10 +1435,6 @@ function tavern() {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register("/sw.js").catch(() => {});
       }
-      // Last, and never awaited: the clock should not be able to hold up the
-      // first paint of a chat, and it has nothing to say until a beat or two
-      // has gone by anyway (roadmap 40).
-      this.startPresence();
     },
 
     // ---- presence: time actually spent here (roadmap 40) ----
@@ -1440,7 +1455,12 @@ function tavern() {
       // against — and, the other way, making someone tap once before the
       // clock they can see restarts.
       document.addEventListener("visibilitychange", () => {
-        if (!document.hidden) this.markActive();
+        if (document.hidden) return;
+        this.markActive();
+        // Right here rather than on the next beat: coming back to a bell
+        // that was due while the tab was frozen should sound now, not up to
+        // twenty seconds later (§ checkBell).
+        this.checkBell();
       });
       this._presenceTimer = setInterval(() => this.presenceBeat(), PRESENCE_BEAT_MS);
     },
@@ -1461,11 +1481,13 @@ function tavern() {
     presenceBeat() {
       const present = this.presentNow();
       this.afk = !present;
-      if (!present) return;
-      // The bell counts time in the tavern, not time in a chat, so it ticks
-      // here whether or not one is open (§ ringBell).
-      this.bellActiveMs += PRESENCE_BEAT_MS;
+      // Deliberately in front of the guard, unlike everything below it: the
+      // bell is not part of the presence accounting and does not answer to
+      // it (§ checkBell). The counters below are a claim about attention and
+      // must not count an empty room; the bell is a clock, and a clock that
+      // stopped every time you looked away would never reach the hour.
       this.checkBell();
+      if (!present) return;
       if (!this.chatId) return;
       // Fire and forget: a dropped beat costs this interval and nothing
       // else, and a failed one must never raise a banner over the chat.
@@ -1474,21 +1496,61 @@ function tavern() {
 
     // ---- the tavern bell ----
 
+    // Elapsed is read off the clock, so time spent with the browser
+    // minimised counts like any other — and, on a phone where a
+    // backgrounded tab is frozen outright, is simply caught up on the way
+    // back rather than lost.
+    //
+    // The ring itself still waits for someone to be there to hear it. Not a
+    // rule about *counting* but about *sounding*: a frozen tab cannot play
+    // audio anyway, so the choice is between one ring on return and a
+    // silence that pretends the hour never happened. Coming back to an hour
+    // away is one bell, not four, because `bellsRung` jumps straight to
+    // where the clock already is.
     checkBell() {
       const minutes = Number(this.settings.tavern_bell_minutes || 0);
       if (!minutes) return;
-      const due = Math.floor(this.bellActiveMs / (minutes * 60_000));
-      if (due > this.bellsRung) {
-        this.bellsRung = due;
-        this.ringBell();
+      const due = Math.floor((Date.now() - this.bellSince) / (minutes * 60_000));
+      if (due <= this.bellsRung) return;
+      // Nothing here can hear it yet, so the ring stays *owed*: the count
+      // is deliberately not advanced, or coming back would find the bell
+      // already marked rung and stay silent about the hour that passed.
+      // (It did, the first time this was written — the count was moved
+      // before the visibility check rather than after it, which swallowed
+      // exactly the ring this whole change exists to deliver.)
+      if (document.hidden) return;
+      this.bellsRung = due;
+      this.ringBell();
+    },
+
+    ringBell() {
+      // An uploaded sound wins (§ POST /api/bell). Played through a plain
+      // Audio element rather than decoded into the Web Audio graph below:
+      // it is one file played start to finish with nothing done to it, and
+      // an element streams it without holding the decoded PCM in memory —
+      // which matters more here than anywhere, this being a phone.
+      if (this.settings.bell_sound) {
+        try {
+          const sound = this._bellAudio || (this._bellAudio = new Audio("/bell"));
+          sound.currentTime = 0;
+          // A rejected play() is the autoplay policy or a missing file, and
+          // either way the synthesised bell below is the better answer than
+          // silence.
+          const played = sound.play();
+          if (played && played.catch) played.catch(() => this.synthBell());
+          return;
+        } catch (_) { /* fall through to the synthesised one */ }
       }
+      this.synthBell();
     },
 
     // Synthesised rather than a bundled sound file: a bell is two decaying
     // sine partials, which is a dozen lines here against an audio asset to
     // ship, decode and keep in the repo — and this one is already the right
-    // length and never has to be fetched on a phone with no signal.
-    ringBell() {
+    // length and never has to be fetched on a phone with no signal. Still
+    // the default, and still the fallback whenever an uploaded one will not
+    // play.
+    synthBell() {
       try {
         const Ctx = window.AudioContext || window.webkitAudioContext;
         if (!Ctx) return;
@@ -1525,11 +1587,64 @@ function tavern() {
       this.settings.tavern_bell_minutes = minutes;
       // The stretch already served is spent either way: changing the length
       // starts the next one from here rather than firing immediately
-      // because the old count happened to be past the new boundary.
-      this.bellActiveMs = 0;
+      // because the old elapsed happened to be past the new boundary.
+      this.bellSince = Date.now();
       this.bellsRung = 0;
       if (minutes) this.ringBell();
       await this.saveSettings();
+    },
+
+    // Rings it now, whatever it is set to and whether or not the bell is
+    // even switched on — the question this answers is "will I hear it", and
+    // that is worth being able to ask before committing to an hour of
+    // waiting to find out. Also the only way to check a phone has not muted
+    // the tab, which no amount of correct code can fix from in here.
+    testBell() {
+      this.ringBell();
+      this.bellMsg = this.settings.bell_sound
+        ? `Played ${this.settings.bell_sound}`
+        : "Played the built-in bell";
+    },
+
+    async uploadBellSound(event) {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      this.bellMsg = "";
+      this.uploadingBell = true;
+      try {
+        const response = await fetch(
+          `/api/bell?filename=${encodeURIComponent(file.name)}`,
+          { method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file },
+        );
+        if (!response.ok) throw await apiError(response);
+        const added = await response.json();
+        this.settings.bell_sound = added.name;
+        // The element caches whatever it last loaded, and the URL does not
+        // change when the file behind it does — so a replacement would go on
+        // playing the old sound until a reload without this.
+        this._bellAudio = null;
+        this.bellMsg = `Bell is now ${added.name}`;
+        this.ringBell();
+      } catch (e) {
+        this.bellMsg = errorText(e);
+      } finally {
+        this.uploadingBell = false;
+        event.target.value = "";   // so the same file can be picked again
+      }
+    },
+
+    async removeBellSound() {
+      this.bellMsg = "";
+      try {
+        const response = await fetch("/api/bell", { method: "DELETE" });
+        if (!response.ok) throw await apiError(response);
+        this.settings.bell_sound = "";
+        this._bellAudio = null;
+        this.bellMsg = "Back to the built-in bell";
+        this.ringBell();
+      } catch (e) {
+        this.bellMsg = errorText(e);
+      }
     },
 
     // ---- reading the counters back ----

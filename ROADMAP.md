@@ -293,17 +293,38 @@ STscript (26).
       that list. No endpoint of its own — the two lists the roster already
       fetches carry it.
 - [x] **40b. The tavern bell.** Optionally rings every 15, 30, 45 or 60
-      minutes (Settings → Time in the tavern). Counts the same *active*
-      time the counters above are made of, not wall-clock time, so it never
-      rings at a sleeping phone. Synthesised through the Web Audio API
-      rather than shipped as an audio file: a struck bell is two decaying
-      sine partials, which is a dozen lines against an asset to ship,
-      decode and keep in the repo. Rings once when you pick a length, since
-      waiting a quarter of an hour to discover whether the sound works at
-      all — on a phone that may have muted the tab — is not a thing to ask
-      of anyone. Counts rings rather than running a timer, so changing the
-      length mid-sitting cannot strand one and the same stretch can never
-      ring twice.
+      minutes (Settings → Time in the tavern). Synthesised through the Web
+      Audio API rather than shipped as an audio file: a struck bell is two
+      decaying sine partials, which is a dozen lines against an asset to
+      ship, decode and keep in the repo. Counts rings rather than running a
+      timer, so changing the length mid-visit cannot strand one and the
+      same stretch can never ring twice.
+
+      Deliberately **not** gated on presence the way the counters in 40
+      are — corrected on report, having first been built to share their
+      active-time clock. It counts wall-clock time from when the app was
+      opened, minimising included: it is a "you have been at this a while"
+      nudge, and one that only counted foreground seconds would never
+      arrive. An accumulator of active ticks could not have survived it
+      either way, since a backgrounded tab's timers are frozen on Android —
+      so elapsed is read off the clock and the gap closes itself on the way
+      back. The *ring* still waits for a visible page (a frozen tab cannot
+      play audio at all), and the count is only advanced when it actually
+      sounds — written the other way round first, and coming back found the
+      bell already marked rung and said nothing about the hour that passed.
+      An hour away is one bell, not four.
+- [x] **40c. Testing and replacing the bell sound.** A **Test bell** button
+      rings it on demand, whatever the length is set to and even with the
+      bell off: the question worth answering is "will I hear this", and a
+      quarter of an hour is no way to ask it. **Use my own sound** uploads a
+      replacement (`POST /api/bell`, served at `/bell`, 2 MB cap against the
+      music library's 20 — this is a doorbell, not a song) with a link back
+      to the built-in one. Its own directory holding exactly one file, so
+      uploading replaces rather than accumulates and there is no list to
+      manage; derived into `settings.bell_sound` from the filesystem rather
+      than stored, so nothing can disagree with what is actually on disk.
+      Kept out of the music library on purpose: that is the story's
+      soundtrack, offered to `music_select` and pickable by hand in a chat.
 - [x] **41. Message reactions.** React to one of the character's own
       replies with one of six fixed emoji (heart/laugh/cry/wow/angry/
       thumbs-up) from the message wheel — the `soon: true` placeholder

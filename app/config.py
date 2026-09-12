@@ -329,6 +329,26 @@ USER_MUSIC_DIR = DATA_DIR / "music"
 MUSIC_SUFFIXES = (".mp3", ".ogg", ".wav", ".m4a", ".flac")
 MAX_MUSIC_BYTES = 20 * 1024 * 1024
 
+# The tavern bell's own sound, when one has been uploaded (roadmap 40b). Its
+# own directory rather than a track in the music library: that library is the
+# story's soundtrack, offered to music_select and pickable by hand in a chat,
+# and a doorbell has no business turning up in either. Exactly one file lives
+# here — uploading replaces whatever was there, so there is no list to manage
+# and nothing to choose between. Much smaller cap than a music track, since
+# this is a two-second sound, not a song.
+USER_BELL_DIR = DATA_DIR / "bell"
+MAX_BELL_BYTES = 2 * 1024 * 1024
+
+
+def bell_sound() -> str:
+    """The uploaded bell's filename, or '' when it is the synthesised one."""
+    return next(iter(sorted(_listing(USER_BELL_DIR, MUSIC_SUFFIXES))), "")
+
+
+def bell_sound_path() -> Path | None:
+    name = bell_sound()
+    return (USER_BELL_DIR / name) if name else None
+
 
 def available_music_tracks() -> list[str]:
     return sorted(_listing(USER_MUSIC_DIR, MUSIC_SUFFIXES))
@@ -718,6 +738,11 @@ class Settings:
         d.pop("vault_pin_hash", None)
         d.pop("vault_pin_salt", None)
         d["vault_configured"] = bool(self.vault_pin_hash)
+        # Derived from the filesystem rather than stored (roadmap 40b): a
+        # settable field would be one more thing that can disagree with what
+        # is actually on disk, and the only question the panel has is whether
+        # there is a custom sound and what to call it.
+        d["bell_sound"] = bell_sound()
         # Same reasoning for the VAPID private key — a real signing key, and
         # the client never needs it back: it only ever sends `vapid_public_key`
         # to `pushManager.subscribe`. The PEM copy of the public key and the

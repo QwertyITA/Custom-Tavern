@@ -393,11 +393,25 @@ in the room is an hour with each of them, not twenty minutes apiece.
 *Settings → Time in the tavern.* Off by default; set it to 15, 30, 45 or 60
 minutes and it rings a soft bell each time that much time has gone by.
 
-It counts the same active time as the counters above, not the clock on the
-wall — so it will not ring at a phone you left face-down, and an hour of
-bell means an hour you were actually here. Picking a length rings it once
-straight away, so you know what you are listening for and whether your phone
-is going to let you hear it at all.
+Unlike the counters above, this one is **not** fussy, on purpose. It counts
+from when you opened the app and keeps counting while the browser is
+minimised — it is a "you have been at this a while" nudge, and one that only
+counted foreground seconds would never arrive. A backgrounded tab is frozen
+by the phone and cannot make a sound, so a bell that came due while you were
+away rings once when you come back. An hour away is one bell, not four.
+
+Two buttons under the length. **Test bell** plays it right now, whatever it
+is set to and even with the bell switched off — the useful question is "will
+I actually hear this", and waiting a quarter of an hour to find out, on a
+phone that may have muted the tab, is no way to ask it. **Use my own sound**
+replaces the built-in bell with an audio file of your own (mp3, ogg, wav,
+m4a or flac, up to 2 MB); it plays as soon as it uploads, so you hear what
+you picked. There is one bell, so uploading again replaces it rather than
+adding to a list, and a link appears to go back to the built-in one.
+
+Your file does not go into the music library — that library is the story's
+soundtrack, offered to the character and pickable by hand in a chat, and a
+doorbell has no business turning up in either.
 
 ### Locked
 

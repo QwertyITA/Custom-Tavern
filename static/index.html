@@ -2985,11 +2985,35 @@
           </select>
         </label>
         <p class="kind-note">
-          Counts only time you are actually here — the clock stops while the
-          app is in the background, and after two minutes without a tap,
-          scroll or keystroke. Choosing a length rings it once, so you know
-          what to listen for.
+          Counts from when you opened the app, minimising included — a bell
+          is a "you have been at this a while" nudge, so it keeps running
+          while you are away from the tab and sounds when you come back to
+          it. (The per-character time counters are the fussy ones: those
+          stop the moment you look away.)
         </p>
+
+        <!-- Two controls that answer two different questions: "will I hear
+             it" (test) and "must it be that sound" (replace). Both sit
+             under the length rather than behind a fold — the sound is the
+             entire feature, and a bell you have not heard is a setting you
+             have not really made. -->
+        <div class="btn-row">
+          <button @click="testBell()">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-bell"/></svg>
+            <span>Test bell</span>
+          </button>
+          <label class="file-btn">
+            <input type="file" accept="audio/*" hidden :disabled="uploadingBell"
+                   @change="uploadBellSound($event)">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-import"/></svg>
+            <span x-text="uploadingBell ? 'Uploading…' : (settings.bell_sound ? 'Replace sound' : 'Use my own sound')"></span>
+          </label>
+        </div>
+        <p class="kind-note" x-show="settings.bell_sound" x-cloak>
+          Ringing <span x-text="settings.bell_sound"></span> —
+          <button class="link" @click="removeBellSound()">use the built-in bell instead</button>.
+        </p>
+        <p class="kind-note" x-show="bellMsg" x-cloak x-text="bellMsg"></p>
 
         <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-edit"/></svg>Chat naming</h3>
         <label class="toggle" x-show="chatRenamePass()" x-cloak>

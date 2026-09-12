@@ -293,16 +293,169 @@ def test_the_idle_window_is_long_enough_to_read_by_and_short_enough_to_matter():
     assert beat * 2 < SESSION_GAP * 1000, "two missed beats must not split a sitting"
 
 
-def test_the_bell_counts_active_time_only():
-    """It ticks inside presenceBeat, past the guard — a bell on wall-clock
-    time would ring at a sleeping phone."""
+def test_the_bell_keeps_running_while_the_browser_is_minimised():
+    """Reported: the bell must not stop when the browser is minimised — it
+    is a "you have been at this a while" nudge, and one that counted only
+    foreground seconds would never arrive. So checkBell sits in *front* of
+    presenceBeat's guard, unlike everything else there."""
     body = _beat_body()
-    assert "this.bellActiveMs" in body
-    assert body.index("if (!present) return;") < body.index("this.bellActiveMs")
+    assert "this.checkBell()" in body
+    assert body.index("this.checkBell()") < body.index("if (!present) return;")
+
+
+def test_the_bell_reads_the_clock_rather_than_counting_ticks():
+    """An accumulator could not have survived minimising either way: a
+    backgrounded tab's timers are frozen on Android, so there would be
+    nothing to accumulate with. Reading the clock closes the gap on the way
+    back instead."""
+    check = APP_JS.split("checkBell() {", 1)[1].split("\n    },", 1)[0]
+    assert "Date.now() - this.bellSince" in check
+    assert "bellActiveMs" not in APP_JS, "the old accumulator is gone entirely"
+
+
+def test_returning_to_the_tab_settles_the_bell_at_once():
+    """Otherwise a bell that came due while the tab was frozen would wait up
+    to a full beat after you were already looking at the screen."""
+    listeners = APP_JS.split("startPresence() {", 1)[1].split("\n    },", 1)[0]
+    visible = listeners.split("visibilitychange", 1)[1]
+    assert "this.checkBell()" in visible
+
+
+def test_a_bell_that_came_due_unseen_sounds_once_not_once_per_period():
+    """`bellsRung` jumps to where the clock already is, so an hour away is
+    one bell on return rather than four."""
+    check = APP_JS.split("checkBell() {", 1)[1].split("\n    },", 1)[0]
+    assert "this.bellsRung = due;" in check
+    assert check.index("this.bellsRung = due;") < check.index("this.ringBell()")
+
+
+def test_a_ring_nobody_could_hear_stays_owed_rather_than_being_spent():
+    """Counting and sounding are different questions — but the bail on a
+    hidden page has to come *before* the count is advanced. Written the
+    other way round first, and it swallowed exactly the ring this change
+    exists to deliver: coming back found the bell already marked rung and
+    said nothing about the hour that had passed. Caught live, not here."""
+    check = APP_JS.split("checkBell() {", 1)[1].split("\n    },", 1)[0]
+    assert "if (document.hidden) return;" in check
+    assert check.index("if (document.hidden) return;") < check.index("this.bellsRung = due;")
 
 
 def test_the_bell_counts_rings_rather_than_running_a_timer():
-    """So a length changed mid-sitting cannot strand a timer, and the same
+    """So a length changed mid-visit cannot strand a timer, and the same
     stretch can never ring twice."""
     check = APP_JS.split("checkBell() {", 1)[1].split("\n    },", 1)[0]
     assert "this.bellsRung" in check and "Math.floor" in check
+
+
+def test_an_uploaded_sound_wins_and_the_synthesised_one_is_the_fallback():
+    ring = APP_JS.split("ringBell() {", 1)[1].split("\n    },", 1)[0]
+    assert "this.settings.bell_sound" in ring
+    assert 'new Audio("/bell")' in ring
+    assert "this.synthBell();" in ring, "and it still falls back"
+
+
+# ------------------------------------------------------- the bell's own sound
+
+BELL_BYTES = b"not really audio, just bytes with the right extension"
+
+
+@pytest.fixture
+def bell_dir(tmp_path, monkeypatch):
+    from app import config
+
+    monkeypatch.setattr(config, "USER_BELL_DIR", tmp_path / "bell")
+    return config.USER_BELL_DIR
+
+
+def test_there_is_no_uploaded_sound_to_begin_with(client, bell_dir):
+    from app import config
+
+    assert config.bell_sound() == ""
+    assert config.bell_sound_path() is None
+    assert client.get("/bell").status_code == 404
+
+
+def test_a_sound_can_be_uploaded_served_and_removed(client, bell_dir):
+    from app import config
+
+    added = client.post("/api/bell?filename=my bell.MP3", content=BELL_BYTES)
+    assert added.status_code == 200
+    name = added.json()["name"]
+    assert name == "my-bell.mp3", "rebuilt, not sanitised in place"
+    assert config.bell_sound() == name
+    assert client.get("/bell").content == BELL_BYTES
+
+    assert client.delete("/api/bell").status_code == 200
+    assert config.bell_sound() == ""
+    assert client.get("/bell").status_code == 404
+
+
+def test_uploading_again_replaces_rather_than_piles_up(client, bell_dir):
+    """There is one bell. Two files here and which one rang would come down
+    to sort order."""
+    from app import config
+
+    client.post("/api/bell?filename=first.mp3", content=BELL_BYTES)
+    client.post("/api/bell?filename=second.ogg", content=b"different bytes")
+    assert sorted(p.name for p in bell_dir.iterdir()) == ["second.ogg"]
+    assert config.bell_sound() == "second.ogg"
+
+
+def test_the_settings_payload_says_which_sound_is_in_use(client, bell_dir):
+    """Derived from the filesystem, never stored — one less thing that can
+    disagree with what is actually on disk."""
+    assert client.get("/api/settings").json()["bell_sound"] == ""
+    client.post("/api/bell?filename=ding.mp3", content=BELL_BYTES)
+    assert client.get("/api/settings").json()["bell_sound"] == "ding.mp3"
+
+
+def test_only_audio_the_app_can_serve_is_accepted(client, bell_dir):
+    assert client.post("/api/bell?filename=x.exe", content=b"MZ").status_code == 400
+    assert client.post("/api/bell?filename=x.mp3", content=b"").status_code == 400
+
+
+def test_an_oversized_sound_is_rejected_before_the_body_is_read(client, bell_dir):
+    from app import config
+
+    response = client.post(
+        "/api/bell?filename=x.mp3",
+        content=BELL_BYTES,
+        headers={"content-length": str(config.MAX_BELL_BYTES + 1)},
+    )
+    assert response.status_code == 400
+
+
+def test_a_bell_sound_is_capped_far_below_a_music_track(client):
+    """Two seconds of doorbell against a song — a cap sized for the library
+    would let someone put an album in here by accident."""
+    from app import config
+
+    assert config.MAX_BELL_BYTES < config.MAX_MUSIC_BYTES
+
+
+def test_removing_a_sound_that_was_never_there_is_fine(client, bell_dir):
+    """So the button never has a failure state of its own."""
+    assert client.delete("/api/bell").status_code == 200
+
+
+def test_the_bell_sound_never_lands_in_the_music_library(client, bell_dir, tmp_path, monkeypatch):
+    """That library is the story's soundtrack — offered to music_select and
+    pickable by hand in a chat. A doorbell has no business in either."""
+    from app import config
+
+    monkeypatch.setattr(config, "USER_MUSIC_DIR", tmp_path / "music")
+    client.post("/api/bell?filename=ding.mp3", content=BELL_BYTES)
+    assert config.available_music_tracks() == []
+
+
+def test_the_clock_starts_even_on_an_install_with_no_characters_yet():
+    """Found live: boot() returns early when the roster is empty, and
+    startPresence() sat after that return — so a fresh install never started
+    the clock or the bell at all, and stayed that way until the next reload
+    after making a character. Nothing in presence needs the roster, so it
+    goes in front of anything that can bail."""
+    boot = APP_JS.split("async boot() {", 1)[1].split("\n    },", 1)[0]
+    assert "this.startPresence();" in boot
+    assert boot.index("this.startPresence();") < boot.index("return;"), (
+        "startPresence must come before boot's first early return"
+    )

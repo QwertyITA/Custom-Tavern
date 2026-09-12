@@ -2297,6 +2297,65 @@ async def serve_music(filename: str) -> FileResponse:
     return FileResponse(path)
 
 
+@app.get("/bell")
+async def serve_bell() -> FileResponse:
+    """The uploaded bell sound. 404 when there is none — the client falls
+    back to the synthesised one (§ app.js, ringBell) rather than going
+    silent, so a missing file is a fallback rather than a failure."""
+    path = config.bell_sound_path()
+    if path is None:
+        raise HTTPException(404, "no bell sound uploaded")
+    return FileResponse(path)
+
+
+@app.post("/api/bell")
+async def upload_bell(request: Request, filename: str = Query(...)) -> dict:
+    """Replace the bell sound. Same raw-body shape as the music upload above.
+
+    Replaces rather than adds: there is one bell, so a second upload should
+    leave one file behind, not two and a list to choose from.
+    """
+    suffix = Path(filename).suffix.lower()
+    if suffix not in config.MUSIC_SUFFIXES:
+        allowed = ", ".join(config.MUSIC_SUFFIXES)
+        raise HTTPException(400, f"unsupported audio type {suffix or '(none)'} — use {allowed}")
+
+    limit = config.MAX_BELL_BYTES // (1024 * 1024)
+    _reject_oversized(request, config.MAX_BELL_BYTES, f"bell sound is larger than {limit} MB")
+    payload = await request.body()
+    if not payload:
+        raise HTTPException(400, "empty upload")
+    if len(payload) > config.MAX_BELL_BYTES:
+        raise HTTPException(400, f"bell sound is larger than {limit} MB")
+
+    directory = config.USER_BELL_DIR
+    directory.mkdir(parents=True, exist_ok=True)
+    # Cleared first, so the replacement is the only file here whatever it is
+    # called — otherwise bell.mp3 followed by bell.ogg would leave two, and
+    # which one rang would come down to sort order.
+    for stale in directory.iterdir():
+        if stale.is_file():
+            stale.unlink(missing_ok=True)
+    name = _safe_upload_name(filename, set(), "bell")
+    try:
+        (directory / name).write_bytes(payload)
+    except OSError as exc:
+        raise HTTPException(500, f"could not save bell sound: {exc}") from exc
+    return {"name": name, "url": "/bell"}
+
+
+@app.delete("/api/bell")
+async def remove_bell() -> dict:
+    """Back to the synthesised bell. A no-op when there was nothing to
+    remove, so the button never has a failure state of its own."""
+    directory = config.USER_BELL_DIR
+    if directory.is_dir():
+        for stale in directory.iterdir():
+            if stale.is_file():
+                stale.unlink(missing_ok=True)
+    return {"ok": True, "bell_sound": ""}
+
+
 @app.post("/api/music")
 async def upload_music(request: Request, filename: str = Query(...)) -> dict:
     """Add a track. Body is the raw audio file — no multipart needed. Same
