@@ -172,7 +172,7 @@ class Database:
             self._writer_thread.join(timeout=5)
 
 
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 
 def _run_migration_step(conn: sqlite3.Connection, step: str) -> None:
     """Apply one migration statement, tolerating one that has already landed.
@@ -333,6 +333,19 @@ MIGRATIONS: dict[int, list[str]] = {
     # database that predates the table. Nothing is backfilled: there is no
     # record of presence before this, and inventing one from message
     # timestamps would credit a chat left open overnight with the whole night.
+    # Memory quality (roadmap 41). Four columns that turn a growing pile of
+    # extracted sentences into something that can be kept clean: what kind of
+    # fact it is, how much it was worth, and whether it has ever actually
+    # been used. Nothing is backfilled — an existing memory keeps kind '' and
+    # importance 0, which every read treats as "unrated" rather than as
+    # "worthless", so an old store is never silently condemned by a rating it
+    # never had the chance to earn.
+    19: [
+        "ALTER TABLE memories ADD COLUMN kind TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE memories ADD COLUMN importance INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE memories ADD COLUMN uses INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE memories ADD COLUMN last_used_turn INTEGER NOT NULL DEFAULT 0",
+    ],
     18: [
         "CREATE TABLE IF NOT EXISTS chat_sessions ("
         "  id TEXT PRIMARY KEY,"

@@ -388,6 +388,60 @@ low for that reason. They will never lean high.
 Group chats count in full for everyone in them: an hour with three characters
 in the room is an hour with each of them, not twenty minutes apiece.
 
+### What it remembers, and what it refuses to
+
+A background pass reads each stretch of conversation and pulls out facts worth
+keeping after the raw messages are gone. The hard part is not finding facts —
+it is not inventing them. A model asked for facts will always produce
+*something*, because producing something feels like doing the job, and what
+you get is a memory store full of "the user said hello".
+
+So the pass no longer just writes; it has to commit. Every candidate arrives
+labelled as one of six kinds — identity, relationship, commitment, event,
+preference, possession — and rated 1 to 5. There is a seventh label,
+**chatter**, for greetings, mood, weather, who walked into a room, and anything
+the character sheet already said. Nothing filed there is ever stored. Naming
+that bin is most of the fix: it gives a model that feels obliged to answer
+somewhere honest to put small talk, instead of dressing small talk up as a
+fact.
+
+The thresholds are then applied in code, not asked for in the prompt — a model
+told in prose to hold a bar will talk itself under it, and one held to a number
+after it has answered cannot. Anything filed as chatter, rated 1, or handed
+over with no rating at all is dropped on the floor.
+
+Open **Edit memories** on a character and each line shows what it was judged to
+be, how important, and how many times it has actually been used in a
+conversation. That last one is the only real evidence any of this can collect
+about whether a memory was worth keeping.
+
+### Tidying up
+
+Extraction alone still drifts: two memories creep towards saying the same
+thing, and a later fact quietly contradicts an earlier one without replacing
+it. So there is a second pass that re-reads the whole store and merges, rewords
+and deletes.
+
+It runs rarely, and on evidence rather than on a timer — only once a character
+has at least 30 memories *and* at least 12 have been added since it last
+looked. Both conditions, never either: re-reading an unchanged store is paying
+to be told the same thing twice, and a dozen new facts in a small store is not
+yet a mess. A character you rarely talk to never pays for it at all. There is
+also a **Tidy up** button in the memories panel for when you can see it needs
+one now.
+
+Three things it is not allowed to do, enforced in code rather than asked for:
+
+- **It never touches anything you wrote or edited.** Correcting a memory marks
+  it yours, and yours is final. The trade is that if you have written something
+  a later fact contradicts, the contradiction stays until you resolve it —
+  your judgement is not something a background pass gets to overrule.
+- **It cannot empty the store.** A plan that would delete everything is far
+  more likely a confused model than a character with nothing worth
+  remembering, so it is refused outright and nothing changes.
+- **Silence is not consent.** A memory the pass forgets to mention is kept.
+  Deleting by omission would be the worst failure available here.
+
 ### The bell
 
 *Settings → Time in the tavern.* Off by default; set it to 15, 30, 45 or 60

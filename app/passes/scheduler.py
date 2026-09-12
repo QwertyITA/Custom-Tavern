@@ -1536,6 +1536,23 @@ class PassScheduler:
                 ),
             }]
             return definition.prompt, messages, self._handler_message_reaction(ctx)
+        elif definition.id == "memory_compress":
+            listing = memory_store.for_compression(self.db, character.id)
+            if len(listing) < 2:
+                # Nothing to merge against and nothing to contradict. Not a
+                # failure — just a store too small to be untidy.
+                return "", [], None
+            lines = "\n".join(
+                f"- id={m['id']} [{m['kind']}, importance {m['importance']}, "
+                f"used {m['uses']}x] {m['text']}"
+                for m in listing
+            )
+            task = definition.prompt.replace("{budget}", str(memory_store.MEMORY_BUDGET))
+            return (
+                task,
+                [{"role": "user", "content": f"## Everything remembered\n{lines}"}],
+                self._handler_memory_compress(ctx, character.id),
+            )
         elif definition.id == "state_auditor":
             bands = state_mod.render_bands(ctx.schema, ctx.pre_values)
             extra = (
@@ -1850,6 +1867,95 @@ class PassScheduler:
             source_pass="consumed",
         )
 
+    async def _tidy_memories(self, ctx: TurnContext) -> None:
+        """One memory_compress run, through the same _execute every other
+        pass goes through — so it lands in pass_runs and on the cost
+        dashboard rather than being an invisible model call (§ react_to_
+        message, which is untracked for the opposite reason: it fires once
+        per reaction, where this one can fire on any long-running chat)."""
+        definition = registry.get_pass(self.db, "memory_compress")
+        if definition is None or not definition.enabled:
+            return
+        run_id = self._record_run(ctx, definition, "pending")
+        try:
+            async with self._background_slot(ctx.chat_id):
+                await self._execute(ctx, definition, run_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # a tidy-up must never take a turn with it
+            self._record_run(
+                ctx, definition, "failed", run_id=run_id,
+                error=repr(exc), finished_at=time.time(),
+            )
+
+    async def tidy_memories_now(self, character_id: str) -> dict:
+        """The panel's Tidy button (§ POST .../memories/tidy, main.py).
+
+        Awaited, unlike the automatic run — the caller is redrawing the list
+        this rewrites. Needs a chat to build a TurnContext around, since that
+        is what carries the character and what pass_runs is keyed on; any of
+        this character's own chats will do, because the store being tidied
+        belongs to the character rather than to any one conversation.
+        """
+        character = repo.get_character(self.db, character_id)
+        if character is None:
+            return {"error": "character not found"}
+        chats = repo.list_chats(self.db, character_id)
+        if not chats:
+            return {"error": "this character has no chats yet"}
+        chat = repo.get_chat(self.db, chats[0]["id"])
+        definition = registry.get_pass(self.db, "memory_compress")
+        if definition is None or not definition.enabled:
+            return {"error": "the tidy-up pass is switched off"}
+        ctx = TurnContext(
+            chat=chat,
+            character=character,
+            settings=self.settings,
+            turn=repo.current_turn(self.db, chat["id"]),
+            schema=state_mod.load_schema(None),
+        )
+        run_id = self._record_run(ctx, definition, "pending")
+        try:
+            await self._execute(ctx, definition, run_id)
+        except Exception as exc:  # noqa: BLE001 — reported, never raised at a button
+            self._record_run(
+                ctx, definition, "failed", run_id=run_id,
+                error=repr(exc), finished_at=time.time(),
+            )
+            return {"error": str(exc)}
+        return {"error": ""}
+
+    def _handler_memory_compress(self, ctx: TurnContext, character_id: str):
+        async def handle(payload: dict) -> bool:
+            plan = payload.get("plan") or payload.get("memories") or []
+            if isinstance(plan, dict):
+                plan = [plan]
+            result = memory_store.apply_compression(
+                self.db, character_id, [p for p in plan if isinstance(p, dict)]
+            )
+            if result.get("refused"):
+                # A refusal is a *stale* run, not a failed one: nothing was
+                # wrong with the call, the answer was just one the store
+                # would not accept (§ memory.apply_compression's own rules).
+                return False
+            # Marked even when the plan changed nothing, so a store the pass
+            # has already looked at and approved is not re-read on the very
+            # next memory added to it.
+            memory_store.mark_compressed(self.db, character_id)
+            if result["dropped"] or result["merged"]:
+                self._emit(
+                    ctx.chat_id,
+                    {
+                        "type": "memories",
+                        "tidied": result,
+                        "count": 0,
+                        "memories": memory_store.list_all(self.db, character_id)[:5],
+                    },
+                )
+            return True
+
+        return handle
+
     def _handler_summary(self, ctx: TurnContext, covered_turn: int):
         async def handle(payload: dict) -> bool:
             text = str(payload.get("summary") or payload.get("text") or "").strip()
@@ -1893,6 +1999,20 @@ class PassScheduler:
                         "count": len(inserted),
                         "memories": memory_store.list_all(self.db, ctx.character.id)[:5],
                     },
+                )
+            # Tidying rides in on the back of the pass that made the mess
+            # (§41), and only when the store has actually become one —
+            # big enough, and changed enough since it was last looked at
+            # (§ memory.needs_compression). Fire-and-forget and tracked like
+            # every other background task: a tidy-up is never worth making a
+            # turn wait, and a failed one leaves the store exactly as it was.
+            if memory_store.needs_compression(self.db, ctx.character.id):
+                self._track(
+                    ctx.chat_id,
+                    asyncio.create_task(
+                        self._tidy_memories(ctx),
+                        name=f"memory_compress:{ctx.character.id}:{ctx.turn}",
+                    ),
                 )
             return True
 

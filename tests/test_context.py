@@ -81,11 +81,24 @@ def test_render_leaves_a_short_entry_untouched():
 
 
 # ----------------------------------------------------------------- memory
+#
+# The extracting pass now has to label and rate what it offers, and store()
+# refuses anything unrated, filed as chatter, or under the floor (roadmap 41,
+# § memory.store). These fixtures therefore carry a rating: an unrated dict
+# here would be modelling a reply the real pass is not allowed to give.
+
+
+def fact(text, keys=None, kind="event", importance=3):
+    """One candidate in the shape the memory pass actually returns."""
+    item = {"text": text, "kind": kind, "importance": importance}
+    if keys is not None:
+        item["keys"] = keys
+    return item
 
 
 def test_store_dedupes_restated_facts(db, character):
-    memory_store.store(db, character.id, [{"text": "The user's sister is Anna.", "keys": ["sister"]}])
-    memory_store.store(db, character.id, [{"text": "the user's sister is anna"}])
+    memory_store.store(db, character.id, [fact("The user's sister is Anna.", ["sister"])])
+    memory_store.store(db, character.id, [fact("the user's sister is anna")])
     assert len(memory_store.list_all(db, character.id)) == 1
 
 
@@ -94,29 +107,29 @@ def test_store_keeps_genuinely_different_facts(db, character):
         db,
         character.id,
         [
-            {"text": "The user's sister is Anna."},
-            {"text": "Mira promised to return the knife."},
+            fact("The user's sister is Anna."),
+            fact("Mira promised to return the knife."),
         ],
     )
     assert len(memory_store.list_all(db, character.id)) == 2
 
 
 def test_retrieval_is_keyword_first(db, character):
-    memory_store.store(db, character.id, [{"text": "Mira promised to return the knife.",
-                                           "keys": ["knife", "promise"]}])
-    memory_store.store(db, character.id, [{"text": "The harbour freezes in winter.",
-                                           "keys": ["harbour", "winter"]}])
+    memory_store.store(db, character.id, [fact("Mira promised to return the knife.",
+                                               ["knife", "promise"])])
+    memory_store.store(db, character.id, [fact("The harbour freezes in winter.",
+                                               ["harbour", "winter"])])
     hits = memory_store.retrieve(db, character.id, "what about that knife?")
     assert hits and "knife" in hits[0]["text"]
 
 
 def test_retrieval_returns_nothing_when_no_keys_match(db, character):
-    memory_store.store(db, character.id, [{"text": "Something unrelated.", "keys": ["zzz"]}])
+    memory_store.store(db, character.id, [fact("Something unrelated.", ["zzz"])])
     assert memory_store.retrieve(db, character.id, "completely different subject") == []
 
 
 def test_memories_are_scoped_per_character(db, character):
-    memory_store.store(db, character.id, [{"text": "A fact about knives.", "keys": ["knives"]}])
+    memory_store.store(db, character.id, [fact("A fact about knives.", ["knives"])])
     assert memory_store.retrieve(db, "someone-else", "knives") == []
 
 
@@ -127,12 +140,12 @@ def test_derive_keys_falls_back_to_content_words():
 
 
 def test_empty_items_are_ignored(db, character):
-    assert memory_store.store(db, character.id, [{"text": "  "}, {}]) == []
+    assert memory_store.store(db, character.id, [fact("  "), {}]) == []
 
 
 def test_editing_a_memory_re_derives_its_keys(db, character):
     [memory_id] = memory_store.store(
-        db, character.id, [{"text": "Mira promised to return the knife.", "keys": ["knife"]}]
+        db, character.id, [fact("Mira promised to return the knife.", ["knife"])]
     )
     memory_store.update(db, memory_id, "Mira already returned the lantern.")
     saved = memory_store.get(db, memory_id)
@@ -141,7 +154,7 @@ def test_editing_a_memory_re_derives_its_keys(db, character):
 
 
 def test_a_memory_typed_by_hand_dedupes_against_the_pass_the_same_way(db, character):
-    memory_store.store(db, character.id, [{"text": "The user's sister is Anna."}], source="memory_pass")
+    memory_store.store(db, character.id, [fact("The user's sister is Anna.")], source="memory_pass")
     inserted = memory_store.store(db, character.id, [{"text": "the user's sister is anna"}], source="manual")
     assert inserted == []
     assert len(memory_store.list_all(db, character.id)) == 1
@@ -159,7 +172,7 @@ def test_a_memory_added_by_hand_sorts_as_the_newest(db, character):
 
 
 def test_forgetting_a_memory_removes_it(db, character):
-    [memory_id] = memory_store.store(db, character.id, [{"text": "A fact worth forgetting."}])
+    [memory_id] = memory_store.store(db, character.id, [fact("A fact worth forgetting.")])
     memory_store.forget(db, memory_id)
     assert memory_store.get(db, memory_id) is None
     assert memory_store.list_all(db, character.id) == []
@@ -302,8 +315,7 @@ def test_does_not_flag_an_entry_with_no_char_macro(db):
 
 
 def test_memories_are_injected_when_enabled_for_the_character(db, chat, character):
-    memory_store.store(db, character.id, [{"text": "Mira promised to return the knife.",
-                                           "keys": ["knife"]}])
+    memory_store.store(db, character.id, [fact("Mira promised to return the knife.", ["knife"])])
     repo.add_message(db, chat["id"], "user", "what about that knife?")
     assembled = build(db, chat, character)
     assert assembled.memories
@@ -312,8 +324,7 @@ def test_memories_are_injected_when_enabled_for_the_character(db, chat, characte
 def test_memories_are_withheld_when_disabled_for_the_character(db, chat, character):
     """Off means off for retrieval too, not just extraction — nothing already
     stored should keep surfacing once a person has turned this off."""
-    memory_store.store(db, character.id, [{"text": "Mira promised to return the knife.",
-                                           "keys": ["knife"]}])
+    memory_store.store(db, character.id, [fact("Mira promised to return the knife.", ["knife"])])
     repo.add_message(db, chat["id"], "user", "what about that knife?")
     disabled = character.model_copy(update={"memory_enabled": False})
     assembled = build(db, chat, disabled)

@@ -2194,6 +2194,29 @@ body {
   border-bottom: 1px solid var(--line);
 }
 .chat-time-summary .icon-sm { flex: none; width: 13px; height: 13px; }
+
+/* What the memory pass made of a fact, under the text it made it of
+   (roadmap 41). Muted and small: this is provenance, not content — it
+   explains why the tidy-up would keep or drop the line above rather than
+   competing with it for attention. */
+.memory-marks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.memory-marks .link { margin-left: auto; }
+.memory-kind {
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  text-transform: capitalize;
+}
+/* Yours is a promise, not a label: the tidy-up may not touch it. Worth the
+   accent that every other "this one is special" mark in the app gets. */
+.memory-kind.mine { color: var(--accent); border-color: var(--accent); }
 .chat-group-badge { flex: none; display: inline-flex; color: var(--muted); }
 .chat-group-badge .icon-btn-glyph { width: 13px; height: 13px; }
 

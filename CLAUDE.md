@@ -82,6 +82,10 @@ The load-bearing ideas, each of which has a test protecting it:
 - Write arbitration is per-slice by source turn only. No global commit DAG
   (§5.5).
 - Messages are dropped only after summary *and* memory have covered them (§7.2).
+- A memory's worth is decided in code, never in the prompt. The extracting
+  pass labels and rates; `memory.store` applies the floor, and
+  `memory.apply_compression` enforces what a tidy-up may not do — a model
+  told in prose to hold a bar will talk itself under it.
 - State binds only to the swipe variant you land on (§9).
 - The markup tokenizer fails soft on unbalanced markup (§8).
 

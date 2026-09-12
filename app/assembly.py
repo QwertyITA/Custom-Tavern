@@ -529,6 +529,8 @@ def build_reply_context(
         memories = memory_store.retrieve(
             db, character.id, latest_user or "\n".join(recent_texts[-2:]),
             limit=settings.memory_max_injected,
+            # So a use can be dated, not just counted (§ memory.retrieve).
+            turn=current_turn,
         )
         if memories:
             text = memory_store.render(memories)

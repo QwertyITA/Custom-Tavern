@@ -383,12 +383,46 @@ CANONICAL_PASSES: list[PassDef] = [
         sampling=Sampling(temp=0.2, top_p=0.9, max_tokens=400),
         output=PassOutput(type="state_modifier", target="memory"),
         writes_slice="memory",
+        # Every candidate now has to arrive labelled and rated, and the
+        # thresholds are applied in memory.store rather than asked for here
+        # (§41). Reported live: a store full of "the user said hello to the
+        # character". The old prompt did ask for durable facts only — and a
+        # model asked for facts produces *something*, because producing
+        # something feels like doing the job. What it lacked was a
+        # legitimate place to put small talk (`chatter`, which is never
+        # stored) and a number it had to stand behind.
         prompt=(
             "You extract durable facts from a roleplay conversation so they survive "
-            "after the raw messages are evicted from context.\n"
-            "Extract only facts that will still matter in fifty turns: names, "
-            "relationships, promises, injuries, possessions, standing arrangements. "
-            "Ignore mood, weather and anything already implied by the character sheet.\n"
+            "after the raw messages are evicted from context.\n\n"
+            "For each candidate fact, give it a kind and an importance.\n"
+            "Kinds:\n"
+            "- identity: who someone is — names, roles, work, where they live\n"
+            "- relationship: how two people stand with each other, or how that changed\n"
+            "- commitment: a promise, plan, arrangement or debt — something owed\n"
+            "- event: something that happened and still has consequences\n"
+            "- preference: a durable like, dislike, habit or fear\n"
+            "- possession: an object, injury, scar, sum of money, or state of the world\n"
+            "- chatter: EVERYTHING ELSE. Greetings, small talk, mood, weather, "
+            "who walked into a room, what someone is currently feeling, and anything "
+            "the character sheet already says. Use this freely — it is the correct "
+            "answer far more often than the six above, and nothing filed here is kept.\n\n"
+            "Importance, 1 to 5:\n"
+            "  1 trivial — forgotten within a scene\n"
+            "  2 minor — a small but real detail about someone\n"
+            "  3 useful — would be missed if it were gone\n"
+            "  4 significant — shapes how they behave from now on\n"
+            "  5 defining — the story does not make sense without it\n\n"
+            "Ask of each one: if the raw messages were deleted and only this "
+            "sentence survived, would it change how the character behaves in fifty "
+            "turns? If not, it is chatter or a 1.\n\n"
+            "Examples:\n"
+            '  "The user greeted Mira." -> chatter\n'
+            '  "Mira seems tired this evening." -> chatter (mood, not a fact)\n'
+            '  "Mira is a blacksmith." -> identity, 4\n'
+            '  "Mira promised to forge the user a knife by the festival." '
+            "-> commitment, 4\n"
+            '  "Mira lost her left eye in the fire at the mill." -> possession, 5\n'
+            '  "The user mentioned they dislike crowds." -> preference, 3\n\n'
             "Check what is already remembered (given below) before extracting anything: "
             "skip a fact that restates, narrows, or is already covered by one of them, "
             "even if worded differently — a duplicate in different words is still a "
@@ -396,8 +430,64 @@ CANONICAL_PASSES: list[PassDef] = [
             "— most windows of conversation have nothing durable in them at all, so do "
             "not strain to find something to report. Extract only what is genuinely new.\n"
             'Reply with JSON only: {"memories": [{"text": "<one fact, one sentence>", '
+            '"kind": "<one kind from the list>", "importance": <1-5>, '
             '"keys": ["<lookup keyword>", ...]}]}\n'
             "Return an empty list if nothing durable and new happened."
+        ),
+    ),
+    PassDef(
+        id="memory_compress",
+        kind="canonical",
+        label="Memory tidy-up",
+        blocking=False,
+        model_tier="background",
+        # Never on a schedule (§41). Fired by hand from the memory pass's own
+        # handler when the store has actually grown messy (§ memory.
+        # needs_compression: big enough AND changed enough), and from the
+        # panel's Tidy button. A timer would pay for this on quiet characters
+        # and still be late on busy ones; the store's own shape is the only
+        # honest trigger.
+        trigger=Trigger(type="manual"),
+        # Room for a verdict on every memory in a full store. Low temperature:
+        # this is a judgement about a list, not a piece of writing, and the
+        # one thing that must not happen is invention.
+        sampling=Sampling(temp=0.1, top_p=0.9, max_tokens=1500),
+        output=PassOutput(type="none"),
+        # No writes_slice: memories are their own table, and the handler
+        # (_handler_memory_compress, scheduler.py) writes through
+        # memory.apply_compression so the safety rules there are unavoidable.
+        prompt=(
+            "You are tidying a character's long-term memory. You are given every "
+            "fact it currently holds, oldest first, each with an id, what kind of "
+            "fact it is, how important it was judged, and how many times it has "
+            "actually been used in a conversation.\n\n"
+            "Decide what each one deserves:\n"
+            "- keep: still true, still useful, not covered by anything else.\n"
+            "- merge: this and one or more others say overlapping things. Give the "
+            "one that should survive the combined wording, and drop the others.\n"
+            "- drop: worthless, superseded, or duplicated by a memory you are "
+            "keeping.\n\n"
+            "Drop without hesitation:\n"
+            "- small talk that should never have been recorded: greetings, mood, "
+            "weather, someone entering a room\n"
+            "- anything a later memory has overtaken. If one says a fear was held "
+            "and a later one says it was overcome, the older one is WRONG now, not "
+            "merely old — drop it. Two memories must never contradict each other.\n"
+            "- near-duplicates: keep the more specific one. \"She has a sister\" and "
+            "\"Her sister is called Iris\" are one fact, and it is the second.\n"
+            "- facts that were never used and were never important to begin with.\n\n"
+            "Never drop something merely for being old. A name learned in the first "
+            "hour is usually the most valuable thing in the list, and a low use "
+            "count on a defining fact means it has not come up yet, not that it "
+            "does not matter.\n\n"
+            "Aim to leave about {budget} memories. If there are already fewer than "
+            "that and none of them are junk, keeping everything is the correct "
+            "answer — do not invent work.\n\n"
+            "Never invent a fact that is not in the list. A merged wording may only "
+            "contain what the memories being merged already said.\n\n"
+            'Reply with JSON only: {"plan": [{"id": "<id>", "action": '
+            '"keep|merge|drop", "text": "<the merged wording, for merge only>"}]}\n'
+            "List every id you want changed. An id you leave out is kept as it is."
         ),
     ),
     PassDef(

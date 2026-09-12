@@ -128,6 +128,15 @@
          already here: i-time is what hour it is in the story, i-history is
          "what happened before". An hourglass is the one shape that means a
          quantity of time rather than a point in it (roadmap 40). -->
+    <!-- A brush sweeping a line clean: the memory tidy-up (roadmap 41).
+         Not i-bin, which means "delete this one thing" everywhere else and
+         would promise that here — this merges and rewrites at least as often
+         as it removes. -->
+    <g id="i-broom">
+      <path d="M14.5 3.5 9.7 8.3"/>
+      <path d="M8.2 6.8 11.9 10.5 7.4 15h-3.6z"/>
+      <path d="M15.5 16.5h5M13.5 20h7"/>
+    </g>
     <g id="i-hourglass">
       <path d="M7 3.6h10M7 20.4h10"/>
       <path d="M8 3.6v3.1c0 1.9 4 3.7 4 5.3s-4 3.4-4 5.3v3.1"/>
@@ -4297,7 +4306,9 @@
           <p class="note">
             Facts the memory pass pulled from this character's conversations,
             kept around after the messages that mentioned them are gone.
-            Fix one that got it wrong, or add one yourself.
+            Fix one that got it wrong, or add one yourself — anything you
+            write or edit here is yours, and the tidy-up below will never
+            rewrite or delete it.
           </p>
           <p class="kind-note" x-show="loadingMemories">Loading…</p>
           <p class="kind-note" x-show="!loadingMemories && !characterMemories.length">
@@ -4307,10 +4318,33 @@
             <label class="col-field tight">
               <textarea rows="2" :value="m.text"
                         @change="saveMemoryEdit(m, $event.target.value)"></textarea>
-              <button class="link danger" @click="removeMemory(m)"
-                      x-text="armedMemory === m.id ? 'Tap again to delete' : 'Delete'"></button>
+              <!-- What the pass judged this to be, and whether it has ever
+                   actually been used (roadmap 41). Shown because it is what
+                   the tidy-up reasons about: a memory nobody can see the
+                   rating of is one whose deletion looks arbitrary. -->
+              <span class="memory-marks">
+                <span class="memory-kind" x-show="m.kind" x-cloak x-text="m.kind"></span>
+                <span class="memory-kind mine" x-show="m.source !== 'memory_pass'" x-cloak
+                      title="Written or edited by you — the tidy-up leaves it alone">yours</span>
+                <span x-show="m.importance" x-cloak
+                      x-text="`importance ${m.importance}/5`"></span>
+                <span x-text="m.uses ? `used ${m.uses}×` : 'never used'"></span>
+                <button class="link danger" @click="removeMemory(m)"
+                        x-text="armedMemory === m.id ? 'Tap again to delete' : 'Delete'"></button>
+              </span>
             </label>
           </template>
+
+          <!-- The compression pass, on demand (§ POST .../memories/tidy). It
+               also runs on its own once a store is big enough and has changed
+               enough; this is for when you can see it needs it now. -->
+          <div class="btn-row" x-show="characterMemories.length > 1" x-cloak>
+            <button @click="tidyMemories()" :disabled="tidying">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-broom"/></svg>
+              <span x-text="tidying ? 'Tidying…' : 'Tidy up'"></span>
+            </button>
+          </div>
+          <p class="kind-note" x-show="tidyMsg" x-cloak x-text="tidyMsg"></p>
 
           <label class="col-field tight">
             <span class="row-label wide-label">Add a memory</span>

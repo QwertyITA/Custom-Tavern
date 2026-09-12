@@ -81,6 +81,13 @@ def _first_music_id(request: GenRequest) -> str:
     return _first_listed_id("\n".join(m["content"] for m in request.messages), "Allowed tracks")
 
 
+def _compression_plan(request: GenRequest) -> list:
+    """Empty by default — every memory kept, nothing merged, nothing dropped
+    (§ memory_compress, registry.py). Tests monkeypatch this, same pattern as
+    _first_music_id above, to exercise a real tidy-up."""
+    return []
+
+
 def _music_ask_text(request: GenRequest) -> str:
     """Empty by default — echo never volunteers an in-character ask on its
     own (§ music_select's "ask", registry.py). Tests monkeypatch this, same
@@ -148,13 +155,25 @@ class EchoProvider(Provider):
                 {"summary": "They spoke at length; nothing was settled, but the mood shifted."}
             )
         if request.pass_id == "memory":
+            # Rated, because the real pass has to be (§ memory.store's gate,
+            # roadmap 41) — an unrated or chatter-filed candidate is dropped
+            # on the floor, so a stand-in that answered the old shape would
+            # quietly make every memory test assert nothing.
             facts = [
                 {"text": "The user came in off the coast road in bad weather.",
-                 "keys": ["road", "weather", "arrival"]},
+                 "keys": ["road", "weather", "arrival"],
+                 "kind": "event", "importance": 3},
                 {"text": "The user is looking for a tall woman with a scar on her jaw.",
-                 "keys": ["woman", "scar", "searching"]},
+                 "keys": ["woman", "scar", "searching"],
+                 "kind": "commitment", "importance": 4},
             ]
             return json.dumps({"memories": [facts[seed % len(facts)]]})
+        if request.pass_id == "memory_compress":
+            # Keeps everything by default: the shipped stand-in must not
+            # delete a store just by being pointed at one. Tests that want a
+            # real plan monkeypatch _compression_plan below, the same pattern
+            # _first_music_id already uses.
+            return json.dumps({"plan": _compression_plan(request)})
         if request.pass_id == "chat_rename":
             titles = [
                 "A Quiet Arrival at Night",

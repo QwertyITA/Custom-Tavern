@@ -1283,6 +1283,8 @@ function tavern() {
     memoryError: "",
     newMemoryText: "",
     armedMemory: "",
+    tidying: false,
+    tidyMsg: "",
     armedMemoryTimer: 0,
     confirmPersona: "",
     savingCharacter: false,
@@ -3871,6 +3873,32 @@ function tavern() {
     },
 
     // Same armed-then-confirm shape as every other delete in this app.
+    // Runs the compression pass now rather than waiting for the store to
+    // trip its own criteria (§ memory.needs_compression). Awaited, because
+    // the list on screen is the thing it rewrites.
+    async tidyMemories() {
+      if (!this.draftCharacter.id) return;
+      this.tidying = true;
+      this.tidyMsg = "";
+      try {
+        const result = await api.post(
+          `/api/characters/${this.draftCharacter.id}/memories/tidy`, {});
+        if (result.error) {
+          this.tidyMsg = result.error;
+        } else {
+          this.characterMemories = result.memories;
+          const removed = result.before - result.after;
+          this.tidyMsg = removed > 0
+            ? `Tidied — ${result.before} memories became ${result.after}.`
+            : "Looked through them all; nothing needed changing.";
+        }
+      } catch (e) {
+        this.tidyMsg = errorText(e);
+      } finally {
+        this.tidying = false;
+      }
+    },
+
     async removeMemory(memory) {
       if (this.armedMemory !== memory.id) {
         this.armedMemory = memory.id;

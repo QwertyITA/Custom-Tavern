@@ -1224,6 +1224,29 @@ async def create_memory(character_id: str, payload: dict = Body(...)) -> list[di
     return memory_store.list_all(db, character_id)
 
 
+@app.post("/api/characters/{character_id}/memories/tidy")
+async def tidy_memories(character_id: str) -> dict:
+    """Run the tidy-up now, rather than waiting for the store to trip its own
+    criteria (§ memory.needs_compression, roadmap 41).
+
+    Awaited rather than fired and forgotten, unlike the automatic one: the
+    panel that asked is showing the list this rewrites, and handing it back a
+    stale copy to redraw would be worse than the wait.
+    """
+    db = get_db()
+    if repo.get_character(db, character_id) is None:
+        raise HTTPException(404, "character not found")
+    before = memory_store.stats(db, character_id)
+    result = await scheduler().tidy_memories_now(character_id)
+    return {
+        "ok": not result.get("error"),
+        "error": result.get("error", ""),
+        "before": before["total"],
+        "after": memory_store.stats(db, character_id)["total"],
+        "memories": memory_store.list_all(db, character_id),
+    }
+
+
 @app.put("/api/memories/{memory_id}")
 async def update_memory(memory_id: str, payload: dict = Body(...)) -> dict:
     db = get_db()

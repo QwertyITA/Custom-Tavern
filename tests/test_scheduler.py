@@ -925,7 +925,9 @@ def test_memory_pass_shows_the_model_what_is_already_remembered(sched, chat, cha
     from app import memory as memory_store
 
     memory_store.store(
-        sched.db, character.id, [{"text": "Mira tends the bar at the Long Wait."}],
+        sched.db, character.id,
+        # Rated, as the real pass must be now (§ memory.store's gate, roadmap 41).
+        [{"text": "Mira tends the bar at the Long Wait.", "kind": "identity", "importance": 4}],
     )
     repo.add_message(sched.db, chat["id"], "user", "a secret")
     definition = next(d for d in registry.all_passes(sched.db) if d.id == "memory")

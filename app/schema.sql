@@ -121,7 +121,23 @@ CREATE TABLE IF NOT EXISTS memories (
     keys         TEXT NOT NULL DEFAULT '[]',   -- json array
     created_turn INTEGER NOT NULL DEFAULT 0,
     source       TEXT NOT NULL DEFAULT 'memory_pass',
-    created_at   REAL NOT NULL
+    created_at   REAL NOT NULL,
+    -- What sort of fact this is, from a closed set (§ memory.KINDS). The
+    -- point of the set is the bin that is NOT in it: 'chatter' is a label
+    -- the extracting pass may return and this table never stores, which
+    -- gives a model that feels obliged to produce something a legitimate
+    -- place to put it instead of dressing it up as a fact.
+    kind         TEXT NOT NULL DEFAULT '',
+    -- 1-5, the pass's own rating; 0 on anything written before this existed
+    -- or added by hand. The floor is applied in code, never in the prompt
+    -- (§ memory.MIN_IMPORTANCE) — a model asked in prose to hold a bar will
+    -- rationalise its way under it.
+    importance   INTEGER NOT NULL DEFAULT 0,
+    -- Reinforcement. A fact that keeps getting retrieved has proved itself;
+    -- one never retrieved in a long life is the first thing compression
+    -- should look at (§ memory.retrieve, needs_compression).
+    uses         INTEGER NOT NULL DEFAULT 0,
+    last_used_turn INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_memories_character ON memories(character_id);
 

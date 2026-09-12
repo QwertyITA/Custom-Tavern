@@ -325,6 +325,56 @@ STscript (26).
       than stored, so nothing can disagree with what is actually on disk.
       Kept out of the music library on purpose: that is the story's
       soundtrack, offered to `music_select` and pickable by hand in a chat.
+- [x] **43. Memory quality.** Reported live: a store filling with "the user
+      said hello to the character". The old pass did ask for durable facts
+      only — and a model asked for facts produces *something*, because
+      producing something feels like doing the job. Two things were missing,
+      and neither was a better sentence in the prompt.
+
+      **A place to put small talk.** Every candidate now arrives labelled as
+      one of six kinds (identity, relationship, commitment, event,
+      preference, possession) and rated 1-5, plus a seventh label `chatter`
+      that is never stored. Naming the reject bin is most of the fix: it
+      gives a model that feels obliged to answer somewhere honest to put a
+      greeting instead of dressing one up as a fact.
+
+      **A threshold it cannot argue with.** The floor is applied in
+      `memory.store`, never asked for in the prompt — a model told in prose
+      to hold a bar will rationalise its way under it. Chatter, anything
+      rated 1, and anything handed over unrated are all dropped on the
+      floor; the rating is the contract, and a reply that skips it skipped
+      the thinking. A memory typed in by hand is never rated and never
+      gated: that judgement has already been made by someone who counts.
+
+      **Evidence, not guesswork.** Retrieval records what it actually used
+      (`uses`, `last_used_turn`), which is the only honest signal this
+      system can collect about whether a memory earned its place — and among
+      memories that match, importance now breaks the tie, so junk sharing
+      one word stops crowding out the fact that matters.
+- [x] **43b. Memory compression.** A second canonical pass
+      (`memory_compress`) that re-reads the whole store and merges, rewords
+      and deletes — the thing plain dedupe can never do, since two memories
+      drifting towards the same claim, or a later fact quietly contradicting
+      an earlier one, are both invisible to a similarity threshold.
+
+      Fired on evidence rather than on a timer: at least `COMPRESS_AT` (30)
+      memories *and* at least `COMPRESS_EVERY` (12) added since it last
+      looked. Both, never either — re-reading an unchanged store is paying
+      to be told the same thing twice, and a dozen new facts in a small
+      store is not yet a mess, so a quiet character never pays for it.
+      Also on demand from the panel's Tidy button
+      (`POST /api/characters/{id}/memories/tidy`), awaited there rather than
+      fired and forgotten, since the caller is redrawing the list it
+      rewrites.
+
+      Three rules the model does not get a vote on, in
+      `memory.apply_compression`: it may never touch a memory someone wrote
+      or edited by hand (editing marks it yours — § `memory.update`); a plan
+      that would empty the store is refused outright; and anything the plan
+      does not mention is kept, because deleting by omission is the worst
+      failure available here. The trade on the first rule is deliberate and
+      visible: a hand-written memory a later fact contradicts stays until
+      you resolve it yourself.
 - [x] **41. Message reactions.** React to one of the character's own
       replies with one of six fixed emoji (heart/laugh/cry/wow/angry/
       thumbs-up) from the message wheel — the `soon: true` placeholder
