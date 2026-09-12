@@ -67,6 +67,19 @@ def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
 
 
+def _why(exc: Exception) -> str:
+    """A reason, even from an exception that carries no message.
+
+    httpx's timeout and connection errors routinely stringify to nothing at
+    all — `str(httpx.ReadTimeout())` is `""` — which is how a real debug
+    export came back full of `horde: submit failed: ` and
+    `horde: poll failed: ` with nothing after the colon, the one detail that
+    would have said which of the two it was.
+    """
+    text = str(exc).strip()
+    return text or exc.__class__.__name__
+
+
 def _reason(response: httpx.Response) -> str:
     """Pull Horde's own explanation out of an error response."""
     try:
@@ -95,6 +108,78 @@ class HordeProvider(Provider):
         # a single model name since that is what actually selects the worker
         # pool here.
         self._status_cache: list[dict] | None = None
+        # Same caching reasoning, for `/status/workers` (§ _worker_caps). A
+        # separate slot rather than one shared "status" cache: the two
+        # endpoints answer different questions and one being unavailable
+        # must not blank the other.
+        self._workers_cache: tuple[int, int] | None | str = "unfetched"
+
+    async def _worker_caps(self) -> tuple[int, int] | None:
+        """The `(context, reply length)` the most capable worker actually
+        serving one of the selected models offers right now — or None when
+        Horde cannot be asked, or answers with nothing usable.
+
+        This is the one question that decides whether a job is pickable at
+        all, and `/status/models` cannot answer it: it carries name, count,
+        performance, queued and eta, and no size of any kind (§
+        `_probe_context`, which only ever got lucky when a deployment
+        happened to include one anyway). `/status/workers` does carry both,
+        per worker, alongside the models that worker serves — so it is the
+        only place the real ceiling can be read.
+
+        Taken from a *single* worker, not as the best of each field
+        separately: a pool holding one worker at 8k context/256 tokens and
+        another at 4k/512 can serve neither 8k/512 nor anything else the
+        two only manage between them. Each worker is scored on what it
+        could actually do, and the best single one wins — largest context
+        first, then largest reply, since context is what a long chat runs
+        out of and a request that overshoots it is the one that goes
+        unpicked.
+
+        Cached like `_status_models` above: this is a few hundred rows on a
+        busy day, and asking once per backend is the difference between one
+        download and one per turn.
+        """
+        if self._workers_cache != "unfetched":
+            return self._workers_cache  # type: ignore[return-value]
+        self._workers_cache = None
+        wanted = set(_wanted_models(self.config))
+        if not wanted:
+            return None
+        try:
+            response = await self.client().get("/status/workers", params={"type": "text"})
+            response.raise_for_status()
+            rows = response.json()
+        except (httpx.HTTPError, ValueError):
+            return None
+        if not isinstance(rows, list):
+            return None
+
+        best: tuple[int, int] | None = None
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            # Explicitly off or explicitly in maintenance, only: a worker row
+            # that says neither is assumed available, the same way every
+            # other field here is read defensively rather than demanded.
+            if row.get("online") is False or row.get("maintenance_mode") is True:
+                continue
+            served = row.get("models")
+            if not isinstance(served, list) or not wanted.intersection(
+                str(name) for name in served
+            ):
+                continue
+            try:
+                context = int(row.get("max_context_length") or 0)
+                length = int(row.get("max_length") or 0)
+            except (TypeError, ValueError):
+                continue
+            if context <= 0 or length <= 0:
+                continue
+            if best is None or (context, length) > best:
+                best = (context, length)
+        self._workers_cache = best
+        return best
 
     async def _status_models(self) -> list[dict]:
         """The raw `/status/models` rows, fetched once and reused — both
@@ -114,14 +199,21 @@ class HordeProvider(Provider):
         return self._status_cache
 
     async def _probe_context(self) -> int | None:
-        """The smallest context any currently-selected model reports, if
-        Horde's own model list happens to say — falling back to Horde's own
-        API ceiling (a worker may hold more, but the API refuses a request
-        that asks for more than this) when it does not.
+        """What a real worker can hold, falling back to what the model list
+        happens to say, falling back to Horde's own API ceiling (a worker
+        may hold more, but the API refuses a request that asks for more
+        than this).
 
-        Best-effort on purpose: `/status/models` is documented to carry
+        The workers are asked first (§ `_worker_caps`) because they are the
+        only ones who actually know — and because the prompt this sizes and
+        the job `generate` submits have to agree: a prompt assembled for
+        32k that is then submitted asking for 8k is a prompt the worker
+        will silently cut the far end off.
+
+        The model list is the older, weaker answer kept underneath it:
+        `/status/models` is documented to carry
         `name`/`count`/`performance`/`queued`/`eta`, not a context size, so
-        this only ever improves on the flat ceiling if a deployment's
+        it only ever improves on the flat ceiling if a deployment's
         response happens to carry one of the common field names anyway —
         never a promise, just not thrown away if it is there. The minimum
         across selected models, not the first or the biggest: several
@@ -129,6 +221,9 @@ class HordeProvider(Provider):
         smallest is the only one that is honest about what every one of
         them can actually hold.
         """
+        caps = await self._worker_caps()
+        if caps:
+            return caps[0]
         wanted = _wanted_models(self.config)
         if wanted:
             try:
@@ -295,29 +390,33 @@ class HordeProvider(Provider):
                 "tab; Horde does not accept a job with none named"
             )
         payload = self.build_payload(request)
-        # Clamped down to what a currently-connected worker for these models
-        # can actually serve, when the configured (or default) context asks
-        # for more than that. Horde matches workers against the requested
-        # `max_context_length` itself, not against how much of it the prompt
-        # actually uses — a ceiling set above every online worker's own
-        # window means Horde can never match a worker to the job at all, no
-        # matter how long the timeout runs, which reads as "not working" from
-        # the outside rather than as a settings mismatch. Same probe
-        # `context_limit()` already uses to fit the *prompt* to what a
-        # backend can hold (§ PassScheduler._fitted, scheduler.py) — usually
-        # already warm by the time this runs, so this rarely costs a second
-        # network round trip. Only ever lowers what gets asked for: a smaller
-        # configured value is still honoured as a deliberate choice, and
-        # `_probe_context` itself already falls back to Horde's flat ceiling
-        # with nothing to clamp against when no selected model reports a
-        # context size at all (undocumented field — § _probe_context's own
-        # comment), which leaves this exactly as it was before for that case.
-        available = await self._probe_context()
-        requested = payload["params"]["max_context_length"]
-        if available and available < requested:
-            payload["params"]["max_context_length"] = int(
-                _clamp(available, *LIMITS["max_context_length"])
+        # Cut to fit an actual worker (§ _worker_caps), whenever what was
+        # configured asks for more than the best one online can serve.
+        #
+        # Horde matches workers against the *requested* `max_context_length`
+        # and `max_length` themselves, not against how much of either the job
+        # turns out to use — so a context set above every online worker's own
+        # window means no worker can ever be matched to the job, no matter
+        # how long the timeout runs. From the outside that is indistinguishable
+        # from the whole backend being down: the job simply sits there, and
+        # every attempt ends in "timed out waiting for a worker". Reported
+        # live, from a real debug export: context 32000 (Horde's own API
+        # ceiling, which almost no volunteer worker offers) against a 22B
+        # model, failing exactly that way every single time.
+        #
+        # Only ever lowers what was asked for, so the worst this can do when
+        # the pool cannot be read at all is nothing: a smaller configured
+        # value stays a deliberate choice, and an unreadable or unreported
+        # pool leaves the request exactly as it was built.
+        caps = await self._worker_caps()
+        params = payload["params"]
+        context_cap = caps[0] if caps else await self._probe_context()
+        if context_cap and context_cap < params["max_context_length"]:
+            params["max_context_length"] = int(
+                _clamp(context_cap, *LIMITS["max_context_length"])
             )
+        if caps and caps[1] and caps[1] < params["max_length"]:
+            params["max_length"] = int(_clamp(caps[1], *LIMITS["max_length"]))
         client = self.client()
         try:
             submit = await client.post("/generate/text/async", json=payload)
@@ -328,7 +427,7 @@ class HordeProvider(Provider):
             # it the error is just "400 Bad Request", which is unactionable.
             raise ProviderError(f"horde: submit rejected: {_reason(exc.response)}") from exc
         except (httpx.HTTPError, KeyError, ValueError) as exc:
-            raise ProviderError(f"horde: submit failed: {exc}") from exc
+            raise ProviderError(f"horde: submit failed: {_why(exc)}") from exc
 
         deadline = asyncio.get_running_loop().time() + self.config.timeout
         while True:
@@ -354,9 +453,9 @@ class HordeProvider(Provider):
                 check.raise_for_status()
                 status = check.json()
             except httpx.HTTPError as exc:
-                raise ProviderError(f"horde: poll failed: {exc}") from exc
+                raise ProviderError(f"horde: poll failed: {_why(exc)}") from exc
             except ValueError as exc:
-                raise ProviderError(f"horde: poll returned unreadable data: {exc}") from exc
+                raise ProviderError(f"horde: poll returned unreadable data: {_why(exc)}") from exc
             if status.get("faulted"):
                 raise ProviderError("horde: job faulted")
             # NOT `is_possible` here, on purpose, even though Horde reports

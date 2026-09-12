@@ -518,6 +518,203 @@ def _submitted_context(calls: list[dict]) -> int:
     return calls[0]["params"]["max_context_length"]
 
 
+def _worker_handler(workers, calls: list[dict]):
+    """A Horde that answers /status/workers with `workers`, records every
+    submitted job in `calls`, and finishes the first poll."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/status/workers"):
+            return httpx.Response(200, json=workers)
+        if request.url.path.endswith("/status/models"):
+            return httpx.Response(200, json=[{"name": "koboldcpp/x"}])
+        if request.url.path.endswith("/generate/text/async"):
+            calls.append(json.loads(request.content))
+            return httpx.Response(202, json={"id": "job1"})
+        return httpx.Response(
+            200,
+            json={
+                "done": True, "faulted": False,
+                "generations": [{"text": "hi there", "model": "m"}],
+            },
+        )
+
+    return handler
+
+
+def test_horde_clamps_context_to_what_a_real_worker_serves(monkeypatch):
+    """The reported failure, from a real debug export: context 32000 —
+    Horde's own API ceiling, which almost no volunteer worker offers —
+    against a 22B model, so no worker could ever be matched and every
+    attempt ended in "timed out waiting for a worker". /status/models
+    cannot catch this (it reports no size at all); /status/workers can."""
+    from app.providers import horde as horde_module
+
+    monkeypatch.setattr(horde_module, "POLL_INTERVAL", 0.01)
+    calls: list[dict] = []
+    workers = [
+        {"name": "w1", "models": ["koboldcpp/x"], "max_context_length": 8192,
+         "max_length": 512, "online": True},
+        {"name": "w2", "models": ["something/else"], "max_context_length": 32000,
+         "max_length": 512, "online": True},
+    ]
+
+    provider = horde_wired(_worker_handler(workers, calls), timeout=5.0, context=32000)
+    assert sync(provider.generate(_horde_request())).text == "hi there"
+    assert _submitted_context(calls) == 8192
+
+
+def test_horde_takes_the_best_single_worker_not_the_best_of_each_field(monkeypatch):
+    """A pool of one worker at 8k/256 and another at 4k/512 can serve
+    neither 8k/512 nor 4k/256-by-halves — the pair has to come off one
+    worker, or the job asks for something nobody can do."""
+    from app.providers import horde as horde_module
+
+    monkeypatch.setattr(horde_module, "POLL_INTERVAL", 0.01)
+    calls: list[dict] = []
+    workers = [
+        {"name": "big-window", "models": ["koboldcpp/x"], "max_context_length": 8192,
+         "max_length": 256},
+        {"name": "long-reply", "models": ["koboldcpp/x"], "max_context_length": 4096,
+         "max_length": 512},
+    ]
+
+    provider = horde_wired(
+        _worker_handler(workers, calls), timeout=5.0, context=32000, max_tokens=512
+    )
+    sync(provider.generate(_horde_request()))
+    params = calls[0]["params"]
+    assert (params["max_context_length"], params["max_length"]) == (8192, 256)
+
+
+def test_horde_skips_workers_that_are_offline_or_in_maintenance(monkeypatch):
+    from app.providers import horde as horde_module
+
+    monkeypatch.setattr(horde_module, "POLL_INTERVAL", 0.01)
+    calls: list[dict] = []
+    workers = [
+        {"name": "offline", "models": ["koboldcpp/x"], "max_context_length": 32000,
+         "max_length": 512, "online": False},
+        {"name": "paused", "models": ["koboldcpp/x"], "max_context_length": 16384,
+         "max_length": 512, "maintenance_mode": True},
+        {"name": "real", "models": ["koboldcpp/x"], "max_context_length": 4096,
+         "max_length": 512, "online": True},
+    ]
+
+    provider = horde_wired(_worker_handler(workers, calls), timeout=5.0, context=32000)
+    sync(provider.generate(_horde_request()))
+    assert _submitted_context(calls) == 4096
+
+
+def test_horde_never_raises_the_request_to_fill_a_bigger_worker(monkeypatch):
+    """Only ever lowers. A configured 2048 against a 32k worker stays 2048 —
+    asking for less than the pool can give is a choice, not a mistake."""
+    from app.providers import horde as horde_module
+
+    monkeypatch.setattr(horde_module, "POLL_INTERVAL", 0.01)
+    calls: list[dict] = []
+    workers = [
+        {"name": "w1", "models": ["koboldcpp/x"], "max_context_length": 32000,
+         "max_length": 512},
+    ]
+
+    provider = horde_wired(_worker_handler(workers, calls), timeout=5.0, context=2048)
+    sync(provider.generate(_horde_request()))
+    assert _submitted_context(calls) == 2048
+
+
+def test_horde_leaves_the_request_alone_when_no_worker_serves_the_model(monkeypatch):
+    """Nothing readable about the pool for *these* models means nothing to
+    clamp against — the request goes out exactly as configured rather than
+    being cut to some other model's worker."""
+    from app.providers import horde as horde_module
+
+    monkeypatch.setattr(horde_module, "POLL_INTERVAL", 0.01)
+    calls: list[dict] = []
+    workers = [
+        {"name": "w1", "models": ["something/else"], "max_context_length": 4096,
+         "max_length": 512},
+    ]
+
+    provider = horde_wired(_worker_handler(workers, calls), timeout=5.0, context=16000)
+    sync(provider.generate(_horde_request()))
+    assert _submitted_context(calls) == 16000
+
+
+def test_horde_survives_a_workers_endpoint_that_is_missing_or_junk(monkeypatch):
+    """Every shape a deployment might answer with, including not having the
+    endpoint at all — none of them may fail a turn, and none may change what
+    gets submitted."""
+    from app.providers import horde as horde_module
+
+    monkeypatch.setattr(horde_module, "POLL_INTERVAL", 0.01)
+    for body in ({"error": "nope"}, [], ["junk"], [{"models": "not-a-list"}], None):
+        calls: list[dict] = []
+
+        def handler(request: httpx.Request, body=body) -> httpx.Response:
+            if request.url.path.endswith("/status/workers"):
+                if body is None:
+                    return httpx.Response(404, json={})
+                return httpx.Response(200, json=body)
+            if request.url.path.endswith("/status/models"):
+                return httpx.Response(200, json=[{"name": "koboldcpp/x"}])
+            if request.url.path.endswith("/generate/text/async"):
+                calls.append(json.loads(request.content))
+                return httpx.Response(202, json={"id": "job1"})
+            return httpx.Response(
+                200,
+                json={
+                    "done": True, "faulted": False,
+                    "generations": [{"text": "hi there", "model": "m"}],
+                },
+            )
+
+        provider = horde_wired(handler, timeout=5.0, context=16000)
+        assert sync(provider.generate(_horde_request())).text == "hi there", body
+        assert _submitted_context(calls) == 16000, body
+
+
+def test_horde_asks_the_worker_list_once_not_once_a_turn(monkeypatch):
+    """A few hundred rows on a busy day — once per backend, not once per
+    reply (§ _worker_caps, same reasoning as _status_models')."""
+    from app.providers import horde as horde_module
+
+    monkeypatch.setattr(horde_module, "POLL_INTERVAL", 0.01)
+    calls: list[dict] = []
+    fetches = {"n": 0}
+    workers = [
+        {"name": "w1", "models": ["koboldcpp/x"], "max_context_length": 8192,
+         "max_length": 512},
+    ]
+    inner = _worker_handler(workers, calls)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/status/workers"):
+            fetches["n"] += 1
+        return inner(request)
+
+    provider = horde_wired(handler, timeout=5.0, context=32000)
+    sync(provider.generate(_horde_request()))
+    sync(provider.generate(_horde_request()))
+    sync(provider.generate(_horde_request()))
+    assert fetches["n"] == 1
+    assert [c["params"]["max_context_length"] for c in calls] == [8192, 8192, 8192]
+
+
+def test_the_prompt_is_sized_to_the_same_worker_the_job_is_submitted_for(monkeypatch):
+    """context_limit() feeds the prompt assembler (§ PassScheduler._fitted)
+    and generate() shapes the job — they have to agree, or a prompt built
+    for 32k gets submitted asking for 8k and the far end of it is silently
+    cut off inside the worker."""
+    calls: list[dict] = []
+    workers = [
+        {"name": "w1", "models": ["koboldcpp/x"], "max_context_length": 8192,
+         "max_length": 512},
+    ]
+
+    provider = horde_wired(_worker_handler(workers, calls), timeout=5.0, context=32000)
+    assert sync(provider.context_limit()) == 8192
+
+
 def test_horde_clamps_the_submitted_context_down_to_what_a_worker_reports(monkeypatch):
     from app.providers import horde as horde_module
 
