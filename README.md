@@ -302,13 +302,18 @@ button** with the number who can currently answer on it — tapping it opens
 that section directly. It is the same section as **☰ → story → Who is here**,
 just without the three taps and the scroll past everything else in the panel.
 
+**Next turn** sits above the message box whenever there is more than one
+person in the room: tap a name and that character answers this one message,
+whatever the policy says. The pick is spent as the message goes — it never
+quietly becomes a rule. Naming someone in the message itself still works too.
+
 **Whose turn it is** picks the policy:
 
 | Policy | What it does |
 | --- | --- |
 | **Whoever would answer** (default) | Name someone and they answer; otherwise weighted chance, with whoever just spoke pushed down |
 | **Take turns** | Strict order |
-| **You choose** | Pick before each message |
+| **You choose** | Pick before each message — the row above the box becomes required rather than optional |
 
 The default is deliberately not take-turns. Round-robin is the arrangement
 where you say something to one person and the other one answers, forever — it
@@ -726,7 +731,8 @@ beside it leaves it out.
 | Meeting someone new | One description on arrival, then only what changed |
 | Prose discipline | Literal, observable narration — the strictest one here |
 | Point of view | Third person for the room, second for what you feel |
-| Their turn is theirs | Never speak or act for you, never echo you |
+| Their turn is theirs | Never speak or act for you, and hand the turn back cleanly |
+| Not your words back | No repeating, rewording or summarising your message before answering it |
 | How they talk | A third to a half dialogue, and no two voices alike |
 | What they can know | No knowing what they did not witness |
 | What moves them | Appetite and mood under the persona, never named |
@@ -738,7 +744,7 @@ beside it leaves it out.
 **Combat as spectacle** and **adult scenes** ship off; they are a matter of
 taste rather than of craft.
 
-They cost about 1,700 tokens, paid on every turn but cached — which is why they
+They cost about 2,000 tokens, paid on every turn but cached — which is why they
 sit in the first group and why the context budget defaults to 32k. On a
 backend with a small window, turn some off.
 

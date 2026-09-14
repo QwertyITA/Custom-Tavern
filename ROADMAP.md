@@ -533,6 +533,51 @@ STscript (26).
       homepage (§47). Only shown with more than one person in the room:
       a solo chat has nothing here to change, and a button opening a
       list of one is worse than no button.
+- [x] **49. The wrong face against a message.** Reported live. Three
+      separate causes, all of them the same mistake — asking the chat's
+      *membership* a question it does not answer. Membership is who can
+      speak next; a transcript needs who already did.
+      (a) `repo.add_message` returned the one message object in the app
+      with no `speaker_id` on it, so the `reply` event the client swaps
+      its streaming bubble for carried no speaker and the finished reply
+      fell back to the chat's nominal character — right face while it
+      streamed, wrong face the moment it landed, correct again only
+      after reopening the chat. Stored correctly the whole time, simply
+      not reported.
+      (b) `turn_start` has always carried the answering character's id
+      "so the placeholder can carry their name and portrait instead of
+      the chat's nominal character" — the client read only the name, so
+      the bubble streamed under the wrong face for the whole generation.
+      (c) The faces, frames, colour treatments and speaker labels were
+      all looked up in `cast`, which holds current members only. Remove
+      somebody from a group and every line they ever said lost its face
+      and its name to whoever was left; shrink the group back to one and
+      every line in the chat did. A new `groups.voices` serves everyone
+      with a line in the transcript, and an unknown speaker now draws
+      the blank placeholder rather than borrowing a face.
+- [x] **50. "Next turn, X answers."** The server has always honoured a
+      named speaker under any policy (`groups.choose_speaker`'s
+      `forced`), but the only control for it was bound to the "you
+      choose" policy — using it once meant switching the whole chat over
+      and then being asked every single turn thereafter. The row above
+      the composer is now offered under every policy: required under
+      "you choose" as before, an optional one-turn override otherwise,
+      spent as the message goes so it never quietly becomes a rule.
+      Which also exposed that `.composer` never wrapped, so its two
+      full-width rows — this one and the staged attachments — were being
+      squeezed onto the text box's own line.
+- [x] **51. Not your words back.** Reported live: replies that hand your
+      own message back, quoted or reworded, before answering it. Two
+      lines about this already existed, buried inside *Their turn is
+      theirs* under a label about not acting for the user, where nobody
+      would find them to strengthen or switch them off. Its own section
+      now, and a fuller one — the ban, what to write instead, and a test
+      the model can apply to its own sentence. Adapted from the same
+      preset family the rest of the writing library came from (§
+      prompt_layout's own header). `postprocess.find_echoed_phrase`
+      already measured the same thing from the other end and marked the
+      variant; there is now an instruction against it and a reading of
+      whether it worked.
 
 ## Undecided — needs a call
 

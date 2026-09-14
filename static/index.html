@@ -846,9 +846,12 @@
           </span>
         </div>
 
-        <!-- Who said it. Only in a group: in a solo chat every reply is from
-             the same person and a name on each one is noise. -->
-        <span class="said-by" x-show="cast.length > 1 && m.role === 'assistant'"
+        <!-- Who said it. Only where there is more than one voice: in a chat
+             with one person every reply is from them and a name on each one
+             is noise. Voices rather than cast — someone removed from the
+             group still has lines here, and those lines still need naming
+             (§ voiceFor, app.js). -->
+        <span class="said-by" x-show="manyVoices && m.role === 'assistant'"
               x-text="speakerName(m)" x-cloak></span>
 
         <!-- Regenerating replaces this message in place: the bubble becomes the
@@ -1477,12 +1480,27 @@
       </span>
     </template>
   </div>
-  <!-- Only for the "you choose" policy: every other one decides for itself,
-       and a picker that does nothing would be worse than no picker. -->
-  <div class="who-row" x-show="policy === 'manual' && cast.length > 1" x-cloak>
+  <!-- Whose turn the next one is, right where the message is being typed.
+       Under "you choose" this is the policy itself and picking is required
+       (§ send, app.js, which refuses without one). Under every other policy
+       it is an override for this one turn: nothing picked means the policy
+       decides, as it always did, and a pick is spent the moment the message
+       goes — the server has always honoured a named speaker whatever the
+       policy (§ groups.choose_speaker's `forced`), there was simply nowhere
+       to say it from without switching the whole chat to manual first.
+
+       Muted members are not offered: asking someone silent to speak is a
+       contradiction the server ignores anyway. -->
+  <div class="who-row" x-show="cast.length > 1" x-cloak>
+    <span class="who-row-label"
+          x-text="policy === 'manual' ? 'Who answers' : 'Next turn'"></span>
     <template x-for="m in cast.filter(c => !c.muted)" :key="m.character_id">
       <button class="preset" :class="{ picked: nextSpeaker === m.character_id }"
-              @click="nextSpeaker = nextSpeaker === m.character_id ? '' : m.character_id"
+              :aria-pressed="nextSpeaker === m.character_id"
+              :title="nextSpeaker === m.character_id
+                        ? `${m.name} answers this one`
+                        : `Let ${m.name} answer this one`"
+              @click="pickNextSpeaker(m)"
               x-text="m.name"></button>
     </template>
   </div>

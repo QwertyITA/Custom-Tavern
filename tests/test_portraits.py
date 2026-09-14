@@ -9,6 +9,8 @@ picture to put in it.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from app import repo
@@ -266,3 +268,145 @@ def test_replacing_an_idle_loop_deletes_the_one_it_replaced(
     assert not first_path.exists(), "the replaced clip should be gone"
     assert second_path.exists()
     assert repo.get_character(db, created["id"]).avatar_video.idle_video == second_url
+
+
+# ----------------------------------------------- the face of someone who left
+#
+# Reported live as "a wrong picture against a message". The cause was that the
+# transcript's faces were looked up in the chat's *membership*, which answers
+# a different question: who can speak next. Remove somebody from a group and
+# every line they ever said lost its face and silently borrowed the chat
+# character's — and once the group was back down to one person, so did every
+# line in it.
+
+
+def _group(db, chat, *names):
+    from app import groups
+    from app.models import Character
+
+    made = []
+    for name in names:
+        card = Character(id=name.lower(), name=name,
+                         pfp_set={"neutral": f"/avatars/{name.lower()}.png"})
+        repo.save_character(db, card)
+        groups.add_member(db, chat["id"], card.id)
+        made.append(card)
+    return made
+
+
+def test_a_departed_member_is_still_a_voice_in_the_chat(db, chat, character):
+    from app import groups
+
+    (bram,) = _group(db, chat, "Bram")
+    repo.add_message(db, chat["id"], "assistant", "Bram says something.",
+                     speaker_id=bram.id)
+    groups.remove_member(db, chat["id"], bram.id)
+
+    assert bram.id not in [m["character_id"] for m in groups.members(db, chat["id"])]
+    voices = {v["character_id"]: v for v in groups.voices(db, chat["id"])}
+    assert bram.id in voices, "his lines are still in the transcript"
+    assert voices[bram.id]["pfp"] == "/avatars/bram.png"
+    assert voices[bram.id]["name"] == "Bram"
+
+
+def test_a_voice_carries_the_same_card_details_a_member_does(db, chat, character):
+    from app import groups
+
+    (bram,) = _group(db, chat, "Bram")
+    repo.add_message(db, chat["id"], "assistant", "A line.", speaker_id=bram.id)
+    voice = next(v for v in groups.voices(db, chat["id"]) if v["character_id"] == bram.id)
+    member = next(m for m in groups.members(db, chat["id"]) if m["character_id"] == bram.id)
+    for field in ("name", "pfp", "pfp_shape", "pfp_effect"):
+        assert voice[field] == member[field]
+
+
+def test_someone_who_has_not_spoken_is_not_a_voice(db, chat, character):
+    from app import groups
+
+    (bram,) = _group(db, chat, "Bram")
+    assert bram.id not in [v["character_id"] for v in groups.voices(db, chat["id"])]
+
+
+def test_a_deleted_card_leaves_no_face_to_borrow(db, chat, character):
+    """Not a fallback to somebody else: a face nothing knows any more is the
+    blank placeholder, which is the honest answer."""
+    from app import groups
+
+    (bram,) = _group(db, chat, "Bram")
+    repo.add_message(db, chat["id"], "assistant", "A line.", speaker_id=bram.id)
+    repo.delete_character(db, bram.id)
+    assert bram.id not in [v["character_id"] for v in groups.voices(db, chat["id"])]
+
+
+def test_the_users_own_messages_are_not_voices(db, chat, character):
+    from app import groups
+
+    repo.add_message(db, chat["id"], "user", "Hello.")
+    assert [v["character_id"] for v in groups.voices(db, chat["id"])] == []
+
+
+def test_each_voice_appears_once_however_many_lines_they_have(db, chat, character):
+    from app import groups
+
+    (bram,) = _group(db, chat, "Bram")
+    for i in range(4):
+        repo.add_message(db, chat["id"], "assistant", f"Line {i}.", speaker_id=bram.id)
+    ids = [v["character_id"] for v in groups.voices(db, chat["id"])]
+    assert ids.count(bram.id) == 1
+
+
+def test_the_members_endpoint_serves_the_voices_too(client):
+    made = client.post("/api/characters", json={"name": "Mira"}).json()["id"]
+    other = client.post("/api/characters", json={"name": "Bram"}).json()["id"]
+    chat_id = client.post("/api/chats/group", json={"character_ids": [made, other]}).json()["id"]
+    client.post(f"/api/chats/{chat_id}/send", json={"text": "hello", "speaker_id": other})
+
+    body = client.get(f"/api/chats/{chat_id}/members").json()
+    assert other in [v["character_id"] for v in body["voices"]]
+
+    client.delete(f"/api/chats/{chat_id}/members/{other}")
+    body = client.get(f"/api/chats/{chat_id}/members").json()
+    assert other not in [m["character_id"] for m in body["members"]]
+    assert other in [v["character_id"] for v in body["voices"]], (
+        "his lines are still there, so his face has to be findable"
+    )
+
+
+def test_a_freshly_added_message_reports_its_own_speaker(db, chat, character):
+    """The copy `add_message` hands back is what the `reply` event carries, and
+    it is what the client swaps its streaming bubble for. It was the one
+    message object in the app with no speaker on it — stored correctly the
+    whole time, simply not reported — so in a group the finished reply lost
+    its face and its name to the chat's nominal character until the chat was
+    reopened."""
+    made = repo.add_message(db, chat["id"], "assistant", "A line.",
+                            speaker_id=character.id)
+    assert made["speaker_id"] == character.id
+    assert repo.get_message(db, made["id"])["speaker_id"] == character.id
+
+
+def test_the_reported_speaker_matches_every_read_path(db, chat, character):
+    made = repo.add_message(db, chat["id"], "assistant", "A line.",
+                            speaker_id=character.id)
+    listed = next(m for m in repo.list_messages(db, chat["id"]) if m["id"] == made["id"])
+    assert made["speaker_id"] == listed["speaker_id"] == repo.get_message(db, made["id"])["speaker_id"]
+
+
+def test_a_message_with_no_speaker_reports_an_empty_one(db, chat, character):
+    made = repo.add_message(db, chat["id"], "user", "Hello.")
+    assert made["speaker_id"] == ""
+
+
+def test_the_reply_event_carries_the_speaker(client):
+    """End to end, over the stream the client actually reads."""
+    mira = client.post("/api/characters", json={"name": "Mira"}).json()["id"]
+    bram = client.post("/api/characters", json={"name": "Bram"}).json()["id"]
+    chat_id = client.post("/api/chats/group",
+                          json={"character_ids": [mira, bram]}).json()["id"]
+    body = client.post(f"/api/chats/{chat_id}/send",
+                       json={"text": "hello", "speaker_id": bram}).text
+
+    replies = [json.loads(line[6:]) for line in body.splitlines()
+               if line.startswith("data: ") and '"reply"' in line]
+    assert replies, "no reply event in the stream"
+    assert replies[-1]["message"]["speaker_id"] == bram

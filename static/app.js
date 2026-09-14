@@ -1169,6 +1169,12 @@ function tavern() {
     rulesOpen: false,
     staged: [],
     cast: [],
+    // Everyone who has a line in this chat, which is not the same list as
+    // `cast` — see voiceFor. Kept as both an array and an id-keyed index
+    // because the index is read once per rendered row and rebuilding a Map
+    // per binding is not free on a phone.
+    voices: [],
+    voiceIndex: {},
     // Briefly marks the "Who is here" heading after the header's cast
     // button has scrolled to it, so the eye lands on the section rather
     // than on wherever the panel happened to stop (§ openCast).
@@ -1870,13 +1876,45 @@ function tavern() {
       return pfpUrl(set[this.expression] || set.neutral || "");
     },
 
+    // Who said this line. Deliberately not "who is in the room": a character
+    // removed from a group leaves their lines behind, and those lines still
+    // have to wear their own face and carry their own name. Reading the cast
+    // for this is what put somebody else's picture on them — the lookup found
+    // nothing and every caller below fell through to the chat's own
+    // character (§ groups.voices, and the same bug one step worse when the
+    // group shrank back to one: *every* row then borrowed that face).
+    voiceFor(message) {
+      if (!message || !message.speaker_id) return null;
+      return this.voiceIndex[message.speaker_id] || null;
+    },
+
+    // Whether this transcript has more than one face in it — counting anyone
+    // who has left, because their lines are still here. The question every
+    // per-speaker decision below actually wants; `cast.length` answers the
+    // different question of who can speak next.
+    get manyVoices() {
+      const ids = new Set(this.cast.map((m) => m.character_id));
+      for (const who of this.voices) ids.add(who.character_id);
+      return ids.size > 1;
+    },
+
+    // Shared by the three lookups below. The chat's own character keeps the
+    // expression slice, which is per chat and so can only mean anything when
+    // there is one face for it to mean it about; everybody else is at rest.
+    // A speaker nobody knows any more — a card deleted outright — resolves to
+    // nothing at all, and the row draws the blank placeholder. That is the
+    // honest answer; the wrong face is not.
+    _ownPortrait(message) {
+      const who = this.voiceFor(message);
+      if (!who) return !message.speaker_id;
+      return !this.manyVoices && !!this.character && who.character_id === this.character.id;
+    },
+
     // How this speaker's picture is framed. Per character, because it is a
     // property of the drawing rather than of the app (§models.pfp_shape).
     portraitShape(message) {
-      if (message && message.speaker_id && this.cast.length > 1) {
-        const who = this.cast.find((m) => m.character_id === message.speaker_id);
-        if (who && who.pfp_shape) return who.pfp_shape;
-      }
+      const who = this.voiceFor(message);
+      if (who && who.pfp_shape && !this._ownPortrait(message)) return who.pfp_shape;
       return (this.character && this.character.pfp_shape) || "portrait";
     },
 
@@ -1886,10 +1924,8 @@ function tavern() {
     // `.pfp-glow` sibling of the picture, never the picture itself (see the
     // note on pfpEffectStyle), and needs the object for pfpEffectOn too.
     portraitEffect(message) {
-      if (message && message.speaker_id && this.cast.length > 1) {
-        const who = this.cast.find((m) => m.character_id === message.speaker_id);
-        if (who && who.pfp_effect) return who.pfp_effect;
-      }
+      const who = this.voiceFor(message);
+      if (who && who.pfp_effect && !this._ownPortrait(message)) return who.pfp_effect;
       return this.character && this.character.pfp_effect;
     },
 
@@ -1986,17 +2022,15 @@ function tavern() {
       if (url) this.brokenPfps[url] = true;
     },
 
-    // The face for one message. In a solo chat that is the character, with
-    // whatever expression the last pass chose; in a group it is whoever spoke,
-    // at rest, because the expression slice belongs to the chat and not to
-    // each member of it.
+    // The face for one message. In a chat with one voice that is the
+    // character, with whatever expression the last pass chose; anywhere with
+    // more than one it is whoever spoke, at rest, because the expression
+    // slice belongs to the chat and not to each member of it.
     portraitFor(message) {
       if (!message || message.role !== "assistant") return "";
-      if (message.speaker_id && this.cast.length > 1) {
-        const who = this.cast.find((m) => m.character_id === message.speaker_id);
-        if (who) return pfpUrl(who.pfp || "");
-      }
-      return this.portrait;
+      if (this._ownPortrait(message)) return this.portrait;
+      const who = this.voiceFor(message);
+      return who ? pfpUrl(who.pfp || "") : "";
     },
 
     // The talking-video clip for one message, only while it is the one
@@ -2007,7 +2041,7 @@ function tavern() {
     // that isn't built.
     liveVideoFor(message) {
       if (!message || message.role !== "assistant") return "";
-      if (this.cast.length > 1) return "";
+      if (this.manyVoices) return "";
       if (!this.liveAvatarVideo || this.liveAvatarVideo.messageId !== message.id) return "";
       if (!this.character || !(this.character.avatar_video || {}).enabled) return "";
       return this.liveAvatarVideo.url;
@@ -4114,7 +4148,7 @@ function tavern() {
       if (!this.chatId) return;
       try {
         const body = await api.get(`/api/chats/${this.chatId}/members`);
-        this.cast = body.members;
+        this.applyMembers(body);
         this.policies = body.policies;
         this.policy = body.policy;
         // A choice made for a room that has since changed is not a choice.
@@ -4124,6 +4158,20 @@ function tavern() {
       } catch (e) {
         this.error = errorText(e);
       }
+    },
+
+    // Every answer from the members endpoint lands here, so the index the
+    // transcript's faces read can never drift from the room. Adding somebody
+    // has to reach it too: they have no lines yet, so `voices` does not carry
+    // them, and their first reply would otherwise draw a blank.
+    applyMembers(body) {
+      this.cast = body.members || [];
+      if (body.voices) this.voices = body.voices;
+      const index = {};
+      // Current membership last, so somebody still in the room is described
+      // by the row that also knows whether they are muted.
+      for (const who of [...this.voices, ...this.cast]) index[who.character_id] = who;
+      this.voiceIndex = index;
     },
 
     // The header's cast button. Opens Story and puts "Who is here" under
@@ -4154,9 +4202,24 @@ function tavern() {
                     : `${here} — change who is in this chat`;
     },
 
+    // Same lookup as the face, for the same reason: a name that vanished when
+    // someone left the group was the other half of the wrong-picture report.
     speakerName(message) {
-      const who = this.cast.find((m) => m.character_id === message.speaker_id);
+      const who = this.voiceFor(message);
       return who ? who.name : "";
+    },
+
+    // A pick for the next turn only — it is cleared as the message goes (§
+    // send), so it never quietly becomes a policy. Under "you choose" it is
+    // the policy and the confirmation would be noise on every single turn;
+    // under the others it is an override worth saying out loud, because the
+    // alternative reading of a highlighted name is "from now on".
+    pickNextSpeaker(member) {
+      const already = this.nextSpeaker === member.character_id;
+      this.nextSpeaker = already ? "" : member.character_id;
+      if (this.policy === "manual") return;
+      this.flashHint(already ? "Back to whoever would answer"
+                             : `${member.name} answers next`);
     },
 
     charactersNotHere() {
@@ -4173,7 +4236,7 @@ function tavern() {
       try {
         const body = await api.post(`/api/chats/${this.chatId}/members`,
                                     { character_id: characterId });
-        this.cast = body.members;
+        this.applyMembers(body);
         const added = this.cast.find((m) => m.character_id === characterId);
         this.flashHint(added ? `${added.name} joined` : "Joined");
       } catch (e) {
@@ -4184,7 +4247,7 @@ function tavern() {
     async dropMember(member) {
       try {
         const body = await api.del(`/api/chats/${this.chatId}/members/${member.character_id}`);
-        this.cast = body.members;
+        this.applyMembers(body);
         this.flashHint(`${member.name} left`);
       } catch (e) {
         // The server refuses to empty a chat, and its reason is the useful
@@ -6766,6 +6829,14 @@ function tavern() {
       let target = null;
       let buffer = "";
       let firstToken = false;
+      // Who this turn is being answered by, learned from turn_start and worn
+      // by the placeholder bubble below. The server has always sent it for
+      // exactly this ("so the placeholder can carry their name and portrait
+      // instead of the chat's nominal character" — scheduler.py); only the
+      // name was ever read, so in a group the reply streamed under whoever
+      // the chat is nominally with and swapped to the real speaker's face
+      // when the finished message arrived. Half the wrong-picture report.
+      let replySpeaker = "";
       // Shows the reply at a fraction of the speed it arrives at. `target` is
       // assigned on the first delta, so the pacer reads it rather than closing
       // over it.
@@ -6843,6 +6914,7 @@ function tavern() {
               variant_count: 1,
               variant_index: 0,
               edited: false,
+              speaker_id: replySpeaker,
             });
             target = this.messages[this.messages.length - 1];
           }
@@ -6953,6 +7025,7 @@ function tavern() {
               this.turn = event.turn;
               // Who is answering, so the cue carries their name — typing or
               // thinking — rather than the chat's nominal character.
+              if (event.speaker) replySpeaker = event.speaker.id || "";
               if (event.speaker && this.cast.length > 1) {
                 this.composingSpeaker = event.speaker.name;
                 this.composingLabel = this.cueLabel(this.composingKind);
@@ -6973,6 +7046,7 @@ function tavern() {
             // without appending a second copy of it.
             case "turn_resume":
               this.turn = event.turn;
+              if (event.speaker) replySpeaker = event.speaker.id || "";
               if (event.speaker && this.cast.length > 1) {
                 this.composingSpeaker = event.speaker.name;
                 this.composingLabel = this.cueLabel(this.composingKind);

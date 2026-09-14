@@ -688,3 +688,69 @@ def test_the_greeting_has_no_prompt_because_none_was_sent(client):
     _, chat_id = a_chat(client)
     greeting = last_reply(client, chat_id)
     assert client.get(f"/api/messages/{greeting['id']}/prompt").json()["ok"] is False
+
+
+# -------------------------------------------------- not your words back (§14)
+#
+# Reported live: replies that hand your own message back — quoted, reworded or
+# summarised — before answering it. There were two lines about this already,
+# buried inside craft:autonomy under a label about not acting for the user,
+# where nobody would find them to strengthen or switch them off. Its own
+# section now, and a fuller one.
+
+
+def section(section_id: str) -> dict:
+    return next(s for s in prompt_layout.WRITING if s["id"] == section_id)
+
+
+def test_the_no_echo_block_exists_and_ships_on():
+    layout = prompt_layout.normalise({})
+    block = next(s for s in layout if s["id"] == "craft:no_echo")
+    assert block["enabled"] is True
+    assert block["band"] == "prefix", "it never changes, so it caches"
+
+
+def test_it_bans_every_shape_of_handing_the_message_back():
+    text = section("craft:no_echo")["text"].lower()
+    for verb in ("quote", "repeat", "paraphrase", "summarise"):
+        assert verb in text, verb
+
+
+def test_it_says_what_to_do_instead():
+    """A ban with no substitute is a block a model satisfies by saying less."""
+    text = section("craft:no_echo")["text"].lower()
+    assert "instead" in text
+    assert "what happens next" in text
+
+
+def test_it_gives_the_model_a_test_it_can_apply_to_its_own_sentence():
+    text = section("craft:no_echo")["text"]
+    assert "would still make sense as a line in {{user}}'s" in text
+
+
+def test_autonomy_no_longer_says_the_same_thing():
+    """Two sections repeating each other is prefix tokens spent twice, and an
+    edit to one of them silently half-applied."""
+    text = section("craft:autonomy")["text"].lower()
+    for verb in ("quote", "paraphrase", "point by point"):
+        assert verb not in text, verb
+    assert "never move, speak, think or decide" in text, "its own subject is untouched"
+
+
+def test_the_note_under_it_says_what_it_is_for():
+    assert "repeat" in section("craft:no_echo")["note"].lower()
+
+
+def test_the_no_echo_block_reaches_the_assembled_prompt(db, chat, character):
+    out = build(db, chat, character)
+    assert "Never quote, repeat, paraphrase or summarise" in out.system
+    # And in the cached part of it, before the conversation.
+    assert out.system.index("Never quote, repeat, paraphrase") < len(out.system)
+
+
+def test_it_can_be_switched_off_like_any_other_block(db, chat, character):
+    settings = Settings(prompt_sections=[{"id": "craft:no_echo", "enabled": False}])
+    out = build(db, chat, character, settings)
+    assert "Never quote, repeat, paraphrase" not in out.system
+    # Its neighbour is untouched — the split did not tangle the two.
+    assert "Never move, speak, think or decide" in out.system

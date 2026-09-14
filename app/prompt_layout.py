@@ -191,19 +191,40 @@ fingers, heavier than it looked.* "Careful. It fights you at first."
     },
     {
         "id": "craft:autonomy", "band": "prefix", "label": "Their turn is theirs",
-        "note": "Never speak or act for {{user}}, and never echo what they just said.",
+        "note": "Never speak or act for {{user}}, and hand the turn back cleanly.",
         "text": """\
 Never move, speak, think or decide for {{user}}. You may write what they feel
 and what their actions cause, and nothing else.
 
-Never quote or paraphrase what they just said or did back at them. Characters
-answer the meaning, not the wording.
+End when it is {{user}}'s move again, on an action or a line of speech rather
+than on a question about what they would like to do.
+""",
+    },
+    {
+        # Split out of craft:autonomy, which had two of these lines buried in
+        # it under a label about acting for the user. Reported live: replies
+        # that hand your own message back before answering it. Its own section
+        # because it is its own failure, it is the most common one, and a
+        # block nobody can find is a block nobody can strengthen or switch
+        # off. `postprocess.find_echoed_phrase` measures the same thing from
+        # the other end and marks the variant when it happens (§ .msg-marks),
+        # so there is now an instruction against it and a reading of whether
+        # it worked.
+        "id": "craft:no_echo", "band": "prefix", "label": "Not your words back",
+        "note": "Stops replies that repeat or summarise your message before answering it.",
+        "text": """\
+Never quote, repeat, paraphrase or summarise any part of what {{user}} just
+said or did. Not as an opening, not to show you understood, not in their own
+words rearranged. Characters answer the meaning, not the wording.
+
+Reply with what happens next instead: what the character does, what they say
+back, what they notice. Understanding shows in the answer being an answer.
 
 Do not work through their message point by point. Pick the one or two things
 that matter to the character answering and let the rest go.
 
-End when it is {{user}}'s move again, on an action or a line of speech rather
-than on a question about what they would like to do.
+If a sentence you are writing would still make sense as a line in {{user}}'s
+own message, it is theirs and not yours. Cut it and start that sentence again.
 """,
     },
     {

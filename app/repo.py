@@ -460,6 +460,14 @@ def add_message(
         "turn": resolved_turn,
         "role": role,
         "text": text,
+        # Every read path returns this (§ get_message, list_messages) and this
+        # one did not, so the copy handed straight back to the caller — the
+        # `reply` event the client replaces its streaming bubble with — was
+        # the one message object in the app with no speaker on it. In a group
+        # the finished reply then lost its face and its name to the chat's
+        # nominal character until the chat was reopened. Stored correctly the
+        # whole time; simply not reported.
+        "speaker_id": speaker_id,
         "variant_id": variant_id,
         "variant_index": 0,
         "variant_count": 1,

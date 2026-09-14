@@ -1903,6 +1903,13 @@ body {
 
 .composer {
   display: flex;
+  /* Wraps, because two of its children are full-width rows rather than
+     controls on the bar: the staged-attachment chips and the "next turn"
+     speaker pick. Both set width:100% and both were being squeezed onto the
+     same line as the text box instead — with the picker offered under every
+     policy now (§ .who-row), that squeeze went from rare to constant, and it
+     left the box about wide enough for one letter. */
+  flex-wrap: wrap;
   gap: 8px;
   /* Trimmed from 8px/8px top and bottom: the text box and the round send
      button set the footer's real height between them (see below), and the
@@ -1915,6 +1922,9 @@ body {
 }
 .composer textarea {
   flex: 1;
+  /* With the bar wrapping, `min-width: auto` would let a long placeholder
+     push the box onto a line of its own away from the send button. */
+  min-width: 0;
   resize: none;
   max-height: 30vh;
   background: var(--surface-2);
@@ -4603,9 +4613,20 @@ input.mono {
 .who-row {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
   padding: 0 6px 8px;
   width: 100%;
+}
+/* Says which of the two things this row is — the policy asking, or a one-turn
+   override being offered. Muted and small: it labels the buttons beside it
+   rather than competing with them. */
+.who-row-label {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  flex: none;
 }
 
 

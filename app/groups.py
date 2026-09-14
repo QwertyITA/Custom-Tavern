@@ -77,6 +77,39 @@ def members(db: Database, chat_id: str) -> list[dict[str, Any]]:
     ]
 
 
+def voices(db: Database, chat_id: str) -> list[dict[str, Any]]:
+    """Everyone who has a line in this chat, whether or not they are still in
+    it — the same card details `members` returns, for the same reason.
+
+    Membership answers "who can speak next"; this answers "who said that",
+    and the two stop agreeing the moment somebody is removed from a group.
+    Their lines stay in the transcript, and a transcript where a departed
+    character's lines wear whoever is left's face is not a record of the
+    conversation that happened. Reported live as the wrong picture showing
+    up against a message.
+
+    Anyone whose card has since been deleted outright is simply absent — the
+    JOIN drops them — and the frontend then draws the blank placeholder,
+    which is the honest answer to a face nothing knows any more.
+    """
+    rows = db.query(
+        "SELECT DISTINCT m.speaker_id, c.name, c.data "
+        "FROM messages m JOIN characters c ON c.id = m.speaker_id "
+        "WHERE m.chat_id=? AND m.speaker_id != '' ORDER BY c.name",
+        (chat_id,),
+    )
+    return [
+        {
+            "character_id": row["speaker_id"],
+            "name": row["name"],
+            "pfp": _neutral_pfp(row["data"]),
+            "pfp_shape": _pfp_shape(row["data"]),
+            "pfp_effect": _pfp_effect(row["data"]),
+        }
+        for row in rows
+    ]
+
+
 def _card(raw: Any) -> dict:
     try:
         card = json.loads(raw or "{}")

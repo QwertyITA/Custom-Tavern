@@ -1528,6 +1528,11 @@ async def chat_members(chat_id: str) -> dict:
     groups.ensure_member(db, chat_id, chat["character_id"])
     return {
         "members": groups.members(db, chat_id),
+        # Not the same list, and the difference is the point: `members` is who
+        # can speak next, `voices` is who already has. They part company the
+        # moment somebody is removed from a group, and it is `voices` the
+        # transcript's faces and speaker labels have to read (§ groups.voices).
+        "voices": groups.voices(db, chat_id),
         "policy": (chat.get("settings") or {}).get("policy") or groups.DEFAULT_POLICY,
         "policies": groups.POLICIES,
     }
