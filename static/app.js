@@ -1169,6 +1169,10 @@ function tavern() {
     rulesOpen: false,
     staged: [],
     cast: [],
+    // Briefly marks the "Who is here" heading after the header's cast
+    // button has scrolled to it, so the eye lands on the section rather
+    // than on wherever the panel happened to stop (§ openCast).
+    castLanded: false,
     policies: [],
     policy: "natural",
     nextSpeaker: "",
@@ -4120,6 +4124,34 @@ function tavern() {
       } catch (e) {
         this.error = errorText(e);
       }
+    },
+
+    // The header's cast button. Opens Story and puts "Who is here" under
+    // the thumb — the controls are all already there (mute, remove, add,
+    // talkativeness, turn order), they were just three taps and a scroll
+    // past everything else in the panel.
+    async openCast() {
+      // Not openPanel(): that one is a toggle, so tapping this with Story
+      // already open would close the very panel it is meant to reach. Open
+      // it only when it isn't; otherwise go straight to the scroll.
+      if (!this.panelOpen || this.panel !== "story") await this.openPanel("story");
+      // After the panel's own open animation has somewhere to scroll: the
+      // section does not exist in the DOM until `panel === 'story'` renders.
+      this.$nextTick(() => {
+        const heading = this.$refs.castSection;
+        if (!heading) return;
+        heading.scrollIntoView({ behavior: "smooth", block: "start" });
+        this.castLanded = true;
+        clearTimeout(this._castLandTimer);
+        this._castLandTimer = setTimeout(() => { this.castLanded = false; }, HINT_MS);
+      });
+    },
+
+    castTitle() {
+      const silent = this.cast.filter((m) => m.muted).length;
+      const here = `${this.cast.length} here`;
+      return silent ? `${here}, ${silent} muted — change who is in this chat`
+                    : `${here} — change who is in this chat`;
     },
 
     speakerName(message) {

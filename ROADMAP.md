@@ -516,6 +516,23 @@ STscript (26).
       change previews live and waits for a Save button, but the
       homepage has none of its own, so its toggles and dropdowns save
       the instant they're touched instead.
+- [x] **48. A way into a group chat's own settings.** Reported live as
+      missing: no way to turn a character in the current group on or
+      off, or add and remove them. Every one of those controls already
+      existed and had since 8 — mute, remove, add, how readily each
+      speaks up, whose turn it is — all of it in Story under *Who is
+      here*, which is ☰ → Story and then a scroll past Quick options
+      and the whole toggle list. A control nobody can find is missing,
+      so what was actually built is a second door and not a second
+      implementation: a people button in the header itself, carrying
+      the number of people in the room who are not muted, which opens
+      Story and scrolls that section under the thumb with the heading
+      briefly marked so the eye lands on it rather than on wherever the
+      panel stopped. Same reasoning and same place as the
+      Brain/Theme/Settings buttons promoted into the header on the
+      homepage (§47). Only shown with more than one person in the room:
+      a solo chat has nothing here to change, and a button opening a
+      list of one is worse than no button.
 
 ## Undecided — needs a call
 

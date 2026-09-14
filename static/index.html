@@ -383,6 +383,25 @@
       <svg class="who-caret" x-show="character" x-cloak viewBox="0 0 24 24" aria-hidden="true"><use href="#i-down"/></svg>
     </button>
 
+    <!-- Who is in the room, and the way in to changing it (§ openCast).
+         Same reasoning as the three buttons below: the controls already
+         existed — mute, remove, add, talkativeness, turn order — but only
+         behind the hamburger, in Story, under Quick options and the whole
+         toggle list. Reported as missing entirely, which is what a control
+         nobody can find amounts to. A second door onto that section, not a
+         second implementation of it.
+
+         Only for a room with more than one person in it: on a solo chat
+         there is nothing here to edit, and a button that opens a list of
+         one would be worse than no button. -->
+    <button class="icon-btn cast-btn" x-show="!showHome && cast.length > 1" x-cloak
+            @click="openCast()"
+            :aria-label="`${cast.length} characters here — change who is in this chat`"
+            :title="castTitle()">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-people"/></svg>
+      <span class="cast-count" x-text="cast.filter(m => !m.muted).length"></span>
+    </button>
+
     <!-- Reported live: Brain/Theme/Settings sitting a hamburger-tap away
          cost a tap to even discover, on a header with nothing else in the
          name's own spot to fill it. Right there instead, in the collapsed
@@ -2813,7 +2832,7 @@
           </div>
         </template>
 
-        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-people"/></svg>Who is here</h3>
+        <h3 x-ref="castSection" :class="{ 'landed': castLanded }"><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-people"/></svg>Who is here</h3>
         <p class="note">
           Several characters can share one conversation. Muting keeps someone
           in the scene but silent — the others still know they are standing

@@ -293,9 +293,14 @@ and to return nothing if nothing would plausibly intrude.
 
 ### Group chats
 
-Several characters in one conversation. **☰ → story → Who is here** adds them,
-mutes them, and sets how readily each speaks up. A solo chat is a group of one,
-so nothing changes until you add somebody.
+Several characters in one conversation. **Who is here** adds them, mutes them,
+removes them, and sets how readily each speaks up. A solo chat is a group of
+one, so nothing changes until you add somebody.
+
+Once there is more than one person in the room, the header carries a **people
+button** with the number who can currently answer on it — tapping it opens
+that section directly. It is the same section as **☰ → story → Who is here**,
+just without the three taps and the scroll past everything else in the panel.
 
 **Whose turn it is** picks the policy:
 

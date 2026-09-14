@@ -653,6 +653,25 @@ body {
 .icon-btn:disabled { opacity: .35; }
 .icon-btn.active { color: var(--accent); border-color: var(--line); }
 
+/* The header's way into "Who is here" (§ openCast, app.js). A count rather
+   than a row of faces: the bar has room for one control, and the number that
+   matters while you are reading a scene is how many of them can answer. */
+.cast-btn { position: relative; flex: none; }
+.cast-count {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  min-width: 15px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 10px;
+  line-height: 15px;
+  font-weight: 600;
+  text-align: center;
+}
+
 /* ---------------------------------------------------------------- HUD */
 
 .hud {
@@ -2631,7 +2650,22 @@ body {
   letter-spacing: .07em;
   color: var(--muted);
   margin: 18px 0 8px;
+  /* scrollIntoView lands the border box flush against the top of the
+     scroller, and the margin above is not part of it — the heading arrived
+     touching the sheet header's own rule with its ascenders shaved. Matches
+     .sheet-body's own top padding, so a section scrolled to sits exactly
+     where a section at the top of the panel already sits. */
+  scroll-margin-top: 12px;
 }
+/* Where the scroll from the header's cast button came to rest, said briefly
+   so the eye lands on the section rather than on wherever the panel stopped.
+   Colour only, and eased both ways — a heading that snapped on and off would
+   read as a glitch. */
+.sheet-body h3.landed {
+  color: var(--accent);
+  transition: color var(--dur-base) var(--ease-out);
+}
+.sheet-body h3 { transition: color var(--dur-slow) var(--ease-in-out); }
 
 .note { color: var(--muted); font-size: 12px; margin: 0 0 10px; }
 .note code {
