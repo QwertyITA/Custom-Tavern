@@ -1,7 +1,7 @@
 """Several characters in one conversation (§15, roadmap 8).
 
-Membership, and the question that actually makes a group chat work: **who
-speaks next**.
+Membership, and the two questions that actually make a group chat work:
+**who speaks next**, and **how the model is told who said what**.
 
 The turn-order policy is deliberately not round-robin by default. Round-robin
 is the arrangement where you say something to one person and the other one
@@ -9,10 +9,16 @@ answers, forever, and it is the single thing that makes group chats read as a
 mechanism rather than as a room. The default policy is free — no model call —
 and works in the order a person would expect:
 
-1. **Addressed by name.** If the message names someone, they answer. This is
-   how anyone would read it, and it costs a substring search.
-2. **Otherwise, weighted chance**, by each character's talkativeness, with the
-   one who just spoke pushed down so the room does not become two people.
+1. **Addressed by name.** Everyone the message names answers, in the order it
+   names them. It costs a substring search.
+2. **Then whoever would speak up**, each member rolling against their own
+   talkativeness, with the one who just spoke sitting this one out.
+
+A turn can produce **several replies**, capped by the chat's own "how many
+answer" setting. That is the difference between a room and a switchboard: the
+first version of this picked exactly one speaker per message, so nobody could
+ever react to what somebody else had just said, and naming two people got you
+neither of them.
 
 Muted characters never speak, but stay in the prompt: someone standing there
 saying nothing is still in the scene, and dropping them from the context would
@@ -25,14 +31,15 @@ import json
 
 import random
 import re
-import sqlite3
 from typing import Any
 
 from .db import Database, now
 
 POLICIES: list[dict[str, str]] = [
     {"id": "natural", "label": "Whoever would answer",
-     "note": "Named in your message, or the likeliest to speak up. Costs nothing."},
+     "note": "Named in your message, then whoever would speak up. Costs nothing."},
+    {"id": "pooled", "label": "Everyone gets a turn",
+     "note": "Nobody speaks twice until everybody has spoken once."},
     {"id": "round_robin", "label": "Take turns",
      "note": "Strict order. Predictable, and reads like a mechanism."},
     {"id": "manual", "label": "You choose",
@@ -42,9 +49,73 @@ POLICIES: list[dict[str, str]] = [
 POLICY_IDS = tuple(policy["id"] for policy in POLICIES)
 DEFAULT_POLICY = "natural"
 
-# How much the last speaker's weight is cut. Not zero: a character can follow
-# their own line, and a room where that is impossible has its own tell.
-REPEAT_PENALTY = 0.25
+# How many characters may answer one message. More than one is what makes a
+# group read as a room — but every extra reply is another whole generation,
+# and on a phone talking to the Horde that is another minute of waiting, so
+# the ceiling is low and the default is two rather than "however many rolled".
+DEFAULT_REPLIES_PER_TURN = 2
+MAX_REPLIES_PER_TURN = 4
+
+# How much each character is told about the others (§ cast_note). Names alone
+# is what this shipped with, and it is why a group's characters wrote each
+# other as whatever their names sounded like.
+CAST_DETAIL = [
+    {"id": "names", "label": "Just their names",
+     "note": "Cheapest. They know who is here and nothing else."},
+    {"id": "brief", "label": "A few lines each",
+     "note": "The top of each card. Enough to not contradict them."},
+    {"id": "full", "label": "Their whole card",
+     "note": "Everything. Accurate, and the most expensive thing in the prompt."},
+]
+CAST_DETAIL_IDS = tuple(detail["id"] for detail in CAST_DETAIL)
+DEFAULT_CAST_DETAIL = "brief"
+# What "a few lines" is worth in characters. Cut at a paragraph or sentence
+# end inside this (§ _brief), never mid-word.
+BRIEF_CHARS = 420
+
+
+def settings_for(chat: dict | None) -> dict[str, Any]:
+    """The group's own settings, from whatever the chat has stored.
+
+    Flat on `chat.settings` rather than nested under a "group" key: `policy`
+    has lived there since roadmap 8 and moving it would mean a migration for
+    a saving of nothing. Every value is clamped here, so a hand-edited
+    database cannot put the planner into a state the UI has no way out of.
+    """
+    raw = (chat or {}).get("settings") or {}
+    policy = str(raw.get("policy") or "")
+    detail = str(raw.get("cast_detail") or "")
+    try:
+        replies = int(raw.get("replies_per_turn") or DEFAULT_REPLIES_PER_TURN)
+    except (TypeError, ValueError):
+        replies = DEFAULT_REPLIES_PER_TURN
+    return {
+        "policy": policy if policy in POLICY_IDS else DEFAULT_POLICY,
+        "replies_per_turn": max(1, min(replies, MAX_REPLIES_PER_TURN)),
+        "self_responses": bool(raw.get("self_responses", False)),
+        "cast_detail": detail if detail in CAST_DETAIL_IDS else DEFAULT_CAST_DETAIL,
+    }
+
+
+def _brief(text: str) -> str:
+    """The top of a card, cut where it stops making a sentence."""
+    text = (text or "").strip()
+    if len(text) <= BRIEF_CHARS:
+        return text
+    head = text[:BRIEF_CHARS]
+    for end in ("\n\n", ". ", "\n"):
+        cut = head.rfind(end)
+        if cut > BRIEF_CHARS // 3:
+            return head[: cut + (1 if end == ". " else 0)].strip()
+    return head.rsplit(" ", 1)[0].strip() + "…"
+
+
+def profile_for(character: Any, detail: str) -> str:
+    """One member's line in somebody else's cast note (§ cast_note)."""
+    if detail == "names":
+        return ""
+    persona = (getattr(character, "persona", "") or "").strip()
+    return persona if detail == "full" else _brief(persona)
 
 
 def members(db: Database, chat_id: str) -> list[dict[str, Any]]:
@@ -214,11 +285,8 @@ def ensure_member(db: Database, chat_id: str, character_id: str) -> None:
 # ------------------------------------------------------------ who speaks
 
 
-def addressed(text: str, candidates: list[dict]) -> dict | None:
-    """The character named in this message, if exactly one is.
-
-    Exactly one: a message naming two people has not chosen between them, and
-    picking the first would be arbitrary in a way the person would notice.
+def mentions(text: str, candidates: list[dict]) -> list[dict]:
+    """Everyone named in this message, in the order they are first named.
 
     Two details that are easy to get wrong and both show up immediately in a
     real room:
@@ -227,13 +295,15 @@ def addressed(text: str, candidates: list[dict]) -> dict | None:
       "R. Vale (the elder)" — has no word boundary after the bracket, so `\\b`
       simply never matches it.
     * Longest name first, blanking what it matched. Otherwise "Anna Vale"
-      also matches "Anna" standing beside her, the message looks like it named
-      two people, and nobody is chosen.
+      also matches "Anna" standing beside her and the message looks like it
+      named two people when it named one. Blanking keeps the string's length,
+      so the offsets collected here still point into the original text and
+      can be sorted back into reading order.
     """
     if not text:
-        return None
+        return []
     remaining = text
-    hits: list[dict] = []
+    hits: list[tuple[int, dict]] = []
     for person in sorted(candidates, key=lambda c: -len(c["name"] or "")):
         name = person["name"]
         if not name:
@@ -241,13 +311,150 @@ def addressed(text: str, candidates: list[dict]) -> dict | None:
         found = re.search(rf"(?<!\w){re.escape(name)}(?!\w)", remaining, re.IGNORECASE)
         if not found:
             continue
-        hits.append(person)
+        hits.append((found.start(), person))
         remaining = (
             remaining[: found.start()]
             + " " * (found.end() - found.start())
             + remaining[found.end() :]
         )
-    return hits[0] if len(hits) == 1 else None
+    return [person for _, person in sorted(hits, key=lambda hit: hit[0])]
+
+
+def addressed(text: str, candidates: list[dict]) -> dict | None:
+    """The character named in this message, if exactly one is.
+
+    Kept for the single-speaker question — "who is this message for" — which
+    is not the same question the turn planner asks. A message naming two
+    people has not chosen between them, and picking the first would be
+    arbitrary; `plan` lets both of them answer instead, which is what a
+    person naming two people actually meant.
+    """
+    named = mentions(text, candidates)
+    return named[0] if len(named) == 1 else None
+
+
+def plan(
+    available: list[dict],
+    *,
+    policy: str = DEFAULT_POLICY,
+    user_text: str = "",
+    last_speaker: str = "",
+    forced: str = "",
+    replies: int = DEFAULT_REPLIES_PER_TURN,
+    self_responses: bool = False,
+    spoken_since_user: tuple[str, ...] = (),
+    rng: Any = None,
+) -> list[dict]:
+    """Who answers this turn, in the order they speak. Possibly nobody.
+
+    A room does not take it in turns to say one thing each. The old version
+    of this picked exactly one speaker per message, which is why naming two
+    people got you neither, why a character could never react to what another
+    one had just said, and why a group of four read as a switchboard. This
+    returns a *list*, capped by the chat's own "how many answer" setting.
+
+    `forced` wins outright — it is either the manual policy's choice or a
+    deliberate "let them answer" — as long as that character is here and not
+    muted. Asking a muted character to speak is a contradiction worth
+    ignoring rather than honouring.
+
+    `self_responses` is the one rule that matters most and costs nothing: by
+    default the character who spoke last does not answer themselves while
+    somebody else could speak instead. The old 0.25 weight penalty let it
+    happen often enough that a group of three regularly read as one person
+    talking to themselves. Naming them explicitly still works — if you ask
+    the same character something twice, you meant them.
+    """
+    picker = rng if rng is not None else random
+    available = [m for m in available if not m["muted"]]
+    if not available:
+        return []
+    if forced:
+        chosen = next((m for m in available if m["character_id"] == forced), None)
+        return [chosen] if chosen else []
+    if policy == "manual":
+        # Nothing was chosen, so nobody speaks. The UI asks before sending;
+        # reaching here means the request did not say, and inventing a speaker
+        # would defeat the point of the policy.
+        return []
+    if len(available) == 1:
+        return available[:1]
+
+    room = max(1, min(int(replies or 1), MAX_REPLIES_PER_TURN))
+    # Nobody answers themselves while somebody else could. Lifted for an
+    # explicit mention below, and never applied when they are all there is.
+    banned = "" if self_responses else last_speaker
+
+    if policy == "round_robin":
+        names = [m["character_id"] for m in available]
+        start = names.index(last_speaker) + 1 if last_speaker in names else 0
+        return [available[(start + i) % len(available)] for i in range(min(room, len(available)))]
+
+    if policy == "pooled":
+        # Everyone gets a turn before anyone gets a second one — the policy
+        # for a scene where nobody should be left standing silent in the
+        # corner for twenty messages. Ported from SillyTavern's pooled order.
+        waiting = [m for m in available if m["character_id"] not in spoken_since_user]
+        rest = [m for m in available if m["character_id"] in spoken_since_user]
+        picker.shuffle(waiting)
+        picker.shuffle(rest)
+        ordered = waiting + rest
+        if banned and len(ordered) > 1 and ordered[0]["character_id"] == banned:
+            ordered.append(ordered.pop(0))
+        return ordered[:room]
+
+    # natural
+    picked: list[dict] = []
+    for person in mentions(user_text, available):
+        # Being named beats the self-response ban: asking the same character
+        # a second question means you want them, not the person beside them.
+        if person not in picked:
+            picked.append(person)
+
+    rolling = [
+        m for m in available
+        if m not in picked and m["character_id"] != banned
+    ]
+    picker.shuffle(rolling)
+    for person in rolling:
+        # SillyTavern's roll, and it is the right shape: talkativeness is the
+        # chance of speaking up unprompted, not a share of a single slot that
+        # somebody has to win. 1.0 always joins in, 0 never does.
+        if person["talkativeness"] >= picker.random():
+            picked.append(person)
+
+    if not picked:
+        # Nobody rolled in. Somebody still has to answer, so fall back to one
+        # weighted pick — the old behaviour, now only the floor rather than
+        # the whole mechanism.
+        pool = [m for m in available if m["character_id"] != banned] or available
+        weights = [max(0.01, m["talkativeness"]) for m in pool]
+        picked = picker.choices(pool, weights=weights, k=1)
+    return picked[:room]
+
+
+def plan_turn(
+    db: Database,
+    chat_id: str,
+    *,
+    chat: dict | None = None,
+    user_text: str = "",
+    forced: str = "",
+    seed: Any = None,
+) -> list[dict]:
+    """`plan`, with everything it needs read off the chat (§ settings_for)."""
+    config = settings_for(chat if chat is not None else {})
+    return plan(
+        members(db, chat_id),
+        policy=config["policy"],
+        user_text=user_text,
+        last_speaker=last_speaker(db, chat_id),
+        forced=forced,
+        replies=config["replies_per_turn"],
+        self_responses=config["self_responses"],
+        spoken_since_user=spoken_since_user(db, chat_id),
+        rng=random.Random(seed) if seed is not None else random,
+    )
 
 
 def choose_speaker(
@@ -260,46 +467,22 @@ def choose_speaker(
     forced: str = "",
     seed: Any = None,
 ) -> dict | None:
-    """Who replies to this turn. None when there is nobody who can.
+    """The first of `plan`'s speakers, for the callers that only want one.
 
-    `forced` wins outright — it is either the manual policy's choice or a
-    deliberate "let them answer" — as long as that character is here and not
-    muted. Asking a muted character to speak is a contradiction worth ignoring
-    rather than honouring.
+    Everything that answers a *turn* goes through `plan_turn`; this is what
+    a single-reply path (a retry, a nudge) asks when it needs one name.
     """
-    available = [m for m in members(db, chat_id) if not m["muted"]]
-    if not available:
-        return None
-    if forced:
-        return next((m for m in available if m["character_id"] == forced), None)
-    if len(available) == 1:
-        return available[0]
-
-    if policy == "round_robin":
-        if not last_speaker:
-            return available[0]
-        names = [m["character_id"] for m in available]
-        if last_speaker not in names:
-            return available[0]
-        return available[(names.index(last_speaker) + 1) % len(available)]
-
-    if policy == "manual":
-        # Nothing was chosen, so nobody speaks. The UI asks before sending;
-        # reaching here means the request did not say, and inventing a speaker
-        # would defeat the point of the policy.
-        return None
-
-    # natural
-    named = addressed(user_text, available)
-    if named is not None:
-        return named
-
-    rng = random.Random(seed) if seed is not None else random
-    weights = [
-        max(0.01, m["talkativeness"] * (REPEAT_PENALTY if m["character_id"] == last_speaker else 1.0))
-        for m in available
-    ]
-    return rng.choices(available, weights=weights, k=1)[0]
+    speakers = plan(
+        members(db, chat_id),
+        policy=policy,
+        user_text=user_text,
+        last_speaker=last_speaker,
+        forced=forced,
+        replies=1,
+        spoken_since_user=spoken_since_user(db, chat_id),
+        rng=random.Random(seed) if seed is not None else random,
+    )
+    return speakers[0] if speakers else None
 
 
 def last_speaker(db: Database, chat_id: str) -> str:
@@ -311,11 +494,45 @@ def last_speaker(db: Database, chat_id: str) -> str:
     return row["speaker_id"] if row else ""
 
 
+def spoken_since_user(db: Database, chat_id: str) -> tuple[str, ...]:
+    """Who has already spoken since the last thing the person said.
+
+    What the pooled policy runs on, and the only reason it can promise that
+    everybody gets a turn: the pool empties as the scene goes and refills the
+    moment you say something yourself.
+    """
+    rows = db.query(
+        "SELECT role, speaker_id FROM messages WHERE chat_id=? "
+        "ORDER BY turn DESC, created_at DESC LIMIT 40",
+        (chat_id,),
+    )
+    seen: list[str] = []
+    for row in rows:
+        if row["role"] == "user":
+            break
+        if row["role"] == "assistant" and row["speaker_id"]:
+            seen.append(row["speaker_id"])
+    return tuple(seen)
+
+
 # ------------------------------------------------------------ the prompt
 
 
-def cast_note(members_here: list[dict], speaking: str) -> str:
+def cast_note(
+    members_here: list[dict],
+    speaking: str,
+    *,
+    profiles: dict[str, str] | None = None,
+) -> str:
     """Who else is in the room, for the speaker's prompt.
+
+    Names alone were not enough, and that is most of what "the model does not
+    understand a group chat" actually was. A character told only that "Harrow
+    and Anna" are present has no idea who they are, so it writes them as
+    whatever the name sounds like — and then contradicts their own cards two
+    lines later. SillyTavern's join-cards mode puts every member's
+    description in the prompt for exactly this reason; `profiles` is that,
+    per character, sized by the chat's own setting (§ settings_for).
 
     Muted characters are listed too. Someone standing there saying nothing is
     still in the scene, and leaving them out would have the others talk as if
@@ -324,9 +541,36 @@ def cast_note(members_here: list[dict], speaking: str) -> str:
     others = [m for m in members_here if m["character_id"] != speaking]
     if not others:
         return ""
-    names = ", ".join(m["name"] for m in others)
+    profiles = profiles or {}
+    lines = []
+    for other in others:
+        about = (profiles.get(other["character_id"]) or "").strip()
+        lines.append(f"**{other['name']}**" + (f" — {about}" if about else ""))
     return (
-        f"## Also here\n{names}\n"
-        "They are present and may be spoken to or about, but you write only "
+        "## Also here\n"
+        + "\n".join(lines)
+        + "\nThey are present and may be spoken to or about, but you write only "
         "your own words — never theirs."
+    )
+
+
+def turn_note(speaking: str, others: list[str]) -> str:
+    """The last thing the model reads before it answers: whose line this is.
+
+    In the volatile band on purpose (§7.1). A group chat's prompt is already
+    rebuilt per speaker — the persona in the prefix is a different person's —
+    so this costs no cache that was not already spent, and recency is the
+    whole point: the rule that keeps a reply to one voice has to be the most
+    recent instruction, not the first.
+    """
+    if not others:
+        return ""
+    room = ", ".join(others)
+    return (
+        f"## Your turn\n"
+        f"The transcript above labels each line with who said it. Those "
+        f"labels are how you read it; they are not how you answer.\n"
+        f"You are {speaking}. Write {speaking}'s next line only — do not "
+        f"write a line for {room}, do not narrate what they say or do next, "
+        f"and do not put a name label on your own reply."
     )

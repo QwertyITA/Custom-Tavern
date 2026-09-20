@@ -1856,6 +1856,15 @@ body {
    continuous sweep with no start and no end, like the spinner. Easing it would
    make the highlight hesitate once per pass. */
 .composing-label { font-size: 12px; }
+/* Who is still to come this turn. Deliberately quieter than the label it
+   follows and deliberately not shimmering: the label is the thing that is
+   happening, this is only what happens next. */
+.composing-queue {
+  font-size: 11px;
+  color: var(--muted);
+  opacity: .75;
+  margin-left: 6px;
+}
 
 /* Guarded, because the whole effect rests on `color: transparent` — if the
    clip does not apply, that is not a label without a shimmer, it is no label
@@ -2667,16 +2676,6 @@ body {
      where a section at the top of the panel already sits. */
   scroll-margin-top: 12px;
 }
-/* Where the scroll from the header's cast button came to rest, said briefly
-   so the eye lands on the section rather than on wherever the panel stopped.
-   Colour only, and eased both ways — a heading that snapped on and off would
-   read as a glitch. */
-.sheet-body h3.landed {
-  color: var(--accent);
-  transition: color var(--dur-base) var(--ease-out);
-}
-.sheet-body h3 { transition: color var(--dur-slow) var(--ease-in-out); }
-
 .note { color: var(--muted); font-size: 12px; margin: 0 0 10px; }
 .note code {
   background: var(--panel-2);

@@ -284,6 +284,43 @@ def scene_line(db: Database, chat_id: str) -> str:
     return " · ".join(parts)
 
 
+def _profiles(
+    db: Database, members_here: list[dict], speaking: str, group: dict
+) -> dict[str, str]:
+    """What each other member's card says about them, sized by the setting.
+
+    Loaded here rather than by `groups.cast_note` so the module that decides
+    who speaks keeps knowing nothing about how a card is stored.
+    """
+    if group["cast_detail"] == "names":
+        return {}
+    out: dict[str, str] = {}
+    for member in members_here:
+        if member["character_id"] == speaking:
+            continue
+        card = repo.get_character(db, member["character_id"])
+        if card is not None:
+            out[member["character_id"]] = groups.profile_for(card, group["cast_detail"])
+    return out
+
+
+def _speaker_labels(members_here: list[dict], voices_here: list[dict]) -> dict[str, str]:
+    """character id -> the name their lines are labelled with in the prompt.
+
+    Both lists, because they answer different questions (§ groups.voices):
+    `members` is who can speak next and `voices` is who already has, and a
+    transcript needs the second one. Two characters sharing a name would
+    label identically here, which is a real ambiguity in the room itself and
+    not one this can resolve — a second "Anna" is confusing to everyone
+    present too.
+    """
+    return {
+        member["character_id"]: member["name"]
+        for member in [*voices_here, *members_here]
+        if member.get("name")
+    }
+
+
 def _prefix_parts(
     character: Character,
     expand,
@@ -456,7 +493,24 @@ def build_reply_context(
     persona = repo.active_persona(db, chat)
     # Everyone else in the room (roadmap 8). Empty for a solo chat, so the
     # prompt is byte-identical to what it was before groups existed.
-    cast = groups.cast_note(groups.members(db, chat["id"]), character.id)
+    #
+    # `voices` as well as `members`, and for the same reason the transcript
+    # needs both: a chat somebody has been removed from is still a group
+    # chat — its history has two people in it — and labelling that history
+    # with one name would be a worse lie than labelling it with none.
+    group = groups.settings_for(chat)
+    members_here = groups.members(db, chat["id"])
+    voices_here = groups.voices(db, chat["id"])
+    # Distinct people across both lists, not the length of either: a chat
+    # somebody has been removed from has one member and one past voice, and
+    # counting them separately made it look like a solo chat — which relabelled
+    # the departed character's lines as the one who is left.
+    in_group = len({
+        person["character_id"] for person in [*members_here, *voices_here]
+    }) > 1
+    cast = groups.cast_note(
+        members_here, character.id, profiles=_profiles(db, members_here, character.id, group)
+    )
 
     prefix_parts = _prefix_parts(character, expand, default_instruction, persona, cast)
 
@@ -473,11 +527,24 @@ def build_reply_context(
     _section(assembled, "prefix", assembled.system)
 
     # ---- dynamic middle -------------------------------------------------
+    # Everything after the excluded message goes too. A turn can hold several
+    # replies now (§ groups.plan), so re-rolling the first of them is no
+    # longer the same as re-rolling the last thing said: without this the
+    # prompt for Harrow's new line would contain Mira's answer *to the line
+    # being replaced*, and he would be writing a reply that already has a
+    # response to it. A solo chat only ever excludes its own last message, so
+    # this drops nothing there and the prompt is unchanged.
+    stored = repo.list_messages(db, chat["id"], include_dropped=False)
+    if exclude_message_id is not None:
+        cut = next(
+            (i for i, m in enumerate(stored) if m["id"] == exclude_message_id), None
+        )
+        if cut is not None:
+            stored = stored[:cut]
     history = [
         m
-        for m in repo.list_messages(db, chat["id"], include_dropped=False)
-        if m["id"] != exclude_message_id
-        and not m["hidden"]        # on screen, deliberately out of the prompt
+        for m in stored
+        if not m["hidden"]        # on screen, deliberately out of the prompt
         and (upto_turn is None or m["turn"] <= upto_turn)
     ]
     verbatim = [m for m in history if m["stage"] == "verbatim"]
@@ -552,6 +619,12 @@ def build_reply_context(
     values = current_values(db, chat["id"], schema, character.id)
     bands = render_bands(schema, values)
     volatile_parts: dict[str, str] = {
+        # Last thing the model reads before it answers: whose line this is
+        # (§ groups.turn_note). Nothing at all in a solo chat.
+        "turn": groups.turn_note(
+            character.name,
+            [m["name"] for m in members_here if m["character_id"] != character.id],
+        ) if in_group else "",
         "state": f"## {character.name}'s current state\n{bands}" if bands else "",
         "setting": f"## Setting\n{scene}" if (scene := scene_line(db, chat["id"])) else "",
         "search": search_block(db, chat["id"], current_turn),
@@ -631,6 +704,16 @@ def build_reply_context(
     # quoted into the turn; images are named here and sent alongside only when
     # the backend can see them.
     attached = attachments.for_chat(db, chat["id"])
+    # Who said each line, for a room with more than one voice in it. This is
+    # the single biggest thing "the model does not understand a group chat"
+    # ever was: every character's reply went in as an unlabelled `assistant`
+    # turn, so a four-way conversation reached the model as one undivided
+    # voice and it answered as that voice — mixing the cast into one person,
+    # answering questions asked of somebody else, contradicting a line it had
+    # just written. SillyTavern prefixes every message with its speaker for
+    # exactly this reason, and so does this now.
+    labels = _speaker_labels(members_here, voices_here) if in_group else {}
+    you = (persona or {}).get("name") or "You"
     turn_messages: list[Message] = []
     for message in window:
         role = message["role"] if message["role"] in ("user", "assistant") else "system"
@@ -638,6 +721,11 @@ def build_reply_context(
         # back to the original, so a translation that failed leaves the turn
         # readable in the wrong language rather than missing entirely.
         content = translation.for_prompt(message)
+        if in_group and content and role in ("user", "assistant"):
+            who = you if role == "user" else labels.get(
+                message.get("speaker_id") or "", character.name
+            )
+            content = f"{who}: {content}"
         items = attached.get(message["id"]) or []
         if items:
             extra = attachments.prompt_suffix(items, sees_images)
@@ -656,7 +744,11 @@ def build_reply_context(
         )
         if newest is not None:
             assembled.images = attachments.images_for(db, attached[newest["id"]])
-    _section(assembled, "verbatim", "".join(m["text"] for m in window))
+    # What is actually sent, not what is stored: in a group every line carries
+    # a speaker label, and counting the bare text would understate the
+    # conversation by a token or two per message — which is a section of the
+    # prompt by the time a chat is long.
+    _section(assembled, "verbatim", "".join(m["content"] for m in turn_messages))
 
     # The author's note goes *inside* the recent history, `depth` messages from
     # the end. That placement is the whole feature: at the top it is buried

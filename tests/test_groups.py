@@ -9,6 +9,8 @@ rule-based default behaves the way a person would expect.
 
 from __future__ import annotations
 
+import random
+
 import pytest
 
 from app import groups, repo
@@ -153,16 +155,49 @@ def test_talkativeness_shifts_the_odds(db, chat, character):
     assert picked.count("Harrow") > picked.count(character.name) * 3
 
 
-def test_the_last_speaker_is_pushed_down_but_not_out(db, chat, character):
-    """A room where a character can never follow their own line has its own
-    tell, so the penalty is a weight rather than a ban."""
+def test_nobody_answers_themselves_while_somebody_else_could(db, chat, character):
+    """The old rule was a 0.25 weight penalty, and a weight is not a rule: a
+    group of three regularly read as one person talking to themselves. The one
+    who just spoke now sits the next one out — unless you name them, or unless
+    they are all there is."""
     harrow, = a_group(db, chat, "Harrow")
     picked = [
         pick(db, chat, user_text="hello", last_speaker=harrow.id, seed=i)["name"]
-        for i in range(80)
+        for i in range(40)
     ]
-    assert picked.count(character.name) > picked.count("Harrow")
-    assert "Harrow" in picked, "pushed down, not banned"
+    assert set(picked) == {character.name}
+
+
+def test_naming_the_one_who_just_spoke_still_gets_them(db, chat, character):
+    """Asking the same character a second question means you want them, not
+    the person standing beside them."""
+    harrow, = a_group(db, chat, "Harrow")
+    assert pick(db, chat, user_text="Harrow, again?", last_speaker=harrow.id)["name"] == "Harrow"
+
+
+def test_they_can_follow_their_own_line_when_it_is_switched_on(db, chat, character):
+    """A room where a character can never follow their own line has its own
+    tell, so the ban is a setting rather than a law."""
+    harrow, = a_group(db, chat, "Harrow")
+    picked = [
+        groups.plan(
+            groups.members(db, chat["id"]),
+            user_text="hello",
+            last_speaker=harrow.id,
+            self_responses=True,
+            replies=1,
+            rng=random.Random(i),
+        )[0]["name"]
+        for i in range(60)
+    ]
+    assert "Harrow" in picked
+
+
+def test_the_only_one_left_speaks_even_though_they_just_did(db, chat, character):
+    """The ban is "while somebody else could", not "never"."""
+    harrow, = a_group(db, chat, "Harrow")
+    groups.update_member(db, chat["id"], character.id, muted=True)
+    assert pick(db, chat, user_text="hello", last_speaker=harrow.id)["name"] == "Harrow"
 
 
 def test_round_robin_goes_round(db, chat, character):
@@ -311,9 +346,12 @@ def test_naming_someone_gets_them(client):
     client.post(f"/api/chats/{chat_id}/members", json={"character_id": other})
 
     send(client, chat_id, "Harrow, is the ferry running?")
-    reply = [m for m in client.get(f"/api/chats/{chat_id}/messages").json()
-             if m["role"] == "assistant"][-1]
-    assert reply["speaker_id"] == other
+    # The first reply, not the last: somebody else may well chime in after
+    # them now (§ groups.plan), and being named is a claim on the front of
+    # the queue rather than on the whole turn.
+    replies = [m for m in client.get(f"/api/chats/{chat_id}/messages").json()
+               if m["role"] == "assistant" and m["turn"] > 0]
+    assert replies[0]["speaker_id"] == other
 
 
 def test_the_members_endpoint_reports_the_room(client):
@@ -476,3 +514,226 @@ def test_two_characters_keep_separate_state_through_real_turns(client):
         for who in (character_id, other)
     }
     assert all(v is not None for v in stored.values()), stored
+
+
+# ------------------------------------------------- a turn is not one reply
+#
+# The first version of this picked exactly one speaker per message. That is
+# what made a group read as a switchboard: nobody could react to what
+# somebody else had just said, and naming two people got you neither.
+
+
+def members_of(db, chat):
+    return groups.members(db, chat["id"])
+
+
+def test_naming_two_people_gets_both_of_them(db, chat, character):
+    """The old rule said a message naming two people had chosen neither, and
+    fell through to a weighted guess. It had chosen both."""
+    a_group(db, chat, "Harrow", "Anna")
+    groups.update_member(db, chat["id"], character.id, talkativeness=0.0)
+    spoke = groups.plan(
+        members_of(db, chat), user_text="Harrow and Anna, listen", replies=3,
+    )
+    assert [m["name"] for m in spoke] == ["Harrow", "Anna"]
+
+
+def test_they_answer_in_the_order_they_were_named(db, chat, character):
+    a_group(db, chat, "Harrow", "Anna")
+    groups.update_member(db, chat["id"], character.id, talkativeness=0.0)
+    spoke = groups.plan(
+        members_of(db, chat), user_text="Anna — and you too, Harrow", replies=3,
+    )
+    assert [m["name"] for m in spoke] == ["Anna", "Harrow"]
+
+
+def test_how_many_answer_is_capped_by_the_setting(db, chat, character):
+    a_group(db, chat, "Harrow", "Anna", "Wren")
+    for cap in (1, 2, 3):
+        spoke = groups.plan(
+            members_of(db, chat),
+            user_text="Harrow, Anna, Wren — all of you",
+            replies=cap,
+        )
+        assert len(spoke) == cap
+
+
+def test_the_cap_cannot_be_talked_past(db, chat, character):
+    """A hand-edited chat settings row is not a way to spend six generations
+    on one message."""
+    a_group(db, chat, "Harrow", "Anna", "Wren")
+    spoke = groups.plan(members_of(db, chat), user_text="everyone", replies=99)
+    assert len(spoke) <= groups.MAX_REPLIES_PER_TURN
+
+
+def test_nobody_answers_twice_in_one_turn(db, chat, character):
+    a_group(db, chat, "Harrow", "Anna")
+    for seed in range(30):
+        spoke = groups.plan(
+            members_of(db, chat), user_text="hello", replies=4,
+            rng=random.Random(seed),
+        )
+        ids = [m["character_id"] for m in spoke]
+        assert len(ids) == len(set(ids))
+
+
+def test_talkativeness_is_a_chance_to_speak_not_a_share_of_one_slot(db, chat, character):
+    """SillyTavern's roll, and it is the right shape: a character at 1.0 joins
+    in every time, and one at 0 never volunteers."""
+    harrow, anna = a_group(db, chat, "Harrow", "Anna")
+    groups.update_member(db, chat["id"], harrow.id, talkativeness=1.0)
+    groups.update_member(db, chat["id"], anna.id, talkativeness=0.0)
+    groups.update_member(db, chat["id"], character.id, talkativeness=0.0)
+
+    spoke = [
+        [m["name"] for m in groups.plan(
+            members_of(db, chat), user_text="hello", replies=4, rng=random.Random(s)
+        )]
+        for s in range(25)
+    ]
+    assert all("Harrow" in names for names in spoke)
+    assert not any("Anna" in names for names in spoke)
+
+
+def test_everyone_silent_still_gets_one_answer(db, chat, character):
+    """Talkativeness at zero all round means nobody volunteers, and a message
+    that goes unanswered is worse than an unlikely answer."""
+    harrow, = a_group(db, chat, "Harrow")
+    for member in members_of(db, chat):
+        groups.update_member(db, chat["id"], member["character_id"], talkativeness=0.0)
+    assert len(groups.plan(members_of(db, chat), user_text="hello")) == 1
+
+
+def test_take_turns_takes_the_next_ones_in_order(db, chat, character):
+    harrow, anna = a_group(db, chat, "Harrow", "Anna")
+    spoke = groups.plan(
+        members_of(db, chat), policy="round_robin", last_speaker=character.id, replies=2,
+    )
+    assert [m["name"] for m in spoke] == ["Harrow", "Anna"]
+
+
+def test_pooled_lets_everybody_speak_before_anybody_repeats(db, chat, character):
+    harrow, anna = a_group(db, chat, "Harrow", "Anna")
+    spoke = groups.plan(
+        members_of(db, chat), policy="pooled", replies=1,
+        spoken_since_user=(character.id, harrow.id), rng=random.Random(3),
+    )
+    assert [m["name"] for m in spoke] == ["Anna"]
+
+
+def test_pooled_refills_once_everyone_has_had_a_turn(db, chat, character):
+    harrow, = a_group(db, chat, "Harrow")
+    spoke = groups.plan(
+        members_of(db, chat), policy="pooled", replies=1,
+        spoken_since_user=(character.id, harrow.id), rng=random.Random(1),
+    )
+    assert len(spoke) == 1
+
+
+def test_manual_still_answers_with_exactly_who_was_asked_for(db, chat, character):
+    harrow, = a_group(db, chat, "Harrow")
+    spoke = groups.plan(
+        members_of(db, chat), policy="manual", forced=harrow.id, replies=4,
+    )
+    assert [m["name"] for m in spoke] == ["Harrow"]
+
+
+def test_the_pool_of_who_has_spoken_resets_at_your_own_message(db, chat, character):
+    harrow, = a_group(db, chat, "Harrow")
+    repo.add_message(db, chat["id"], "assistant", "one", speaker_id=character.id)
+    repo.add_message(db, chat["id"], "user", "your turn")
+    repo.add_message(db, chat["id"], "assistant", "two", speaker_id=harrow.id)
+    assert groups.spoken_since_user(db, chat["id"]) == (harrow.id,)
+
+
+# ------------------------------------------------------- the group settings
+
+
+def test_the_settings_have_defaults_that_do_not_need_storing(db, chat, character):
+    config = groups.settings_for(chat)
+    assert config["policy"] == groups.DEFAULT_POLICY
+    assert config["replies_per_turn"] == groups.DEFAULT_REPLIES_PER_TURN
+    assert config["self_responses"] is False
+    assert config["cast_detail"] == groups.DEFAULT_CAST_DETAIL
+
+
+def test_a_hand_broken_settings_row_still_produces_a_usable_group():
+    config = groups.settings_for(
+        {"settings": {"policy": "nonsense", "replies_per_turn": "lots",
+                      "cast_detail": "everything"}}
+    )
+    assert config["policy"] == groups.DEFAULT_POLICY
+    assert config["replies_per_turn"] == groups.DEFAULT_REPLIES_PER_TURN
+    assert config["cast_detail"] == groups.DEFAULT_CAST_DETAIL
+
+
+def test_the_group_endpoint_takes_one_setting_at_a_time(client):
+    _, chat_id = api_chat(client)
+    other = client.post("/api/characters", json={"name": "Harrow"}).json()["id"]
+    client.post(f"/api/chats/{chat_id}/members", json={"character_id": other})
+
+    client.put(f"/api/chats/{chat_id}/group", json={"replies_per_turn": 3})
+    body = client.put(f"/api/chats/{chat_id}/group", json={"self_responses": True}).json()
+    # The first one is still there: a body naming one key must not reset the rest.
+    assert body["replies_per_turn"] == 3
+    assert body["self_responses"] is True
+    assert body["policy"] == groups.DEFAULT_POLICY
+
+
+def test_the_group_endpoint_refuses_what_it_cannot_honour(client):
+    _, chat_id = api_chat(client)
+    assert client.put(f"/api/chats/{chat_id}/group", json={"policy": "vibes"}).status_code == 400
+    assert client.put(f"/api/chats/{chat_id}/group", json={"replies_per_turn": 0}).status_code == 400
+    assert client.put(f"/api/chats/{chat_id}/group", json={"replies_per_turn": 99}).status_code == 400
+    assert client.put(f"/api/chats/{chat_id}/group", json={"cast_detail": "all"}).status_code == 400
+
+
+def test_the_members_endpoint_carries_every_control_the_panel_draws(client):
+    _, chat_id = api_chat(client)
+    body = client.get(f"/api/chats/{chat_id}/members").json()
+    for key in ("policy", "policies", "replies_per_turn", "self_responses",
+                "cast_detail", "cast_details", "max_replies_per_turn"):
+        assert key in body, key
+
+
+def test_two_characters_can_both_answer_one_message(client):
+    """End to end, through a real turn: the whole point of the change."""
+    mira, chat_id = api_chat(client)
+    other = client.post("/api/characters", json={"name": "Harrow"}).json()["id"]
+    client.post(f"/api/chats/{chat_id}/members", json={"character_id": other})
+    client.put(f"/api/chats/{chat_id}/group", json={"replies_per_turn": 2})
+
+    send(client, chat_id, "Mira, Harrow — both of you, then.")
+    replies = [m for m in client.get(f"/api/chats/{chat_id}/messages").json()
+               if m["role"] == "assistant" and m["turn"] > 0]
+    assert len(replies) == 2
+    assert {m["speaker_id"] for m in replies} == {mira, other}
+    # Same turn, in the order they were planned — the transcript has to read
+    # as one exchange rather than as two.
+    assert {m["turn"] for m in replies} == {1}
+
+
+def test_the_second_speaker_is_announced_before_they_start(client):
+    import json as _json
+
+    _, chat_id = api_chat(client)
+    other = client.post("/api/characters", json={"name": "Harrow"}).json()["id"]
+    client.post(f"/api/chats/{chat_id}/members", json={"character_id": other})
+    client.put(f"/api/chats/{chat_id}/group", json={"replies_per_turn": 2})
+
+    events = []
+    with client.stream("POST", f"/api/chats/{chat_id}/send",
+                       json={"text": "Mira, Harrow — both of you."}) as r:
+        for line in r.iter_lines():
+            if line.startswith("data:"):
+                events.append(_json.loads(line[5:]))
+
+    start = next(e for e in events if e["type"] == "turn_start")
+    assert [s["name"] for s in start["speakers"]] == ["Mira", "Harrow"]
+    second = next(e for e in events if e["type"] == "speaker_start")
+    assert second["speaker"]["id"] == other
+    # And it arrives after the first reply landed, never before it: the client
+    # tears its streaming bubble down on this event.
+    assert events.index(second) > events.index(
+        next(e for e in events if e["type"] == "reply")
+    )

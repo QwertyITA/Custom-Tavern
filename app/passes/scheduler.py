@@ -178,6 +178,7 @@ class TurnContext:
         return self.chat["id"]
 
 
+
 # Moved to assembly.py (§ fit_token_budget) so the character roster's
 # "is this card too big" check can share the exact same arithmetic without
 # importing the whole scheduler. Re-exported under their old names here —
@@ -594,26 +595,20 @@ class PassScheduler:
         # Who replies (roadmap 8). A solo chat is a group of one, so this runs
         # the same way for both and there is no second path to keep correct.
         groups.ensure_member(self.db, chat_id, chat["character_id"])
-        policy = (chat.get("settings") or {}).get("policy") or groups.DEFAULT_POLICY
-        chosen = groups.choose_speaker(
-            self.db,
-            chat_id,
-            policy=policy,
-            user_text=user_text,
-            last_speaker=groups.last_speaker(self.db, chat_id),
-            forced=speaker_id,
+        # A list, not a name: a turn in a group can be answered by more than
+        # one person (§ groups.plan). A solo chat plans a list of one and the
+        # loop below runs once, so there is no second path to keep correct.
+        planned = groups.plan_turn(
+            self.db, chat_id, chat=chat, user_text=user_text, forced=speaker_id
         )
-        if chosen is None:
+        speakers = self._resolve(planned)
+        if not speakers:
             yield {
                 "type": "error",
-                "error": "everyone here is muted" if groups.members(self.db, chat_id)
-                else "nobody is in this chat",
+                "error": self._nobody_reason(chat_id, planned),
             }
             return
-        character = repo.get_character(self.db, chosen["character_id"])
-        if character is None:
-            yield {"type": "error", "error": "chat has no character"}
-            return
+        character = speakers[0]
 
         # Resolved before it is stored, like the greeting: what the user typed
         # is what gets recorded, and {{char}} in their own message should read
@@ -649,7 +644,7 @@ class PassScheduler:
                 translation.set_translation(self.db, user_message["variant_id"], crossed)
                 user_message["translation"] = crossed
 
-        async for event in self._answer(chat, character, user_message, user_text):
+        async for event in self._answer(chat, speakers, user_message, user_text):
             yield event
 
     async def retry_turn(self, chat_id: str) -> AsyncIterator[dict]:
@@ -688,27 +683,40 @@ class PassScheduler:
         user_message = history[-1]
 
         groups.ensure_member(self.db, chat_id, chat["character_id"])
-        chosen = groups.choose_speaker(
-            self.db,
-            chat_id,
-            policy=(chat.get("settings") or {}).get("policy") or groups.DEFAULT_POLICY,
-            user_text=user_message["text"],
-            last_speaker=groups.last_speaker(self.db, chat_id),
+        speakers = self._resolve(
+            groups.plan_turn(
+                self.db, chat_id, chat=chat, user_text=user_message["text"]
+            )
         )
-        character = repo.get_character(self.db, chosen["character_id"]) if chosen else None
-        if character is None:
+        if not speakers:
             yield {"type": "error", "error": "chat has no character"}
             return
 
         async for event in self._answer(
-            chat, character, user_message, user_message["text"], announce=False
+            chat, speakers, user_message, user_message["text"], announce=False
         ):
             yield event
+
+    def _resolve(self, planned: list[dict]) -> list[Character]:
+        """Plan entries to cards, dropping anyone whose card has gone."""
+        found = [repo.get_character(self.db, m["character_id"]) for m in planned]
+        return [card for card in found if card is not None]
+
+    def _nobody_reason(self, chat_id: str, planned: list[dict]) -> str:
+        """Why nobody is going to answer, in words that name the way out."""
+        here = groups.members(self.db, chat_id)
+        if not here:
+            return "nobody is in this chat"
+        if planned:
+            return "the character who should answer no longer exists"
+        if all(m["muted"] for m in here):
+            return "everyone here is muted"
+        return "nobody was picked to answer — choose who replies"
 
     async def _answer(
         self,
         chat: dict,
-        character: Character,
+        speakers: list[Character],
         user_message: dict,
         user_text: str,
         *,
@@ -720,9 +728,148 @@ class PassScheduler:
         first attempt — the state decay, the nudges, the search and the
         background passes all have to happen exactly once per answered message,
         whichever route got there.
+
+        `speakers` is a list because a room is not a switchboard (§ groups.
+        plan): several characters can answer one message, one after another,
+        and each of them assembles their own prompt *after* the previous
+        reply is stored — which is the entire reason a group chat can have
+        somebody react to what somebody else just said. A solo chat is a list
+        of one and runs exactly as it always did.
+
+        What happens once per turn and what happens once per speaker is the
+        only real decision here. The web search and the music pick are about
+        the message, so they run once. Decay, nudges, state writes, the
+        background passes and the reply itself are about a character, so they
+        run for each one who speaks.
         """
         chat_id = chat["id"]
         turn = user_message["turn"]
+
+        first = self._context_for(chat, speakers[0], turn, user_text)
+        yield {
+            # A retry's message is already on screen, so it says so rather than
+            # asking the frontend to append a second copy of it.
+            "type": "turn_start" if announce else "turn_resume",
+            "turn": turn,
+            "message": user_message,
+            # Who is about to answer, so the placeholder can carry their name
+            # and portrait instead of the chat's nominal character.
+            "speaker": {"id": speakers[0].id, "name": speakers[0].name},
+            # And everyone else who is going to, so the composer can say "and
+            # then Harrow" rather than surprising the reader with a second
+            # bubble. Always present, so a client never has to guess whether
+            # a turn is done from the fact that nothing more arrived.
+            "speakers": [{"id": c.id, "name": c.name} for c in speakers],
+        }
+
+        # --- the one thing outside the model: a web search (roadmap 24) ---
+        # Blocking, because results that arrive after the reply are results the
+        # reply did not use. It is one HTTP request with a short timeout, and
+        # it only happens at all when both the switch and a URL are present.
+        async for event in self._run_search(first, user_text):
+            yield event
+
+        # --- also outside the reply pass, but a model call in its own right
+        # (§ _run_music_pick) — only when the person's own message just
+        # asked for music, so the reply itself can know what got picked.
+        await self._run_music_pick(first)
+
+        answered = 0
+        for index, character in enumerate(speakers):
+            ctx = first if index == 0 else self._context_for(
+                chat, character, turn, user_text
+            )
+            if index:
+                # Same payload as turn_start's speaker, minus the message:
+                # the person's own words are already on screen and this is
+                # only ever "somebody else is about to answer too".
+                yield {
+                    "type": "speaker_start",
+                    "turn": turn,
+                    "speaker": {"id": character.id, "name": character.name},
+                }
+
+            # --- cheapest tier first: deterministic decay + regex nudges (§6)
+            values = assembly.current_values(
+                self.db, chat_id, ctx.schema, ctx.character.id
+            )
+            values = state_mod.decay_step(ctx.schema, values)
+            nudges = state_mod.load_nudges(
+                (chat.get("settings") or {}).get("nudges")
+                or getattr(character, "nudges", None)
+            )
+            values, fired = state_mod.apply_nudges(
+                nudges, ctx.schema, values, user_text, "user"
+            )
+            ctx.pre_values = values
+            if fired:
+                yield {"type": "nudges", "fired": fired}
+
+            async for event in self._run_reply(ctx):
+                yield event
+
+            if not ctx.message_id:
+                # This reply failed. Nothing downstream of it is meaningful —
+                # and neither is asking the next character to react to a line
+                # that was never written, so the turn ends here rather than
+                # carrying on into a second failure.
+                break
+            answered += 1
+
+            # The pick above found nothing in the library and the character
+            # chose to ask about it instead (§ _handler_music_select) — held
+            # until now so the ask still trails the reply, the same order it
+            # had when the whole pass ran only after the fact.
+            if ctx.deferred_music_ask:
+                self._post_music_ask(chat_id, ctx.character.id, ctx.deferred_music_ask)
+
+            # --- non-blocking passes: parallel, write-on-arrival (§5.5) ---
+            launched = self._launch_background(ctx)
+            if launched:
+                yield {"type": "background_queued", "passes": launched}
+            # A character imported while its backend was unreachable, or created
+            # blank, gets another try at its reaction lines here — queued after
+            # the reply has already gone out, same as the background passes
+            # above, and only when something is actually still missing.
+            if character_reactions.missing_keys(ctx.character):
+                task = asyncio.create_task(
+                    character_reactions.spawn(self.db, self.settings, ctx.character),
+                    name=f"reactions:{ctx.character.id}:{turn}",
+                )
+                self._track(chat_id, task)
+            # A talking-video render for this reply, same fire-and-forget shape
+            # and same reasoning as the reaction lines just above — queued after
+            # the reply has already gone out, since a render can take longer
+            # than the line it illustrates (§ app/avatar_video.py). No-ops
+            # instantly when the character has no avatar video switched on.
+            if ctx.character.avatar_video.enabled:
+                task = asyncio.create_task(
+                    avatar_video.render_for_reply(
+                        self.db, self.settings, ctx.character,
+                        chat_id, ctx.message_id, ctx.reply_text,
+                    ),
+                    name=f"avatar_video:{ctx.character.id}:{turn}",
+                )
+                self._track(chat_id, task)
+
+        if not answered:
+            return  # every reply failed; there is no turn to close
+
+        # A new title, if this chat has grown enough to be due one (§
+        # _maybe_rename_chat below) — once per turn rather than once per
+        # speaker, since it is the chat being named and not the reply.
+        task = asyncio.create_task(
+            self._maybe_rename_chat(first), name=f"chat_rename:{chat_id}:{turn}"
+        )
+        self._track(chat_id, task)
+        yield {"type": "turn_end", "turn": turn}
+
+    def _context_for(
+        self, chat: dict, character: Character, turn: int, user_text: str
+    ) -> TurnContext:
+        """One speaker's turn context. Built per speaker, because the schema,
+        the toggles and the state all belong to a character rather than to the
+        chat they are standing in (§15, state namespacing)."""
         ctx = TurnContext(
             chat=chat,
             character=character,
@@ -735,93 +882,8 @@ class PassScheduler:
                 else None
             ),
         )
-        ctx.toggle_states = registry.toggle_states(self.db, character.id, chat_id)
-
-        yield {
-            # A retry's message is already on screen, so it says so rather than
-            # asking the frontend to append a second copy of it.
-            "type": "turn_start" if announce else "turn_resume",
-            "turn": turn,
-            "message": user_message,
-            # Who is about to answer, so the placeholder can carry their name
-            # and portrait instead of the chat's nominal character.
-            "speaker": {"id": character.id, "name": character.name},
-        }
-
-        # --- cheapest tier first: deterministic decay + regex nudges (§6) ---
-        values = assembly.current_values(self.db, chat_id, ctx.schema, ctx.character.id)
-        values = state_mod.decay_step(ctx.schema, values)
-        nudges = state_mod.load_nudges(
-            (chat.get("settings") or {}).get("nudges")
-            or getattr(character, "nudges", None)
-        )
-        values, fired = state_mod.apply_nudges(nudges, ctx.schema, values, user_text, "user")
-        ctx.pre_values = values
-        if fired:
-            yield {"type": "nudges", "fired": fired}
-
-        # --- the one thing outside the model: a web search (roadmap 24) ---
-        # Blocking, because results that arrive after the reply are results the
-        # reply did not use. It is one HTTP request with a short timeout, and
-        # it only happens at all when both the switch and a URL are present.
-        async for event in self._run_search(ctx, user_text):
-            yield event
-
-        # --- also outside the reply pass, but a model call in its own right
-        # (§ _run_music_pick) — only when the person's own message just
-        # asked for music, so the reply itself can know what got picked.
-        await self._run_music_pick(ctx)
-
-        async for event in self._run_reply(ctx):
-            yield event
-
-        if not ctx.message_id:
-            return  # the reply failed; nothing downstream is meaningful
-
-        # The pick above found nothing in the library and the character
-        # chose to ask about it instead (§ _handler_music_select) — held
-        # until now so the ask still trails the reply, the same order it
-        # had when the whole pass ran only after the fact.
-        if ctx.deferred_music_ask:
-            self._post_music_ask(chat_id, ctx.character.id, ctx.deferred_music_ask)
-
-        # --- non-blocking passes: parallel, write-on-arrival (§5.5) ---
-        launched = self._launch_background(ctx)
-        if launched:
-            yield {"type": "background_queued", "passes": launched}
-        # A new title, if this chat has grown enough to be due one (§
-        # _maybe_rename_chat below) — queued the same fire-and-forget way as
-        # the two tasks below, so a slow background tier never holds up the
-        # reply that just landed.
-        task = asyncio.create_task(
-            self._maybe_rename_chat(ctx), name=f"chat_rename:{chat_id}:{turn}"
-        )
-        self._track(chat_id, task)
-        # A character imported while its backend was unreachable, or created
-        # blank, gets another try at its reaction lines here — queued after
-        # the reply has already gone out, same as the background passes
-        # above, and only when something is actually still missing.
-        if character_reactions.missing_keys(ctx.character):
-            task = asyncio.create_task(
-                character_reactions.spawn(self.db, self.settings, ctx.character),
-                name=f"reactions:{ctx.character.id}:{turn}",
-            )
-            self._track(chat_id, task)
-        # A talking-video render for this reply, same fire-and-forget shape
-        # and same reasoning as the reaction lines just above — queued after
-        # the reply has already gone out, since a render can take longer
-        # than the line it illustrates (§ app/avatar_video.py). No-ops
-        # instantly when the character has no avatar video switched on.
-        if ctx.character.avatar_video.enabled:
-            task = asyncio.create_task(
-                avatar_video.render_for_reply(
-                    self.db, self.settings, ctx.character,
-                    chat_id, ctx.message_id, ctx.reply_text,
-                ),
-                name=f"avatar_video:{ctx.character.id}:{turn}",
-            )
-            self._track(chat_id, task)
-        yield {"type": "turn_end", "turn": turn}
+        ctx.toggle_states = registry.toggle_states(self.db, character.id, chat["id"])
+        return ctx
 
     async def _run_search(self, ctx: TurnContext, user_text: str) -> AsyncIterator[dict]:
         """Look the message up, if asked to and if there is somewhere to ask.
@@ -910,10 +972,11 @@ class PassScheduler:
         ctx.window_from = assembled.window_from
         contract = _suffix_instructions(ctx)
         system = assembled.system + "\n\n" + contract
+        cast = _cast_names(self.db, ctx.chat, ctx.character)
         request = GenRequest(
             system=system,
             messages=assembled.messages,
-            sampling=_with_character_stops(definition.sampling, ctx.character),
+            sampling=_with_character_stops(definition.sampling, ctx.character, cast),
             pass_id=definition.id,
             images=assembled.images,
         )
@@ -983,6 +1046,8 @@ class PassScheduler:
                 split_thinking("".join(collected))[0],
                 strip_leakage=self.settings.strip_user_turn_leakage,
                 user_names=("You", "{{user}}"),
+                speaker=ctx.character.name,
+                cast_names=cast,
             ).strip()
             if partial:
                 kept = repo.add_message(
@@ -1049,6 +1114,8 @@ class PassScheduler:
             body,
             strip_leakage=self.settings.strip_user_turn_leakage,
             user_names=("You", "{{user}}"),
+            speaker=ctx.character.name,
+            cast_names=cast,
         )
         # Output-scope rules, before it is stored (§16). After clean_reply, so a
         # rule is written against the text a person would have read rather than
@@ -1080,6 +1147,8 @@ class PassScheduler:
                         second,
                         strip_leakage=self.settings.strip_user_turn_leakage,
                         user_names=("You", "{{user}}"),
+                        speaker=ctx.character.name,
+                        cast_names=cast,
                     )
                 )
                 if payload is None:
@@ -2082,7 +2151,7 @@ class PassScheduler:
             return
 
         chat = repo.get_chat(self.db, message["chat_id"])
-        character = repo.get_character(self.db, chat["character_id"]) if chat else None
+        character = _speaker_of(self.db, chat, message) if chat else None
         if chat is None or character is None:
             yield {"type": "error", "error": "unknown chat"}
             return
@@ -2124,7 +2193,9 @@ class PassScheduler:
                 "again."
             ),
             messages=messages,
-            sampling=_with_character_stops(definition.sampling, character),
+            sampling=_with_character_stops(
+                definition.sampling, character, _cast_names(self.db, chat, character)
+            ),
             pass_id="continue",
         )
 
@@ -2173,7 +2244,10 @@ class PassScheduler:
             collected.append(tail)
             yield {"type": "delta", "text": tail}
 
-        full = self._append_continuation(ctx, message, existing, collected)
+        full = self._append_continuation(
+            ctx, message, existing, collected,
+            speaker=character.name, cast=_cast_names(self.db, chat, character),
+        )
         self._record_run(
             ctx, definition, "done", run_id=run_id,
             model=sink.model or provider.model,
@@ -2183,13 +2257,22 @@ class PassScheduler:
         yield {"type": "continued", "message_id": message_id, "text": full}
 
     def _append_continuation(
-        self, ctx: TurnContext, message: dict, existing: str, collected: list[str]
+        self, ctx: TurnContext, message: dict, existing: str, collected: list[str],
+        *, speaker: str = "", cast: tuple[str, ...] = (),
     ) -> str:
-        """Join the new text onto the old and store it on the same variant."""
+        """Join the new text onto the old and store it on the same variant.
+
+        The two group-chat arguments are handed in rather than looked up:
+        this is the one method here a test drives with a stand-in context, and
+        it should stay something that can be called with a message and a list
+        of chunks.
+        """
         addition = clean_reply(
             split_thinking("".join(collected))[0],
             strip_leakage=self.settings.strip_user_turn_leakage,
             user_names=("You", "{{user}}"),
+            speaker=speaker,
+            cast_names=cast,
         ).strip()
         if not addition:
             return existing
@@ -2222,7 +2305,7 @@ class PassScheduler:
             return
 
         chat = repo.get_chat(self.db, message["chat_id"])
-        character = repo.get_character(self.db, chat["character_id"]) if chat else None
+        character = _speaker_of(self.db, chat, message) if chat else None
         if chat is None or character is None:
             yield {"type": "error", "error": "unknown chat"}
             return
@@ -2277,10 +2360,11 @@ class PassScheduler:
         ctx.prompt_tokens = assembled.total_tokens
         ctx.window_from = assembled.window_from
         contract = _suffix_instructions(ctx)
+        cast = _cast_names(self.db, chat, character)
         request = GenRequest(
             system=assembled.system + "\n\n" + contract,
             messages=assembled.messages,
-            sampling=_with_character_stops(definition.sampling, character),
+            sampling=_with_character_stops(definition.sampling, character, cast),
             pass_id=definition.id,
             images=assembled.images,
         )
@@ -2338,7 +2422,12 @@ class PassScheduler:
         if payload is None:
             body, payload = split_state_suffix(body)
         reply = self._rewrite_reply(
-            clean_reply(body, strip_leakage=self.settings.strip_user_turn_leakage)
+            clean_reply(
+                body,
+                strip_leakage=self.settings.strip_user_turn_leakage,
+                speaker=character.name,
+                cast_names=cast,
+            )
         )
 
         # Exactly what a first attempt gets (§5.6). This path used to store the
@@ -2349,7 +2438,12 @@ class PassScheduler:
             second = await self._one_more_go(provider, request, definition)
             if second.strip():
                 reply = self._rewrite_reply(
-                    clean_reply(second, strip_leakage=self.settings.strip_user_turn_leakage)
+                    clean_reply(
+                        second,
+                        strip_leakage=self.settings.strip_user_turn_leakage,
+                        speaker=character.name,
+                        cast_names=cast,
+                    )
                 )
                 if payload is None:
                     reply, payload = split_state_suffix(reply)
@@ -2510,7 +2604,7 @@ class PassScheduler:
             return
 
         chat = repo.get_chat(self.db, message["chat_id"])
-        character = repo.get_character(self.db, chat["character_id"]) if chat else None
+        character = _speaker_of(self.db, chat, message) if chat else None
         if chat is None or character is None:
             yield {"type": "error", "error": "unknown chat"}
             return
@@ -2581,7 +2675,9 @@ class PassScheduler:
                 "no preamble, no meta comment, no restating the note."
             ),
             messages=messages,
-            sampling=_with_character_stops(definition.sampling, character),
+            sampling=_with_character_stops(
+                definition.sampling, character, _cast_names(self.db, chat, character)
+            ),
             pass_id="suggest_edit",
         )
 
@@ -2630,6 +2726,8 @@ class PassScheduler:
         revised = clean_reply(
             body, strip_leakage=self.settings.strip_user_turn_leakage,
             user_names=("You", "{{user}}"),
+            speaker=character.name,
+            cast_names=_cast_names(self.db, chat, character),
         ).strip()
 
         if not revised:
@@ -2687,7 +2785,10 @@ class PassScheduler:
         explain the swap, not fight the transcript.
         """
         chat = repo.get_chat(self.db, chat_id)
-        character = repo.get_character(self.db, chat["character_id"]) if chat else None
+        # Whoever just spoke, not the chat's nominal character: impersonating
+        # in a group means writing your own next line to the person who has
+        # actually been talking to you (§ _last_voice).
+        character = _last_voice(self.db, chat) if chat else None
         if chat is None or character is None:
             yield {"type": "error", "error": "unknown chat"}
             return
@@ -2926,7 +3027,7 @@ class PassScheduler:
         already drives the refreshing indicator.
         """
         chat = repo.get_chat(self.db, chat_id)
-        character = repo.get_character(self.db, chat["character_id"]) if chat else None
+        character = _last_voice(self.db, chat) if chat else None
         if chat is None or character is None:
             return {"ok": False, "error": "unknown chat"}
 
@@ -2974,13 +3075,20 @@ class PassScheduler:
         events, same cost dashboard entry, launched and left running.
         """
         chat = repo.get_chat(self.db, chat_id)
-        character = repo.get_character(self.db, chat["character_id"]) if chat else None
-        if chat is None or character is None:
+        if chat is None:
             return {"ok": False, "error": "unknown chat"}
 
         message = repo.get_message(self.db, message_id)
         if message is None or message["chat_id"] != chat_id:
             return {"ok": False, "error": "unknown message"}
+
+        # Whoever wrote the message being reacted to: a star on Harrow's line
+        # is a reaction Harrow gets to have, and reading it to the chat's
+        # nominal character had Mira thanking you for a compliment paid to
+        # somebody else (§ _speaker_of).
+        character = _speaker_of(self.db, chat, message)
+        if character is None:
+            return {"ok": False, "error": "unknown chat"}
 
         definition = registry.get_pass(self.db, "message_reaction")
         if definition is None or not definition.enabled:
@@ -3063,7 +3171,7 @@ class PassScheduler:
         if message is None:
             return {"ok": False, "error": "unknown message"}
         chat = repo.get_chat(self.db, message["chat_id"])
-        character = repo.get_character(self.db, chat["character_id"]) if chat else None
+        character = _speaker_of(self.db, chat, message) if chat else None
         definition = registry.get_pass(self.db, "state_auditor")
         if chat is None or character is None or definition is None:
             return {"ok": False, "error": "auditor unavailable"}
@@ -3090,17 +3198,82 @@ class PassScheduler:
 # ------------------------------------------------------------------ helpers
 
 
-def _with_character_stops(sampling: Sampling, character: Character) -> Sampling:
-    """The pass's sampling plus whatever this character keeps saying.
+def _cast_names(db: Database, chat: dict, character: Character) -> tuple[str, ...]:
+    """The other voices in this chat — members and past speakers alike.
+
+    `voices` as well as `members` for the same reason the transcript needs
+    both (§ groups.voices): somebody removed from the group still has lines
+    above, and a reply that carries on into one of them is the same mistake
+    whether or not they are still in the room.
+    """
+    everyone = [*groups.members(db, chat["id"]), *groups.voices(db, chat["id"])]
+    names = [
+        person["name"] for person in everyone
+        if person["character_id"] != character.id and person.get("name")
+    ]
+    return tuple(dict.fromkeys(names))
+
+
+def _last_voice(db: Database, chat: dict) -> Character | None:
+    """Whoever spoke last in this chat, or its nominal character.
+
+    What a pass run outside a turn is about — the expression on the face that
+    just answered, the words being written back to — rather than whoever the
+    chat happens to be filed under. Identical to the nominal character in
+    every solo chat.
+    """
+    speaker = groups.last_speaker(db, chat["id"])
+    if speaker:
+        character = repo.get_character(db, speaker)
+        if character is not None:
+            return character
+    return repo.get_character(db, chat["character_id"])
+
+
+def _speaker_of(db: Database, chat: dict, message: dict) -> Character | None:
+    """The character who actually said this message.
+
+    `chat["character_id"]` is the chat's *nominal* character — the one it was
+    created from — and in a group that is very often not who wrote the line
+    being re-rolled, continued, edited or re-audited. Every one of those paths
+    resolved the nominal character, so regenerating Harrow's reply in a group
+    rewrote it as Mira, in Mira's voice, against Mira's state schema, and
+    stored Mira's state writes for it. Reported as the turns being wrong, and
+    it is the same mistake roadmap 49 found in the transcript's faces: asking
+    the chat a question only the message can answer.
+
+    Falls back to the nominal character, which is right for every solo chat
+    and for a message from before `speaker_id` existed (§ db.py migrations).
+    """
+    speaker = message.get("speaker_id") or ""
+    if speaker:
+        character = repo.get_character(db, speaker)
+        if character is not None:
+            return character
+    return repo.get_character(db, chat["character_id"])
+
+
+def _with_character_stops(
+    sampling: Sampling, character: Character, cast: tuple[str, ...] = ()
+) -> Sampling:
+    """The pass's sampling plus whatever this character keeps saying, and —
+    in a group — the line that starts somebody else's turn.
+
+    A labelled transcript (§ assembly) is what makes the model understand a
+    group chat, and it is also an invitation to keep going and write the next
+    character's line too. Stopping at `\nOther:` is the cheap half of
+    refusing that invitation; `clean_reply` is the half that works when the
+    backend ignores stop sequences.
 
     Copied rather than mutated: `definition.sampling` is the stored pass
     definition, shared across every chat, and appending to it would leak one
     character's stop strings into everybody else's replies.
     """
-    if not character.stop_strings:
+    others = [f"\n{name}:" for name in cast if name.strip()]
+    if not character.stop_strings and not others:
         return sampling
     merged = sampling.model_copy(deep=True)
-    merged.stop = list(dict.fromkeys([*merged.stop, *character.stop_strings]))
+    merged.stop = list(dict.fromkeys([*merged.stop, *character.stop_strings, *others]))
     return merged
 
 

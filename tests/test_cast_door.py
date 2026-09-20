@@ -7,11 +7,17 @@ is three taps in (☰ → Story) and then a scroll past Quick options and the
 whole toggle list. Reported as the feature being missing, which is what a
 control nobody can find amounts to.
 
-So this guards the *door*, not the room: the header button that opens Story
-and puts that section under the thumb, and the fact that the section it
-lands on still holds the controls it promises. Source-level checks, the same
-shape as tests/test_stop_button.py — there is no JS harness here, and what
-is being protected is structural.
+Roadmap 48's answer was a header button that opened Story and scrolled that
+section under the thumb. It was still a panel opening, an animation, and a
+landing somewhere in the middle of a long list of unrelated switches — and
+there was nowhere to put the settings a group actually needed (how many
+answer, self-replies, what they know about each other) that would not have
+made the scroll longer. So the room moved: the controls live in a sheet of
+their own now, the header button opens it directly, and Story carries a
+button into the same sheet rather than a second copy of it.
+
+Source-level checks, the same shape as tests/test_stop_button.py — there is
+no JS harness here, and what is being protected is structural.
 """
 
 from __future__ import annotations
@@ -43,19 +49,24 @@ def cast_button() -> str:
     return INDEX[INDEX.rindex("<button", 0, start) : INDEX.index("</button>", start)]
 
 
+def sheet() -> str:
+    """The group sheet's markup, from its own modal down to its Done button."""
+    start = INDEX.index('x-show="castOpen"')
+    start = INDEX.rindex("<div", 0, start)
+    return INDEX[start : INDEX.index('@click="castOpen = false">Done', start)]
+
+
 # ------------------------------------------------------------------ the door
 
 
 def test_the_header_carries_a_button_into_the_cast():
-    tag = cast_button()
-    assert "openCast()" in tag
+    assert "openCast()" in cast_button()
 
 
 def test_it_only_shows_where_there_is_a_room_to_edit():
     """A solo chat has nothing here to change, and a button opening a list of
     one is worse than no button. The homepage has no chat at all."""
-    tag = cast_button()
-    show = re.search(r'x-show="([^"]+)"', tag).group(1)
+    show = re.search(r'x-show="([^"]+)"', cast_button()).group(1)
     assert "cast.length > 1" in show
     assert "!showHome" in show
 
@@ -69,8 +80,7 @@ def test_it_is_cloaked_like_every_other_conditional_header_control():
 def test_the_badge_counts_who_can_actually_answer():
     """Not cast.length: the number that matters while reading a scene is how
     many of them are not muted."""
-    tag = cast_button()
-    assert "cast.filter(m => !m.muted).length" in tag
+    assert "cast.filter(m => !m.muted).length" in cast_button()
 
 
 def test_the_button_is_an_svg_glyph_not_an_emoji():
@@ -86,69 +96,117 @@ def test_it_says_what_it_does():
 # --------------------------------------------------------------- openCast()
 
 
-def test_open_cast_opens_story():
-    assert 'openPanel("story")' in method("openCast")
-
-
-def test_open_cast_does_not_close_an_already_open_story():
-    """openPanel is a toggle — calling it with the panel already on `story`
-    closes the very panel this is meant to reach."""
+def test_open_cast_opens_the_sheet_and_nothing_else():
+    """No panel, no scroll, no animation to wait out — the controls are one
+    tap away or they are not reachable."""
     body = method("openCast")
-    assert 'this.panel !== "story"' in body
-    assert "!this.panelOpen" in body
+    assert "this.castOpen = true" in body
+    assert "openPanel" not in body
+    assert "scrollIntoView" not in body
 
 
-def test_open_cast_lands_on_the_section():
-    body = method("openCast")
-    assert "$refs.castSection" in body
-    assert "scrollIntoView" in body
+def test_open_cast_fills_the_room_first():
+    """Story is not necessarily where this was opened from any more, so the
+    membership it draws cannot be assumed already loaded."""
+    assert "loadCast()" in method("openCast")
 
 
-def test_open_cast_waits_for_the_panel_to_render():
-    """The section does not exist in the DOM until `panel === 'story'` has
-    rendered, so a scroll in the same tick finds nothing."""
-    assert "$nextTick" in method("openCast")
+def test_the_sheet_starts_closed():
+    assert re.search(r"^    castOpen: false,", APP_JS, re.MULTILINE)
 
 
-def test_the_landing_mark_clears_itself():
-    body = method("openCast")
-    assert "this.castLanded = true" in body
-    assert "this.castLanded = false" in body
-    assert "clearTimeout(this._castLandTimer)" in body
+def test_the_sheet_closes_the_way_every_other_one_does():
+    markup = sheet()
+    assert "@keydown.escape.window=\"castOpen = false\"" in markup
+    assert 'x-transition:enter="sheet-modal-enter"' in markup
 
 
-def test_cast_landed_starts_off():
-    assert re.search(r"^    castLanded: false,", APP_JS, re.MULTILINE)
-
-
-def test_the_heading_is_the_scroll_target_and_wears_the_mark():
-    heading = re.search(r"<h3[^>]*castSection[^>]*>", INDEX).group(0)
-    assert 'x-ref="castSection"' in heading
-    assert "castLanded" in heading
-    assert "Who is here" in INDEX[INDEX.index(heading) : INDEX.index(heading) + 400]
+def test_story_keeps_a_door_rather_than_a_second_copy():
+    """One implementation. Someone who goes looking in Story, where it used
+    to be, gets sent to the same sheet."""
+    start = INDEX.index("Who is here</h3>")
+    section = INDEX[start : INDEX.index("Unplanned things", start)]
+    assert "openCast()" in section
+    assert "toggleMuted(m)" not in section, "that control lives in the sheet"
+    assert "setTalkativeness(m," not in section
 
 
 # ------------------------------------------------------------------ the room
 #
-# The door is only worth anything if what it opens onto still works.
+# The door is only worth anything if what it opens onto actually works.
 
 
-def test_the_section_still_holds_every_control_the_button_promises():
-    start = INDEX.index('x-ref="castSection"')
-    section = INDEX[start : INDEX.index("Whose turn it is", start)]
-    assert "toggleMuted(m)" in section, "the on/off switch"
-    assert "dropMember(m)" in section, "removing someone"
-    assert "addMember($event.target.value)" in section, "adding someone"
-    assert "charactersNotHere()" in section, "who there is left to add"
-    assert "setTalkativeness(m," in section
+def test_the_sheet_holds_every_per_member_control():
+    markup = sheet()
+    assert "toggleMuted(m)" in markup, "the on/off switch"
+    assert "dropMember(m)" in markup, "removing someone"
+    assert "addMember($event.target.value)" in markup, "adding someone"
+    assert "charactersNotHere()" in markup, "who there is left to add"
+    assert "setTalkativeness(m," in markup
+
+
+def test_the_sheet_holds_every_group_setting():
+    """The four that decide how a group reads, all in the same place: nothing
+    here should send anyone back to a different panel."""
+    markup = sheet()
+    assert "setPolicy(p.id)" in markup, "whose turn it is"
+    assert "setReplies($event.target.value)" in markup, "how many answer"
+    assert "setSelfResponses(" in markup, "following their own line"
+    assert "setCastDetail(d.id)" in markup, "what they know about each other"
+
+
+def test_every_setting_explains_itself():
+    markup = sheet()
+    assert "policyNote()" in markup
+    assert "castDetailNote()" in markup
+    assert "repliesLabel()" in markup
 
 
 def test_the_last_person_keeps_their_remove_button_hidden():
     """The server refuses to empty a chat; the UI should not offer it either."""
-    start = INDEX.index('x-ref="castSection"')
-    section = INDEX[start : INDEX.index("Whose turn it is", start)]
-    remove = section[section.index("dropMember(m)") - 200 : section.index("dropMember(m)") + 300]
+    markup = sheet()
+    remove = markup[markup.index("dropMember(m)") - 200 : markup.index("dropMember(m)") + 300]
     assert 'x-show="cast.length > 1"' in remove
+
+
+def test_the_choices_that_mean_nothing_under_manual_are_hidden():
+    """"You choose" answers "how many" and "can they follow themselves" by
+    being what it is, so offering both would be offering a control that does
+    nothing."""
+    markup = sheet()
+    assert markup.count("policy !== 'manual'") >= 2
+
+
+def test_the_sheet_uses_the_icon_sprite_not_emoji():
+    markup = sheet()
+    assert "<use href=" in markup
+    assert not re.search(r"[\U0001F300-\U0001FAFF]", markup)
+
+
+# ------------------------------------------------------------ the settings
+
+
+def test_one_writer_for_all_four_settings():
+    """Four optimistic switches with four copies of the revert logic is four
+    chances to forget one."""
+    for name in ("setPolicy", "setCastDetail", "setSelfResponses", "setReplies"):
+        assert "saveGroup(" in method(name), name
+    body = method("saveGroup")
+    assert "/group`" in body
+    assert "applyGroupSettings(previous)" in body, "puts itself back on refusal"
+
+
+def test_the_room_reads_every_setting_back():
+    """A panel that read three of them and forgot the fourth is how a control
+    silently stops working."""
+    body = method("applyGroupSettings")
+    for key in ("policy", "replies_per_turn", "self_responses", "cast_detail"):
+        assert key in body, key
+
+
+def test_the_replies_slider_is_debounced_like_the_other_one():
+    """A dragged slider would otherwise write once per step."""
+    assert "PREVIEW_DEBOUNCE_MS" in method("setReplies")
 
 
 # ------------------------------------------------------------------- styling
@@ -163,31 +221,3 @@ def test_the_badge_reads_against_the_accent_it_sits_on():
     badge = CSS[CSS.index(".cast-count {") : CSS.index("}", CSS.index(".cast-count {"))]
     assert "background: var(--accent);" in badge
     assert "color: var(--on-accent);" in badge
-
-
-def test_the_landing_mark_eases_both_ways_from_tokens():
-    """A heading that snapped on and off would read as a glitch, and a bezier
-    written inline would be the one curve nothing physical follows."""
-    on = CSS[CSS.index(".sheet-body h3.landed {") :]
-    on = on[: on.index("}") + 1]
-    assert "var(--ease-out)" in on and "var(--dur-base)" in on
-    assert "cubic-bezier" not in on
-    off = ".sheet-body h3 { transition: color var(--dur-slow) var(--ease-in-out); }"
-    assert off in CSS
-
-
-def test_the_landing_mark_never_springs():
-    """--ease-spring overshoots past 1 on purpose, and an overshoot on a
-    colour extrapolates past the target and clamps per channel."""
-    on = CSS[CSS.index(".sheet-body h3.landed {") :]
-    on = on[: on.index("}") + 1]
-    assert "--ease-spring" not in on
-
-
-def test_a_scrolled_to_heading_keeps_its_breathing_room():
-    """scrollIntoView lands the border box flush against the top of the
-    scroller and ignores the margin above it — live, the heading arrived
-    with its ascenders shaved against the sheet header's rule."""
-    block = CSS[CSS.index(".sheet-body h3 {") :]
-    block = block[: block.index("}") + 1]
-    assert "scroll-margin-top" in block

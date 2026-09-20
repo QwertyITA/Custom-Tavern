@@ -136,11 +136,63 @@ def split_thinking(text: str) -> tuple[str, str]:
     return body, "\n\n".join(t for t in thoughts if t)
 
 
-def clean_reply(text: str, *, strip_leakage: bool = True, user_names: tuple[str, ...] = ()) -> str:
-    """Strip template artifacts and any continuation of the user's turn."""
+def _label(name: str) -> str:
+    """A name used as a speaker label, in the three shapes models write it.
+
+    `Mira:`, `**Mira:**` and `**Mira**:` — and the emphasis has to close with
+    what opened it, or the pattern eats the opening asterisk of whatever
+    follows. The first version did exactly that and turned `**Mira:** *She
+    looks up.*` into `** *She looks up.*`, which is worse than the label.
+    """
+    escaped = re.escape(name)
+    return rf"(?:(\*{{1,2}})\s*{escaped}\s*(?::\s*\1|\1\s*:)|{escaped}\s*:)"
+
+
+def strip_speaker_label(text: str, name: str) -> str:
+    """Take the model's own name label back off the front of its reply.
+
+    A group transcript labels every line with who said it (§ assembly), and a
+    model reading `Mira: …` a dozen times writes `Mira: …` back. Harmless in
+    the prompt, wrong on screen: the bubble already carries the name and the
+    portrait, so the label arrives twice and the reply reads as a script.
+
+    Only at the very start, and only the speaker's own name: a line *inside* a
+    reply that happens to start with a name is dialogue about somebody, and
+    deleting it would eat the sentence.
+    """
+    if not name.strip():
+        return text
+    return re.sub(rf"\A\s*{_label(name)}\s*", "", text, count=1).lstrip()
+
+
+def clean_reply(
+    text: str,
+    *,
+    strip_leakage: bool = True,
+    user_names: tuple[str, ...] = (),
+    speaker: str = "",
+    cast_names: tuple[str, ...] = (),
+) -> str:
+    """Strip template artifacts and any continuation of somebody else's turn.
+
+    `speaker` and `cast_names` are the group-chat half of it (roadmap 8):
+    the reply's own name label comes off the front, and a reply that carried
+    on into another character's line is cut where that line begins. The
+    second one is not gated on `strip_leakage` the way the user's own turn
+    is — that switch is about being written *for*, and a character writing
+    their neighbour's dialogue is a different mistake with the same shape.
+    """
     body = strip_unrenderable(text)
     for pattern in _ARTIFACTS:
         body = pattern.sub("", body)
+    body = strip_speaker_label(body, speaker)
+    for name in cast_names:
+        if not name.strip() or name == speaker:
+            continue
+        # Line-anchored, so a name inside a sentence is left alone and only a
+        # line that *starts* as somebody else's turn is taken as one.
+        stolen = re.compile(rf"\n\s*{_label(name)}.*\Z", re.IGNORECASE | re.DOTALL)
+        body = stolen.sub("", body)
     if strip_leakage:
         body = _LEAKAGE.sub("", body)
         for name in user_names:

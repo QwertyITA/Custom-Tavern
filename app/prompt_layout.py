@@ -91,6 +91,9 @@ STRUCTURAL: list[dict[str, Any]] = [
      "note": "What the web search found for this message. Nothing when it is off."},
     {"id": "toggles", "band": "volatile", "label": "Toggle injections",
      "note": "Text from whichever story toggles are on."},
+    {"id": "turn", "band": "volatile", "label": "Whose turn it is",
+     "note": "In a group: who is speaking now, and that they write nobody "
+             "else's line. Nothing in a solo chat."},
     {"id": "final", "band": "volatile", "label": "The card's last word",
      "note": "Post-history instructions — what the card wants obeyed over "
              "whatever the conversation has drifted into."},
@@ -432,14 +435,23 @@ something else, or stop.
 # The default layout: the slots first inside each band, then the writing blocks
 # — which sit at the end of the prefix, closest to the conversation they
 # govern, and still inside the part of the prompt that stays cached.
-def _order(section: dict[str, Any]) -> tuple[int, int]:
-    """Band first, and `final` last inside its own.
+def _tail(section_id: str) -> int:
+    """How far towards the end of its band a section is pinned.
 
-    The card's last word is the one thing that has to come after everything
-    else — that placement *is* the feature, and it is what the panel promises
-    of post-history instructions.
+    Two are. The card's last word has to come after everything else — that
+    placement *is* the feature, and it is what the panel promises of
+    post-history instructions. `turn` is second-to-last for the same reason
+    one step down: in a group chat it is the rule that keeps a reply to one
+    voice, and a rule the model reads before three hundred tokens of house
+    style is a rule it has stopped thinking about by the time it answers. It
+    is empty text in a solo chat, where it drops out of the prompt entirely
+    and `craft:length` is still the last thing read.
     """
-    return (BAND_IDS.index(section["band"]), 1 if section["id"] == "final" else 0)
+    return {"final": 2, "turn": 1}.get(section_id, 0)
+
+
+def _order(section: dict[str, Any]) -> tuple[int, int]:
+    return (BAND_IDS.index(section["band"]), _tail(section["id"]))
 
 
 BUILTIN: list[dict[str, Any]] = sorted(STRUCTURAL + WRITING, key=_order)
@@ -611,8 +623,14 @@ def normalise(raw: Any) -> list[dict[str, Any]]:
 
     # Bands are not reorderable, so the stored order only decides position
     # inside one. Sorting by band here is what makes that true no matter what
-    # a hand-edited file says.
-    return sorted(out, key=lambda s: BAND_IDS.index(s["band"]))
+    # a hand-edited file says — and `final` is pinned to the end of its own
+    # band by the same sort key `BUILTIN` is built with (§ _order). It has to
+    # be pinned here too and not only there: a section added in a later
+    # version is appended by the loop just above, which runs after every
+    # stored id including `final`, so the first install to upgrade would have
+    # found the card's last word no longer last. That placement *is* the
+    # feature.
+    return sorted(out, key=lambda s: (BAND_IDS.index(s["band"]), _tail(s["id"])))
 
 
 def to_storage(layout: list[dict[str, Any]]) -> list[dict[str, Any]]:

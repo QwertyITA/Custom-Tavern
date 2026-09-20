@@ -1125,6 +1125,12 @@
         <span class="anim anim-cogs"></span>
       </span>
       <span class="composing-label" x-text="composingLabel"></span>
+      <!-- Who is still to come this turn (§ groups.plan). Without it a
+           second bubble opening after the first one settled reads as the
+           app having decided something on its own; with it, the turn says
+           up front how many voices are coming back. -->
+      <span class="composing-queue" x-show="turnQueueNote()" x-cloak
+            x-text="turnQueueNote()"></span>
     </div>
   </article>
 
@@ -2850,50 +2856,22 @@
           </div>
         </template>
 
-        <h3 x-ref="castSection" :class="{ 'landed': castLanded }"><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-people"/></svg>Who is here</h3>
+        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-people"/></svg>Who is here</h3>
         <p class="note">
-          Several characters can share one conversation. Muting keeps someone
-          in the scene but silent — the others still know they are standing
-          there.
+          Several characters can share one conversation — who answers, how
+          many of them answer at once, who is muted, and how much they each
+          know about the others.
         </p>
-        <template x-for="m in cast" :key="m.character_id">
-          <div class="member" :class="{ quiet: m.muted }">
-            <div class="member-head">
-              <span class="char-pfp">
-                <svg class="char-pfp-generic" viewBox="0 0 24 24" aria-hidden="true">
-                  <use href="#i-person"/>
-                </svg>
-              </span>
-              <span class="char-name" x-text="m.name"></span>
-              <button class="p-switch" :class="{ on: !m.muted }" @click="toggleMuted(m)"
-                      :aria-pressed="!m.muted"
-                      :aria-label="`${m.muted ? 'Unmute' : 'Mute'} ${m.name}`"
-                      :title="m.muted ? 'Silent, but still in the scene' : 'Can speak'">
-                <span class="p-knob"></span>
-              </button>
-              <button class="glyph-btn danger" @click="dropMember(m)"
-                      x-show="cast.length > 1"
-                      :title="`Remove ${m.name} from this chat`"
-                      :aria-label="`Remove ${m.name}`">
-                <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-close"/></svg>
-              </button>
-            </div>
-            <!-- Only meaningful with someone to compete against, and only when
-                 the policy actually weighs anybody. -->
-            <div class="num-field" x-show="cast.length > 1 && policy === 'natural'">
-              <div class="num-head">
-                <span class="num-label">How readily they speak up</span>
-                <span class="num-unit" x-text="m.talkativeness.toFixed(1)"></span>
-              </div>
-              <input class="num-slider" type="range" min="0" max="2" step="0.1"
-                     :value="m.talkativeness"
-                     @input="setTalkativeness(m, $event.target.value)"
-                     :aria-label="`How readily ${m.name} speaks up`">
-            </div>
-          </div>
-        </template>
-
-        <label class="row"><span class="row-label">Add someone</span>
+        <!-- The controls themselves live in the group sheet (§ castOpen),
+             which the people button in the header opens directly. One
+             implementation, two doors: this is the one for someone who came
+             looking in Story because that is where it used to be. -->
+        <div class="btn-row">
+          <button class="wide" @click="openCast()">
+            <span x-text="cast.length > 1 ? `Open the room (${cast.length} here)` : 'Add someone to this chat'"></span>
+          </button>
+        </div>
+        <label class="row" x-show="cast.length < 2"><span class="row-label">Add someone</span>
           <select @change="addMember($event.target.value); $event.target.value = ''">
             <option value="">Choose a character…</option>
             <template x-for="c in charactersNotHere()" :key="c.id">
@@ -2901,15 +2879,6 @@
             </template>
           </select>
         </label>
-
-        <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-cycle"/></svg>Whose turn it is</h3>
-        <div class="preset-row">
-          <template x-for="p in policies" :key="p.id">
-            <button class="preset" :class="{ picked: policy === p.id }"
-                    @click="setPolicy(p.id)" x-text="p.label"></button>
-          </template>
-        </div>
-        <p class="kind-note" x-text="policyNote()"></p>
 
         <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-dice"/></svg>Unplanned things</h3>
         <p class="note">
@@ -4568,6 +4537,137 @@
     </div>
   </template>
 </section>
+
+<!-- ------------------------------------------------------------- the room -->
+<!-- Every group control, in one place, one tap from the chat itself.
+     Roadmap 48 put a people button in the header and had it scroll the
+     Story panel down to a section buried under Quick options and the whole
+     toggle list. That was a second door onto a room nobody could find; this
+     is the room. The controls are not duplicated — they moved here, and
+     Story now carries a button that opens this, so there is still exactly
+     one implementation of each of them.
+
+     Only reachable when there is more than one person here: a solo chat has
+     nothing to decide, and the button that opens this is hidden there. -->
+<div class="sheet-modal" x-show="castOpen" x-cloak
+     @click="castOpen = false" @keydown.escape.window="castOpen = false"
+     x-transition:enter="sheet-modal-enter" x-transition:enter-start="sheet-modal-from"
+     x-transition:enter-end="sheet-modal-to"
+     x-transition:leave="sheet-modal-leave" x-transition:leave-start="sheet-modal-to"
+     x-transition:leave-end="sheet-modal-from">
+  <div class="sheet-modal-card" @click.stop>
+    <div class="crop-head">
+      <span class="sheet-modal-title">Who is here</span>
+    </div>
+    <div class="sheet-modal-body">
+      <p class="note">
+        Several characters share this conversation. Muting keeps someone in
+        the scene but silent — the others still know they are standing there.
+      </p>
+
+      <template x-for="m in cast" :key="m.character_id">
+        <div class="member" :class="{ quiet: m.muted }">
+          <div class="member-head">
+            <span class="char-pfp">
+              <svg class="char-pfp-generic" viewBox="0 0 24 24" aria-hidden="true">
+                <use href="#i-person"/>
+              </svg>
+            </span>
+            <span class="char-name" x-text="m.name"></span>
+            <button class="p-switch" :class="{ on: !m.muted }" @click="toggleMuted(m)"
+                    :aria-pressed="!m.muted"
+                    :aria-label="`${m.muted ? 'Unmute' : 'Mute'} ${m.name}`"
+                    :title="m.muted ? 'Silent, but still in the scene' : 'Can speak'">
+              <span class="p-knob"></span>
+            </button>
+            <button class="glyph-btn danger" @click="dropMember(m)"
+                    x-show="cast.length > 1"
+                    :title="`Remove ${m.name} from this chat`"
+                    :aria-label="`Remove ${m.name}`">
+              <svg class="icon-btn-glyph" viewBox="0 0 24 24"><use href="#i-close"/></svg>
+            </button>
+          </div>
+          <!-- Only meaningful with someone to compete against, and only under
+               the policy that actually weighs anybody. -->
+          <div class="num-field" x-show="cast.length > 1 && policy === 'natural'">
+            <div class="num-head">
+              <span class="num-label">How readily they speak up</span>
+              <span class="num-unit" x-text="m.talkativeness.toFixed(1)"></span>
+            </div>
+            <input class="num-slider" type="range" min="0" max="2" step="0.1"
+                   :value="m.talkativeness"
+                   @input="setTalkativeness(m, $event.target.value)"
+                   :aria-label="`How readily ${m.name} speaks up`">
+          </div>
+        </div>
+      </template>
+
+      <label class="row"><span class="row-label">Add someone</span>
+        <select @change="addMember($event.target.value); $event.target.value = ''">
+          <option value="">Choose a character…</option>
+          <template x-for="c in charactersNotHere()" :key="c.id">
+            <option :value="c.id" x-text="c.name"></option>
+          </template>
+        </select>
+      </label>
+
+      <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-cycle"/></svg>Whose turn it is</h3>
+      <div class="preset-row">
+        <template x-for="p in policies" :key="p.id">
+          <button class="preset" :class="{ picked: policy === p.id }"
+                  @click="setPolicy(p.id)" x-text="p.label"></button>
+        </template>
+      </div>
+      <p class="kind-note" x-text="policyNote()"></p>
+
+      <!-- The one that turns a switchboard back into a room. Every extra
+           reply is another whole generation, so the number is said in
+           waiting rather than in units. -->
+      <div class="num-field" x-show="policy !== 'manual'">
+        <div class="num-head">
+          <span class="num-label">How many answer at once</span>
+          <span class="num-unit" x-text="repliesLabel()"></span>
+        </div>
+        <input class="num-slider" type="range" min="1" :max="maxReplies" step="1"
+               :value="repliesPerTurn"
+               @input="setReplies($event.target.value)"
+               aria-label="How many characters answer one message">
+      </div>
+      <p class="kind-note" x-show="policy !== 'manual'">
+        More than one means they answer in turn, each one having read what the
+        one before them just said. Each reply is its own generation, so two
+        costs twice the wait.
+      </p>
+
+      <label class="row" x-show="policy !== 'manual'">
+        <span class="row-label">Let someone follow their own line</span>
+        <button class="p-switch" :class="{ on: selfResponses }"
+                @click="setSelfResponses(!selfResponses)"
+                :aria-pressed="selfResponses"
+                aria-label="Let someone follow their own line">
+          <span class="p-knob"></span>
+        </button>
+      </label>
+      <p class="kind-note" x-show="policy !== 'manual'">
+        Off, whoever just spoke sits the next one out unless you name them —
+        which is what stops a group of three reading as one person talking to
+        themselves. On, they can keep going.
+      </p>
+
+      <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-people"/></svg>What they know about each other</h3>
+      <div class="preset-row">
+        <template x-for="d in castDetails" :key="d.id">
+          <button class="preset" :class="{ picked: castDetail === d.id }"
+                  @click="setCastDetail(d.id)" x-text="d.label"></button>
+        </template>
+      </div>
+      <p class="kind-note" x-text="castDetailNote()"></p>
+    </div>
+    <div class="btn-row crop-actions">
+      <button class="wide primary" @click="castOpen = false">Done</button>
+    </div>
+  </div>
+</div>
 
 <!-- Asked once, wherever closing/switching/going back would drop an edit
      (§ runOrGuard in app.js) — Brain, Theme, Settings share this because

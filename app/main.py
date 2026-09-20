@@ -1533,8 +1533,12 @@ async def chat_members(chat_id: str) -> dict:
         # moment somebody is removed from a group, and it is `voices` the
         # transcript's faces and speaker labels have to read (§ groups.voices).
         "voices": groups.voices(db, chat_id),
-        "policy": (chat.get("settings") or {}).get("policy") or groups.DEFAULT_POLICY,
+        # Every group control in one payload, so the panel never has to know
+        # where a setting is stored or what its default is (§ groups.settings_for).
+        **groups.settings_for(chat),
         "policies": groups.POLICIES,
+        "cast_details": groups.CAST_DETAIL,
+        "max_replies_per_turn": groups.MAX_REPLIES_PER_TURN,
     }
 
 
@@ -1584,17 +1588,52 @@ async def remove_chat_member(chat_id: str, character_id: str) -> dict:
 
 @app.put("/api/chats/{chat_id}/policy")
 async def set_turn_policy(chat_id: str, payload: dict = Body(...)) -> dict:
+    """Kept as its own route because it is the one group setting that
+    predates the rest, and something may still be calling it."""
+    return await set_group_settings(chat_id, {"policy": payload.get("policy")})
+
+
+@app.put("/api/chats/{chat_id}/group")
+async def set_group_settings(chat_id: str, payload: dict = Body(...)) -> dict:
+    """Any of the group's own settings, one or several at a time.
+
+    Only the keys present in the body are touched, so the panel can send one
+    switch without having to restate the other three — and a key with a value
+    this app does not recognise is refused rather than silently normalised,
+    since a policy that quietly became "natural" would look like the control
+    doing nothing.
+    """
     db = get_db()
     chat = repo.get_chat(db, chat_id)
     if chat is None:
         raise HTTPException(404, "chat not found")
-    policy = str(payload.get("policy") or "")
-    if policy not in groups.POLICY_IDS:
-        raise HTTPException(400, f"unknown turn policy {policy!r}")
     settings = dict(chat.get("settings") or {})
-    settings["policy"] = policy
+
+    if "policy" in payload:
+        policy = str(payload.get("policy") or "")
+        if policy not in groups.POLICY_IDS:
+            raise HTTPException(400, f"unknown turn policy {policy!r}")
+        settings["policy"] = policy
+    if "cast_detail" in payload:
+        detail = str(payload.get("cast_detail") or "")
+        if detail not in groups.CAST_DETAIL_IDS:
+            raise HTTPException(400, f"unknown cast detail {detail!r}")
+        settings["cast_detail"] = detail
+    if "replies_per_turn" in payload:
+        try:
+            replies = int(payload.get("replies_per_turn"))
+        except (TypeError, ValueError):
+            raise HTTPException(400, "replies per turn has to be a number") from None
+        if not 1 <= replies <= groups.MAX_REPLIES_PER_TURN:
+            raise HTTPException(
+                400, f"between 1 and {groups.MAX_REPLIES_PER_TURN} characters can answer"
+            )
+        settings["replies_per_turn"] = replies
+    if "self_responses" in payload:
+        settings["self_responses"] = bool(payload.get("self_responses"))
+
     repo.update_chat_settings(db, chat_id, settings)
-    return {"ok": True, "policy": policy}
+    return {"ok": True, **groups.settings_for({"settings": settings})}
 
 
 @app.get("/api/chats/{chat_id}/messages")

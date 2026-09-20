@@ -1007,180 +1007,24 @@ function tavern() {
     // CONTRACT.md) — { messageId, url } for the single message it was
     // rendered for, or null. Never more than one at a time (§ liveVideoFor).
     liveAvatarVideo: null,
-
-    draft: "",
-    editing: null,
-    editText: "",
-    editHeight: 0,
-    editingEl: null,
-    regenId: null,
-    regenPrevious: "",
-    // How many of the streaming message's paragraphs are shown so far, while
-    // "Separate paragraphs" is on (§ runStream's own reveal loop) — Infinity
-    // once nothing is streaming, so visibleParagraphs never has to special-
-    // case "no stream in progress" separately from "caught up already".
-    streamingParagraphsShown: Infinity,
-    fadingId: null,
-    // Following the newest message. Cleared when the user scrolls up to read,
-    // restored when they come back down or ask for the newest message. Also
-    // what the scroll-to-bottom button's own visibility reads directly
-    // (`!stick`, § ISSUES-TRIAGE.md #4) rather than a second flag: a chat too
-    // short to scroll is trivially "at bottom" already, so nothing extra is
-    // needed to keep the button off a conversation that doesn't need it.
-    stick: true,
-    scrollPort: null,
-    // The header menu, and which of its destinations is open. One panel at a
-    // time — "" means the conversation is unobstructed.
-    menu: false,
-    // Whether the world-info pill (§ world-pill-inline/world-pill-float,
-    // index.html) has its refresh button open. Only meaningful once there is
-    // a scene to read — the empty pill has nothing else in it, so its
-    // refresh/"generate this" button stays visible outright rather than
-    // needing this to reveal it. Shared by both pills rather than one flag
-    // each: only one of the two ever renders at a time, so there is nothing
-    // to desync.
-    pillOpen: false,
-    // Two fields rather than one: `panel` says which body to render and
-    // `panelOpen` says whether the sheet is on screen. Clearing the name at
-    // the moment of closing would unmount the body through its own x-if, and
-    // the sheet would slide away empty.
-    panel: "",
-    panelOpen: false,
-    // The confirm sheet for leaving a dirty panel (§ runOrGuard), and the
-    // navigation it is holding open pending an answer. The three snapshots
-    // below start at "" rather than matching whatever loads first by
-    // accident: a real settings/character/persona object JSON.stringifies to
-    // something that can never equal "", so panelDirty() reads as dirty
-    // until the panel that owns each one has actually loaded once and taken
-    // its own snapshot — never the wrong way around, where a coincidental
-    // match waves through a real unsaved edit.
-    confirmDiscardOpen: false,
-    _pendingPanelAction: null,
-    _settingsSnapshot: "",
-    _characterSnapshot: "",
-    _personaSnapshot: "",
-    // Which of Brain's five categories is showing. Persists across closing
-    // and reopening the panel — the same way openBackend/openTier already do
-    // for what is folded open within one — rather than resetting to the
-    // first tab every time.
-    brainTab: "backends",
-    historyFor: "",
-    // Raised while a different chat's transcript is being fetched.
-    loadingChat: false,
-    // Variables whose band changed on the last update.
-    bandsMoved: [],
-    confirmChar: "",
-    confirmChat: "",
-    confirmMsg: "",
-    // Which message's emoji picker is open, "" when none (§ message
-    // reactions, openReactionPicker).
-    reactingTo: "",
-    // Exposed as a data property, not just the module-level const above —
-    // Alpine's template expressions (x-for etc.) evaluate against the
-    // component's own scope, not this script's outer closure, the same
-    // reason every other fixed list a template iterates (settings.*,
-    // this.chats, ...) lives on `this` rather than as a bare top-level name.
-    messageReactions: MESSAGE_REACTIONS,
-    // Which message's "Suggest edit" note box is open, "" when none (§
-    // openSuggestEdit), and the free-text note being typed into it. The
-    // presets live on `this` for the same reason messageReactions does.
-    suggestingFor: "",
-    suggestText: "",
-    suggestEditPresets: SUGGEST_EDIT_PRESETS,
-    // Which message is armed for select-to-copy, "" when none (§
-    // startSelectCopy) — the bubble's own swipe/hold pointer handling steps
-    // aside for this one message while it is set.
-    selectingText: "",
-    // The hold-to-delete modal for a character, null when closed. `state` is
-    // "idle" (modal up, nothing pressed), "holding" (timing a press) or
-    // "deleting" (the hold finished; the request is in flight).
-    killHold: null,
-    // A character's own line, shown as a speech bubble over its own row when
-    // starring/unstarring it. `reactionBubble` is the content ({ id, text })
-    // and outlives the visible window on purpose — reactionBubbleOpen alone
-    // gates x-show, so the leave transition fades the actual sentence rather
-    // than the text blanking out a frame before the fade even starts.
-    reactionBubble: null,
-    reactionBubbleOpen: false,
-    // Hold-to-open action wheel. `wheel` is null when closed; when open it
-    // carries the message, where it was opened, and which option the finger
-    // is currently over.
-    wheel: null,
-    wheelSettled: false,
-    wheelHint: "",
-    // How far the pull-up control is revealed, 0 to 1, and whether letting go
-    // now would fire it.
-    reveal: 0,
-    revealArmed: false,
-    revealSettling: false,
-    composerMenu: false,
-    // A press on the + button that has not been released yet: where it
-    // started, which pointer it is, and whether the menu was already open
-    // when the press began (that decides what a release over nothing does —
-    // see onPlusUp). Which item the finger is currently over lives in
-    // composerActive, kept separate so it can drive :class bindings on its
-    // own without the whole hold object being reactive.
-    plusHold: null,
-    composerActive: -1,
-    impersonating: false,
-    // The message currently playing the send animation. Held only long enough
-    // for the keyframes to run; a class left on would replay on every re-render.
-    sendingId: "",
-    // Live while a reply is streaming, so it can be called off.
-    streamAbort: null,
-    // Presence (roadmap 40). `lastTouch` is bumped by any real interaction;
-    // everything else is derived from it, so there is one thing to keep
-    // right. `afk` is only ever read by the UI — the beat checks the clock
-    // itself rather than trusting a flag some re-render might have missed.
-    lastTouch: Date.now(),
-    afk: false,
-    // When this visit started, and how many bells have already rung for it.
-    //
-    // A wall-clock mark rather than a counter of active ticks, and that is
-    // the whole difference: minimising the browser must not stop the bell
-    // (it is a "you have been at this a while" nudge, and a nudge that only
-    // counts foreground seconds never arrives). An accumulator could not
-    // have survived it either way — a backgrounded tab's timers are frozen
-    // on Android, so there is nothing to accumulate *with*. Read the clock
-    // instead and the gap simply closes itself on the way back.
-    //
-    // Counting rings rather than tracking a deadline means the same stretch
-    // can never ring twice, and a length changed mid-visit cannot strand a
-    // timer that was already running.
-    bellSince: Date.now(),
-    bellsRung: 0,
-    bellMsg: "",
-    uploadingBell: false,
-    draftCharacter: { id: "", name: "" },
-    // The alternates are a list on the card and a paragraph-separated textarea
-    // in the editor. Held separately so the textarea can be edited freely —
-    // splitting on every keystroke would renumber the list under the cursor.
-    altGreetings: "",
-    stopStrings: "",
-    previewFor: "",
-    previewText: "",
-    previewStop: "",
-    previewTimer: 0,
-    samplerBook: {},
-    advancedFor: "",
-    // Which passes' "More samplers" fold has been opened at least once this
-    // visit to the Passes tab — see the x-if beside .fold in index.html.
-    advancedSeen: {},
-    rulesOpen: false,
-    staged: [],
-    cast: [],
-    // Everyone who has a line in this chat, which is not the same list as
-    // `cast` — see voiceFor. Kept as both an array and an id-keyed index
-    // because the index is read once per rendered row and rebuilding a Map
-    // per binding is not free on a phone.
-    voices: [],
-    voiceIndex: {},
-    // Briefly marks the "Who is here" heading after the header's cast
-    // button has scrolled to it, so the eye lands on the section rather
-    // than on wherever the panel happened to stop (§ openCast).
-    castLanded: false,
     policies: [],
     policy: "natural",
+    // The rest of the group's own settings (§ groups.settings_for), kept
+    // beside the policy they belong with rather than in a nested object —
+    // Alpine binds a flat field in one expression and a nested one in three.
+    repliesPerTurn: 2,
+    selfResponses: false,
+    castDetail: "brief",
+    castDetails: [],
+    maxReplies: 4,
+    // The group sheet itself (§ index.html), opened by the header's people
+    // button and by Story's own way in.
+    castOpen: false,
+    // Everyone answering this turn, in order, and how far down that list the
+    // stream has got. A turn can hold several replies now (§ groups.plan) and
+    // this is what lets the cue say so before the second bubble appears.
+    turnQueue: [],
+    turnQueueAt: 0,
     nextSpeaker: "",
     eventChance: 0,
     chatQuery: "",
@@ -4150,7 +3994,9 @@ function tavern() {
         const body = await api.get(`/api/chats/${this.chatId}/members`);
         this.applyMembers(body);
         this.policies = body.policies;
-        this.policy = body.policy;
+        this.castDetails = body.cast_details || [];
+        this.maxReplies = body.max_replies_per_turn || 4;
+        this.applyGroupSettings(body);
         // A choice made for a room that has since changed is not a choice.
         if (!this.cast.some((m) => m.character_id === this.nextSpeaker)) {
           this.nextSpeaker = "";
@@ -4174,25 +4020,25 @@ function tavern() {
       this.voiceIndex = index;
     },
 
-    // The header's cast button. Opens Story and puts "Who is here" under
-    // the thumb — the controls are all already there (mute, remove, add,
-    // talkativeness, turn order), they were just three taps and a scroll
-    // past everything else in the panel.
+    // Whatever the members endpoint last said the group's own settings are.
+    // One place, because there are four of them now and a panel that read
+    // three and forgot the fourth is how a control silently stops working.
+    applyGroupSettings(body) {
+      if (body.policy !== undefined) this.policy = body.policy;
+      if (body.replies_per_turn !== undefined) this.repliesPerTurn = body.replies_per_turn;
+      if (body.self_responses !== undefined) this.selfResponses = body.self_responses;
+      if (body.cast_detail !== undefined) this.castDetail = body.cast_detail;
+    },
+
+    // The header's people button, and the Story panel's own way in. Opens
+    // the group sheet directly (§ index.html, castOpen) — roadmap 48 scrolled
+    // Story down to the section instead, which meant opening a panel,
+    // waiting out its animation and then landing somewhere in the middle of
+    // a long list of unrelated switches. The controls live in the sheet now;
+    // this is the only thing that opens it.
     async openCast() {
-      // Not openPanel(): that one is a toggle, so tapping this with Story
-      // already open would close the very panel it is meant to reach. Open
-      // it only when it isn't; otherwise go straight to the scroll.
-      if (!this.panelOpen || this.panel !== "story") await this.openPanel("story");
-      // After the panel's own open animation has somewhere to scroll: the
-      // section does not exist in the DOM until `panel === 'story'` renders.
-      this.$nextTick(() => {
-        const heading = this.$refs.castSection;
-        if (!heading) return;
-        heading.scrollIntoView({ behavior: "smooth", block: "start" });
-        this.castLanded = true;
-        clearTimeout(this._castLandTimer);
-        this._castLandTimer = setTimeout(() => { this.castLanded = false; }, HINT_MS);
-      });
+      if (!this.cast.length) await this.loadCast();
+      this.castOpen = true;
     },
 
     castTitle() {
@@ -4229,6 +4075,27 @@ function tavern() {
 
     policyNote() {
       return (this.policies.find((p) => p.id === this.policy) || {}).note || "";
+    },
+
+    // "then Harrow", or "then Harrow and Anna". Empty for the last speaker
+    // of a turn and for every solo chat, where there is no queue to describe.
+    turnQueueNote() {
+      const rest = this.turnQueue.slice(this.turnQueueAt + 1).map((s) => s.name);
+      if (!rest.length) return "";
+      const last = rest.pop();
+      return rest.length ? `then ${rest.join(", ")} and ${last}` : `then ${last}`;
+    },
+
+    castDetailNote() {
+      return (this.castDetails.find((d) => d.id === this.castDetail) || {}).note || "";
+    },
+
+    // Said in people, not in a number: "2" beside a slider is a quantity of
+    // nothing in particular, and what the person is actually choosing is how
+    // many voices come back at them.
+    repliesLabel() {
+      const n = this.repliesPerTurn;
+      return n <= 1 ? "one at a time" : `up to ${n}`;
     },
 
     async addMember(characterId) {
@@ -4281,15 +4148,48 @@ function tavern() {
       }
     },
 
-    async setPolicy(policy) {
-      const previous = this.policy;
-      this.policy = policy;
+    // One writer for all four group settings, optimistic and self-reverting:
+    // the switch moves under the thumb, and puts itself back if the server
+    // would not have it. `/group` takes only the keys it is sent, so this
+    // never has to restate the other three.
+    async saveGroup(patch, previous) {
       try {
-        await api.put(`/api/chats/${this.chatId}/policy`, { policy });
+        this.applyGroupSettings(await api.put(`/api/chats/${this.chatId}/group`, patch));
       } catch (e) {
-        this.policy = previous;
+        this.applyGroupSettings(previous);
         this.flashHint(errorText(e));
       }
+    },
+
+    async setPolicy(policy) {
+      const previous = { policy: this.policy };
+      this.policy = policy;
+      await this.saveGroup({ policy }, previous);
+    },
+
+    async setCastDetail(castDetail) {
+      const previous = { cast_detail: this.castDetail };
+      this.castDetail = castDetail;
+      await this.saveGroup({ cast_detail: castDetail }, previous);
+    },
+
+    async setSelfResponses(on) {
+      const previous = { self_responses: this.selfResponses };
+      this.selfResponses = on;
+      await this.saveGroup({ self_responses: on }, previous);
+    },
+
+    setReplies(raw) {
+      const value = parseInt(raw, 10);
+      if (Number.isNaN(value)) return;
+      const previous = { replies_per_turn: this.repliesPerTurn };
+      this.repliesPerTurn = value;
+      // Debounced like talkativeness above, and for the same reason: a
+      // dragged slider would otherwise write once per step.
+      clearTimeout(this._repliesTimer);
+      this._repliesTimer = setTimeout(
+        () => this.saveGroup({ replies_per_turn: value }, previous), PREVIEW_DEBOUNCE_MS,
+      );
     },
 
     // How often the world intrudes. It lives on the pass's own trigger rather
@@ -7023,6 +6923,8 @@ function tavern() {
           switch (event.type) {
             case "turn_start":
               this.turn = event.turn;
+              this.turnQueue = event.speakers || [];
+              this.turnQueueAt = 0;
               // Who is answering, so the cue carries their name — typing or
               // thinking — rather than the chat's nominal character.
               if (event.speaker) replySpeaker = event.speaker.id || "";
@@ -7046,11 +6948,41 @@ function tavern() {
             // without appending a second copy of it.
             case "turn_resume":
               this.turn = event.turn;
+              this.turnQueue = event.speakers || [];
+              this.turnQueueAt = 0;
               if (event.speaker) replySpeaker = event.speaker.id || "";
               if (event.speaker && this.cast.length > 1) {
                 this.composingSpeaker = event.speaker.name;
                 this.composingLabel = this.cueLabel(this.composingKind);
               }
+              this.scrollDown();
+              break;
+
+            // Somebody else in the room is answering too (§ groups.plan).
+            // One message can be answered by several characters in turn, and
+            // each of them gets their own bubble — so everything this stream
+            // holds *per reply* goes back to where it was at the top of the
+            // turn, and everything it holds per turn stays. The finished
+            // reply has already been swapped in by the "reply" case above,
+            // so there is nothing on screen this can damage; `target` is
+            // cleared before the pacer is reset for exactly that reason,
+            // since reset() writes an empty string through whatever target
+            // still points at.
+            case "speaker_start":
+              await pacer.done();
+              target = null;
+              pacer.reset();
+              buffer = "";
+              pendingFinal = null;
+              pendingKind = "typing";
+              replySpeaker = event.speaker ? event.speaker.id || "" : "";
+              this.turnQueueAt += 1;
+              this.composingSpeaker = event.speaker ? event.speaker.name : "";
+              this.composingKind = "typing";
+              this.composingLabel = this.cueLabel("typing");
+              this.composing = true;
+              this.thinkChars = 0;
+              if (this.settings.separate_paragraphs) this.streamingParagraphsShown = 1;
               this.scrollDown();
               break;
 
@@ -7204,6 +7136,11 @@ function tavern() {
         await pacer.done();
         this.streaming = false;
         this.composing = false;
+        // Whatever is left of the queue is not coming: the turn is over,
+        // one way or another, and a cue promising "then Harrow" after a
+        // stopped or failed stream is a promise nothing is going to keep.
+        this.turnQueue = [];
+        this.turnQueueAt = 0;
         this.streamAbort = null;
         this.markStreamingRow(null);
         // Only release here if no token ever arrived — a stream that failed or
