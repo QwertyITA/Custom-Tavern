@@ -824,7 +824,7 @@ class PassScheduler:
                 self._post_music_ask(chat_id, ctx.character.id, ctx.deferred_music_ask)
 
             # --- non-blocking passes: parallel, write-on-arrival (§5.5) ---
-            launched = self._launch_background(ctx)
+            launched = self._launch_background(ctx, last=index == len(speakers) - 1)
             if launched:
                 yield {"type": "background_queued", "passes": launched}
             # A character imported while its backend was unreachable, or created
@@ -1335,10 +1335,20 @@ class PassScheduler:
 
     # -------------------------------------------------------- background
 
-    def _launch_background(self, ctx: TurnContext) -> list[str]:
+    def _launch_background(self, ctx: TurnContext, *, last: bool = True) -> list[str]:
         definitions = registry.all_passes(self.db)
         disabled = registry.passes_disabled_by_toggle(self.db, ctx.toggle_states)
         eligible = self.eligible(definitions, ctx, disabled)
+        if not last:
+            # A turn answered by two characters is still one turn, and the
+            # passes that are about the *conversation* — the weather, the
+            # summary, whether the world intrudes — have one answer for it.
+            # Running them per reply would summarise the same turn twice and
+            # could roll two unrelated intrusions into one exchange, at twice
+            # the tokens. The per-character ones (§15 namespacing) do run for
+            # each speaker, because each of them has their own mood, their own
+            # expression and their own memory of what just happened.
+            eligible = [d for d in eligible if not _chat_scoped(d)]
         if not eligible:
             return []
 
@@ -3196,6 +3206,30 @@ class PassScheduler:
 
 
 # ------------------------------------------------------------------ helpers
+
+
+# Passes that describe the conversation rather than whoever just spoke. Named
+# rather than derived, because the two that would give it away — a shared
+# slice, or no slice at all — do not separate them: `memory` writes no state
+# slice and is per-character, `chat_rename` writes none and is per-chat.
+CHAT_SCOPED_PASSES = frozenset({
+    "scene", "background_swap", "music_select", "random_event",
+    "summary", "memory_compress", "chat_rename",
+})
+
+
+def _chat_scoped(definition: PassDef) -> bool:
+    """Whether this pass has one answer per turn rather than one per speaker.
+
+    A custom pass is judged by what it writes: a shared slice (§ state.py's
+    SHARED_SLICES — the weather is not held *by* anybody) is a conversation
+    fact, and two characters answering one message must not each write their
+    own version of it.
+    """
+    return (
+        definition.id in CHAT_SCOPED_PASSES
+        or definition.writes_slice in state_mod.SHARED_SLICES
+    )
 
 
 def _cast_names(db: Database, chat: dict, character: Character) -> tuple[str, ...]:

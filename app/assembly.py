@@ -713,6 +713,7 @@ def build_reply_context(
     # just written. SillyTavern prefixes every message with its speaker for
     # exactly this reason, and so does this now.
     labels = _speaker_labels(members_here, voices_here) if in_group else {}
+    unowned = labels.get(chat["character_id"]) or character.name
     you = (persona or {}).get("name") or "You"
     turn_messages: list[Message] = []
     for message in window:
@@ -722,8 +723,12 @@ def build_reply_context(
         # readable in the wrong language rather than missing entirely.
         content = translation.for_prompt(message)
         if in_group and content and role in ("user", "assistant"):
+            # The chat's own character is the fallback, not whoever is
+            # speaking now: a message with no speaker recorded is from before
+            # `speaker_id` existed (§ db.py migrations), and labelling it with
+            # the current speaker would put their name on somebody else's line.
             who = you if role == "user" else labels.get(
-                message.get("speaker_id") or "", character.name
+                message.get("speaker_id") or "", unowned
             )
             content = f"{who}: {content}"
         items = attached.get(message["id"]) or []

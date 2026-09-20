@@ -293,14 +293,13 @@ and to return nothing if nothing would plausibly intrude.
 
 ### Group chats
 
-Several characters in one conversation. **Who is here** adds them, mutes them,
-removes them, and sets how readily each speaks up. A solo chat is a group of
-one, so nothing changes until you add somebody.
-
-Once there is more than one person in the room, the header carries a **people
-button** with the number who can currently answer on it — tapping it opens
-that section directly. It is the same section as **☰ → story → Who is here**,
-just without the three taps and the scroll past everything else in the panel.
+Several characters in one conversation. The header carries a **people button**
+with the number who can currently answer on it; tapping it opens **Who is
+here**, which is every control a group has — who is in it, who is muted, who
+answers, how many of them answer, and how much they know about each other.
+(**☰ → story → Who is here** opens the same sheet, for anyone who goes
+looking where it used to live.) A solo chat is a group of one, so nothing
+changes until you add somebody.
 
 **Next turn** sits above the message box whenever there is more than one
 person in the room: tap a name and that character answers this one message,
@@ -311,7 +310,8 @@ quietly becomes a rule. Naming someone in the message itself still works too.
 
 | Policy | What it does |
 | --- | --- |
-| **Whoever would answer** (default) | Name someone and they answer; otherwise weighted chance, with whoever just spoke pushed down |
+| **Whoever would answer** (default) | Everyone you named answers, in the order you named them; then whoever would speak up |
+| **Everyone gets a turn** | Nobody speaks twice until everybody has spoken once. The pool refills when you say something |
 | **Take turns** | Strict order |
 | **You choose** | Pick before each message — the row above the box becomes required rather than optional |
 
@@ -319,9 +319,29 @@ The default is deliberately not take-turns. Round-robin is the arrangement
 where you say something to one person and the other one answers, forever — it
 is the single thing that makes a group chat read as a mechanism rather than as
 a room. The default costs nothing: naming someone is a substring search, and
-everything else is a weighted roll. Whoever just spoke is pushed down rather
-than blocked, because a room where a character can never follow their own line
-has its own tell.
+everything else is a roll against each character's own talkativeness — which
+is a *chance of speaking up*, not a share of one slot somebody has to win. At
+1.0 they always join in; at 0 they never volunteer, and only answer when
+named or when nobody else would.
+
+**How many answer at once** is the setting that turns a switchboard back into
+a room. Up to four, two by default. Each one writes after the last one is
+already in the transcript, so the second character is answering the first and
+not just the same message twice. It is also the most expensive setting here:
+every extra reply is another whole generation, so two costs twice the wait.
+The cue above the composer says who is still to come — *Mira is typing… then
+Harrow* — so a second bubble is never a surprise.
+
+**Let someone follow their own line** is off, and off is the important half:
+whoever just spoke sits the next one out unless you name them. On, they can
+keep going. This used to be a weight rather than a rule, and a weight is not a
+rule — a group of three regularly read as one person talking to themselves.
+
+**What they know about each other** decides how much of the other members'
+cards goes into each speaker's prompt: just their names, a few lines each
+(default), or the whole card. Names alone is what this shipped with, and it is
+why characters wrote each other as whatever their names sounded like and then
+contradicted the card two lines later.
 
 **Muting** keeps someone in the scene but silent. They still appear in every
 other character's prompt — someone standing there saying nothing is still in
@@ -331,6 +351,30 @@ The last member cannot be removed; mute is what that is for.
 Each character keeps their own trust, mood and expression, so two people in one
 room hold separate opinions of you. The scene — place, weather, time — is
 shared, because they are in the same room.
+
+#### What the model is actually sent
+
+In a group — and only in a group — every line in the transcript is labelled
+with who said it, your own included:
+
+```
+Mira: *She looks up from the ledger.* You're late.
+You: Sorry. Is the ferry running?
+Harrow: *He shrugs.* Not in this wind.
+```
+
+Without those labels a four-way conversation reaches the model as one
+undivided voice, and it answers as one undivided voice: mixing the cast into
+a single person, answering a question that was put to somebody else,
+contradicting a line it wrote itself two messages ago. This is the same thing
+SillyTavern does, for the same reason.
+
+Labels are read, never written back. The last thing in the prompt is a short
+**Your turn** block naming the speaker and saying the reply is theirs alone;
+the other members' names go in as stop sequences; and anything that gets past
+both — a reply that labels itself, or carries on into the next character's
+line — is cut off afterwards. The bubble already carries the name and the
+face.
 
 ### Attachments
 
@@ -1205,12 +1249,12 @@ capture everything after it.
   failure state), world-info bar, markup colours, swipe/edit with rollback, pass
   HUD, cost dashboard all work. The visual design is deliberately undercooked
   and is the next thing to iterate on.
-- **Phase 4 — future.** Not started: action cards, ComfyUI images, group chats.
+- **Phase 4 — future.** Partly done: group chats are built (roadmap 8, and the
+  chapter above), and music action cards work. ComfyUI images are not started.
 
 ## Not built yet
 
-- Group chats — state namespacing must go per-character first (§15).
-- Action cards and image generation (§15).
+- Action cards beyond music, and image generation (§15).
 - Embedding-based memory retrieval — the keyword path is the agreed starting
   point (§7.3).
 - Preset export/import beyond character cards (§17).

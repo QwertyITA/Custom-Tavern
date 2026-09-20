@@ -737,3 +737,115 @@ def test_the_second_speaker_is_announced_before_they_start(client):
     assert events.index(second) > events.index(
         next(e for e in events if e["type"] == "reply")
     )
+
+
+# ------------------------------------- re-rolling the right character's line
+#
+# Every one of these paths resolved `chat["character_id"]` — the chat's
+# *nominal* character, the one it was created from — rather than the speaker
+# of the message being worked on. In a group that is very often somebody
+# else, so re-rolling Harrow's reply rewrote it as Mira, in Mira's voice,
+# against Mira's state schema, and stored Mira's state writes for it.
+
+
+def a_two_reply_turn(client) -> tuple[str, str, str, list[dict]]:
+    """A group chat where both characters have answered one message."""
+    mira, chat_id = api_chat(client)
+    harrow = client.post("/api/characters", json={"name": "Harrow"}).json()["id"]
+    client.post(f"/api/chats/{chat_id}/members", json={"character_id": harrow})
+    client.put(f"/api/chats/{chat_id}/group", json={"replies_per_turn": 2})
+    send(client, chat_id, "Mira, Harrow — both of you, then.")
+    replies = [m for m in client.get(f"/api/chats/{chat_id}/messages").json()
+               if m["role"] == "assistant" and m["turn"] > 0]
+    return mira, harrow, chat_id, replies
+
+
+def test_a_swipe_re_rolls_the_character_who_said_it(client):
+    mira, harrow, chat_id, replies = a_two_reply_turn(client)
+    theirs = next(m for m in replies if m["speaker_id"] == harrow)
+
+    with client.stream("POST", f"/api/messages/{theirs['id']}/swipe") as response:
+        assert response.status_code == 200
+        for _ in response.iter_lines():
+            pass
+
+    after = next(m for m in client.get(f"/api/chats/{chat_id}/messages").json()
+                 if m["id"] == theirs["id"])
+    assert after["speaker_id"] == harrow
+    assert after["variant_count"] == 2
+    # The row's speaker was never the bug — it is stored on the message and a
+    # swipe does not touch it. What was wrong is who the re-roll was actually
+    # *written as*, which only the prompt it was written from can answer.
+    prompt = client.get(f"/api/messages/{theirs['id']}/prompt").json()
+    turn_note = next(p for p in prompt["parts"] if p["id"] == "turn")
+    assert "You are Harrow" in turn_note["text"]
+
+
+def test_a_continue_carries_on_in_the_voice_that_stopped(client):
+    mira, harrow, chat_id, replies = a_two_reply_turn(client)
+    theirs = next(m for m in replies if m["speaker_id"] == harrow)
+
+    with client.stream("POST", f"/api/messages/{theirs['id']}/continue") as response:
+        assert response.status_code == 200
+        for _ in response.iter_lines():
+            pass
+
+    after = next(m for m in client.get(f"/api/chats/{chat_id}/messages").json()
+                 if m["id"] == theirs["id"])
+    assert after["speaker_id"] == harrow
+
+
+def test_re_rolling_the_first_reply_does_not_show_it_the_answer_to_itself(db, chat, character):
+    """A turn can hold several replies now, so re-rolling the first of them is
+    no longer the same as re-rolling the last thing said."""
+    from app import assembly, config
+
+    harrow, = a_group(db, chat, "Harrow")
+    repo.add_message(db, chat["id"], "user", "both of you")
+    mine = repo.add_message(
+        db, chat["id"], "assistant", "Mira's first attempt.", turn=1, speaker_id=character.id
+    )
+    repo.add_message(
+        db, chat["id"], "assistant", "Harrow answering her.", turn=1, speaker_id=harrow.id
+    )
+
+    assembled = assembly.build_reply_context(
+        db, repo.get_chat(db, chat["id"]), character, config.SETTINGS,
+        exclude_message_id=mine["id"],
+    )
+    sent = "\n".join(m["content"] for m in assembled.messages)
+    assert "Mira's first attempt." not in sent
+    assert "Harrow answering her." not in sent
+
+
+def test_a_two_reply_turn_only_summarises_it_once(client):
+    """A turn answered by two characters is still one turn. The passes that
+    are about the conversation — the weather, the summary, whether the world
+    intrudes — have one answer for it, and running them per reply would cost
+    twice the tokens to say the same thing twice."""
+    from app.db import get_db
+    from app.passes.scheduler import CHAT_SCOPED_PASSES
+
+    _, _, chat_id, replies = a_two_reply_turn(client)
+    assert len(replies) == 2
+
+    runs = get_db().query(
+        "SELECT pass_id, COUNT(*) AS n FROM pass_runs WHERE chat_id=? AND turn=1 "
+        "GROUP BY pass_id", (chat_id,)
+    )
+    twice = [r["pass_id"] for r in runs if r["n"] > 1 and r["pass_id"] in CHAT_SCOPED_PASSES]
+    assert not twice, f"ran once per speaker instead of once per turn: {twice}"
+
+
+def test_the_per_character_passes_do_run_for_each_speaker(client):
+    """Each of them has their own mood, their own expression and their own
+    memory of what just happened (§15 namespacing) — that is the whole reason
+    namespacing came before group chats."""
+    from app.db import get_db
+
+    _, _, chat_id, replies = a_two_reply_turn(client)
+    runs = get_db().query(
+        "SELECT pass_id, COUNT(*) AS n FROM pass_runs WHERE chat_id=? AND turn=1 "
+        "AND pass_id='basic' GROUP BY pass_id", (chat_id,)
+    )
+    assert runs and runs[0]["n"] == 2

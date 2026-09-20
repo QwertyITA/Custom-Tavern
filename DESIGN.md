@@ -791,9 +791,50 @@ observability instinct as a GPU overlay, applied to token spend.
   it yet.
 - **Image generation.** ComfyUI at `:8188` over Tailscale as a pass output; images
   inline or in panels.
-- **Group chats.** Turn-taking (who replies), per-character state slices, whose
-  expression/background wins, shared vs private world state. State namespacing must go
-  per-character before this is built. *(Stubbed for now, by decision.)*
+- **Group chats.** *(Built — roadmap 8, §15.1 below.)*
+
+### 15.1 Group chats, as built
+
+Membership lives in `chat_members`; `app/groups.py` owns the two questions
+that matter and nothing else knows how either is answered.
+
+**Who speaks.** `groups.plan` returns an ordered **list** of speakers, not one
+name. That is the load-bearing decision: a turn answered by exactly one
+character can never have anybody react to what somebody else just said, and a
+message naming two people has chosen both of them rather than neither. Under
+the default policy everyone named answers first, in the order they were
+named, then each remaining member rolls against their own talkativeness —
+SillyTavern's shape, where talkativeness is a *chance of speaking up* rather
+than a share of one contested slot. Whoever spoke last is excluded unless the
+chat says otherwise or the message names them; a weight there is not a rule,
+and the 0.25 penalty this shipped with had a group of three reading as one
+person talking to themselves. The list is capped by the chat's own
+`replies_per_turn`, because every extra reply is another whole generation and
+the deploy target is a phone talking to a queue.
+
+Each speaker's prompt is assembled **after** the previous reply is stored.
+That is what makes the second character an answer to the first rather than a
+second answer to the same message, and it costs nothing structurally: the
+scheduler's `_answer` is a loop over speakers, with the per-message work (the
+search, the music pick) outside it and the per-character work (decay, nudges,
+state, the background passes) inside.
+
+**Who said what.** In a group, and only in a group, every message in the
+prompt is prefixed with its speaker's name, the user's own included. Without
+it a multi-character transcript reaches the model as one undivided `assistant`
+voice and comes back as one. Three things follow from labelling and all three
+are required: the other members' descriptions go into the `cast` section so a
+speaker knows who they are talking to, a volatile `turn` section pinned to the
+end of the prompt names the speaker and says the reply is theirs alone, and
+the other members' labels become stop sequences with `postprocess.clean_reply`
+as the backstop for a backend that ignores them.
+
+**Who a message belongs to.** `messages.speaker_id` is the only answer to "who
+wrote this", and every path that re-generates a message — swipe, continue,
+suggest-edit, re-audit, a reaction — has to read it rather than the chat's
+nominal `character_id`. Membership answers who can speak next; a transcript
+needs who already did, which is what `groups.voices` is for and why it
+disagrees with `groups.members` the moment somebody is removed.
 
 ---
 

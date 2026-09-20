@@ -578,6 +578,58 @@ STscript (26).
       already measured the same thing from the other end and marked the
       variant; there is now an instruction against it and a reading of
       whether it worked.
+- [x] **52. A group chat that reads as a room.** Reported live, and
+      bluntly: unusable. Three complaints, one shape — something was
+      asking the *chat* a question only a message or a member could
+      answer. Researched against SillyTavern's own group code
+      (`public/scripts/group-chats.js`, `formatMessageHistoryItem` and
+      openai.js's `names_behavior`) and driven end to end through the
+      Horde provider against a local stand-in for it, since
+      aihorde.net is blocked from the machine this was built on.
+      (a) **The model could not tell the cast apart.** Every character's
+      reply went into the prompt as an unlabelled `assistant` turn, so a
+      four-way conversation arrived as one undivided voice and came back
+      as one: the cast mixed into a single person, questions answered
+      that had been put to somebody else, a line contradicted two
+      messages after it was written. Every message is labelled with its
+      speaker now, your own included. With labels come the three things
+      labels need — the other members' descriptions in the prompt (how
+      much is a setting: names, a few lines, or the whole card), a
+      volatile `## Your turn` block pinned to the end saying whose line
+      this is, stop sequences at `\nOther:`, and a postprocessor that
+      takes a self-written name label back off and cuts a reply that
+      carried on into somebody else's.
+      (b) **A turn was exactly one reply.** Nobody could react to what
+      anybody else had just said, and naming two people got you neither:
+      `addressed` returned None and it fell through to a weighted guess.
+      `groups.plan` returns a list now — everyone named, in the order
+      they were named, then whoever rolls against their own
+      talkativeness, capped by the chat's own "how many answer" setting
+      (four at most, two by default; every extra reply is another whole
+      generation). Each reply assembles after the previous one is
+      stored, which is what makes the second character an answer to the
+      first. A new *everyone gets a turn* policy is SillyTavern's pooled
+      order. Talkativeness became a chance of speaking up rather than a
+      share of one contested slot, and the 0.25 last-speaker penalty
+      became a real ban, liftable in settings and always lifted by
+      naming them — a weight is not a rule, and a group of three
+      regularly read as one person talking to themselves.
+      (c) **Re-rolling a group reply answered as the wrong character.**
+      `_run_swipe`, `_run_continue`, `_run_suggest_edit` and `reaudit`
+      all resolved the chat's *nominal* character, so re-rolling
+      Harrow's line rewrote it as Mira, in Mira's voice, against Mira's
+      state schema, storing Mira's state writes for it. The same
+      mistake 49 found in the transcript's faces, one layer down.
+      Impersonate and a hand-run pass read the last voice instead, and a
+      reaction reads the speaker of the message it is about. The swipe
+      prompt now also stops at the message being re-rolled, since a turn
+      can hold a later reply that answers it.
+      And the settings themselves, which is where the report started:
+      the controls moved out of the Story panel into a sheet of their
+      own that the people button opens directly, with the three new ones
+      beside the old. 48's door opened a panel and scrolled to a heading
+      buried under the whole toggle list; this is the room, not a second
+      door onto somewhere else.
 
 ## Undecided — needs a call
 

@@ -233,3 +233,28 @@ def test_a_name_inside_a_sentence_is_left_alone():
     every mention of a name would eat the dialogue about them."""
     text = "She looks up. Harrow: he said that too, apparently."
     assert clean_reply(text, speaker="Mira", cast_names=("Harrow",)) == text
+
+
+# ------------------------------------------------ the line with no owner
+
+
+def test_the_greeting_carries_the_speaker_who_said_it(client):
+    """It was stored blank, which nothing noticed in a solo chat — the
+    fallback everything has is the chat's own character, and in a solo chat
+    that is always right. In a group it is the first thing said and the only
+    line with no owner."""
+    character_id = client.get("/api/characters").json()[0]["id"]
+    chat_id = client.post("/api/chats", json={"character_id": character_id}).json()["id"]
+    greeting = client.get(f"/api/chats/{chat_id}/messages").json()[0]
+    assert greeting["turn"] == 0
+    assert greeting["speaker_id"] == character_id
+
+
+def test_a_line_with_no_speaker_recorded_is_not_given_the_current_one(db, chat, character):
+    """A message from before `speaker_id` existed belongs to the chat's own
+    character. Labelling it with whoever is answering now would put their name
+    on somebody else's line — and in a group, "whoever is answering now" is a
+    different person on every reply of the same turn."""
+    harrow, = a_room(db, chat, "Harrow")
+    repo.add_message(db, chat["id"], "assistant", "From before the column existed.")
+    assert said(built(db, chat, harrow)) == ["Mira: From before the column existed."]

@@ -1318,7 +1318,16 @@ def _seed_opening_message(db, chat: dict, character: Character) -> None:
     openings = [o for o in openings if o]
     if not openings:
         return
-    message = repo.add_message(db, chat["id"], "assistant", openings[0], turn=0)
+    # Whose greeting it is, recorded like any other reply's speaker. It was
+    # stored blank, which nothing noticed in a solo chat — the one fallback
+    # everything has is the chat's own character, and in a solo chat that is
+    # always right. In a group it is the first thing said and the only line
+    # in the transcript with no owner: it drew the blank placeholder face,
+    # and the prompt labelled it with whoever happened to be answering, so
+    # Harrow read Mira's opening line as his own.
+    message = repo.add_message(
+        db, chat["id"], "assistant", openings[0], turn=0, speaker_id=character.id
+    )
     # The card's other openings become swipe variants of the same message,
     # so choosing between them is the gesture that already exists rather
     # than a picker that only ever appears once per chat. add_variant makes
