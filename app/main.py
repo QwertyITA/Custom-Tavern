@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import gzip
 import io
 import json
 import random
@@ -2829,6 +2830,62 @@ async def _no_cache_static(request: Request, call_next):
 
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+# Compressing the shell, and only the shell.
+#
+# The service worker is network-first (§ static/sw.js, deliberately: cache
+# first meant every update landed a reload late), so the first boot after a
+# `git pull` re-fetches the whole thing — 928 KB of HTML, CSS and JS, which
+# gzips to 263 KB. Later boots cost nothing on the wire, because StaticFiles
+# sends an ETag and the browser gets a 304; this is entirely about the boot
+# that follows an update, which is the one a person notices.
+#
+# Scoped to the shell's own paths rather than added app-wide, and that is the
+# whole of the safety argument: `/api/**` is where the SSE lives, a turn
+# stream is a response that must reach the client a chunk at a time, and a
+# compressor that buffers it would undo the keepalive (§ _stream) by holding
+# the very bytes that prove the connection is alive. Nothing under /api can
+# reach this.
+SHELL_TYPES = (
+    "text/html", "text/css", "text/javascript", "application/javascript",
+    "image/svg+xml", "application/manifest+json",
+)
+# Below this, the compressed copy plus the round trip is not worth the CPU on
+# a phone — and for the smallest files gzip can come out larger.
+MIN_COMPRESS_BYTES = 1024
+
+
+def _is_shell(path: str) -> bool:
+    return path.startswith("/static/") or path in ("/", "/sw.js", "/manifest.webmanifest")
+
+
+@app.middleware("http")
+async def compress_shell(request: Request, call_next):
+    response = await call_next(request)
+    if not _is_shell(request.url.path) or response.status_code != 200:
+        return response
+    if "gzip" not in request.headers.get("accept-encoding", ""):
+        return response
+    if response.headers.get("content-encoding"):
+        return response
+    media = (response.headers.get("content-type") or "").split(";")[0].strip()
+    if media not in SHELL_TYPES:
+        return response
+
+    body = b"".join([chunk async for chunk in response.body_iterator])
+    if len(body) < MIN_COMPRESS_BYTES:
+        return Response(body, status_code=200, headers=dict(response.headers),
+                        media_type=response.media_type)
+    packed = gzip.compress(body, 6)
+    headers = dict(response.headers)
+    headers.pop("content-length", None)
+    headers["content-encoding"] = "gzip"
+    # The ETag still describes the *uncompressed* file, so a cache that has
+    # one form must not be handed the other against it.
+    headers["vary"] = "Accept-Encoding"
+    return Response(packed, status_code=200, headers=headers,
+                    media_type=response.media_type)
 
 
 def _static_file(name: str, media_type: str | None = None) -> FileResponse:

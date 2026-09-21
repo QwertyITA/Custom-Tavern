@@ -705,6 +705,28 @@ STscript (26).
       turns into a real visit still counts from where it started; and
       filtering at read time fixes the databases that already have
       these rows without a migration.
+- [x] **56. The shell arrives compressed.** Reported as a slow boot
+      against how it felt two days earlier. Measured first, on a
+      phone-sized install (20 characters, 80 chats, 2.7k messages) in a
+      real browser at 6x CPU throttle, against the exact commit that
+      "two days ago" means: **no regression to find** — boot to roster
+      1302ms then against 1397ms now, opening a chat 2367ms then
+      against 1927ms now, the shell 2% bigger, the server's own paths
+      3-9ms, and a minute sitting idle in a 400-message chat with no
+      long task, no leak and no failed request.
+      What the measuring did find is real and was always there. The
+      service worker is network-first on purpose (cache-first meant
+      every update landed a reload late), so **the first boot after a
+      `git pull` re-fetches the whole shell** — 928 KB of HTML, CSS and
+      JS, uncompressed, which is the boot a person notices and the one
+      that had been happening several times a day while this work
+      landed. It gzips to 263 KB. Scoped by path to the shell rather
+      than added app-wide: `/api/**` is where the SSE lives, and a
+      compressor that buffered a turn stream would undo 54's keepalive
+      by holding back the very bytes that prove the connection is
+      alive. Steady-state boots were already free on the wire (ETag,
+      304) and are dominated by parsing the shell, not fetching it —
+      which is the next thing to go at, and a different job.
 
 ## Undecided — needs a call
 
