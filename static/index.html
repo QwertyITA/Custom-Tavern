@@ -1100,15 +1100,23 @@
   <!-- Only for a brand-new reply. Regenerating shows the cue inside the
        existing bubble instead, so nothing appears underneath it. -->
   <article class="msg assistant" x-show="composing && !regenId" x-cloak>
-    <span class="pfp-slot">
+    <!-- The face of whoever is actually about to answer, resolved through the
+         very same three lookups every row in the transcript uses (§ cueRow in
+         app.js). It used to read `portrait` and `character` directly — the
+         chat's *nominal* character — while the label beside it already
+         followed the real speaker, so a group cue said "Harrow is typing…"
+         under Mira's face and there was no telling who was coming. The same
+         mistake roadmap 49 found three times over, in the one row that has no
+         message of its own to ask. Now it has one. -->
+    <span class="pfp-slot" :class="'shape-' + portraitShape(cueRow)">
       <span class="pfp pfp-blank" aria-hidden="true">
         <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
       </span>
-      <template x-if="portrait && !brokenPfp(portrait)">
-        <img class="pfp pfp-over" :src="portrait" alt="" @error="markPfpBroken(portrait)">
+      <template x-if="portraitFor(cueRow) && !brokenPfp(portraitFor(cueRow))">
+        <img class="pfp pfp-over" :src="portraitFor(cueRow)" alt="" @error="markPfpBroken(portraitFor(cueRow))">
       </template>
-      <template x-if="pfpEffectOn(character && character.pfp_effect)">
-        <span class="pfp-glow" :style="pfpEffectStyle(character && character.pfp_effect)" aria-hidden="true"></span>
+      <template x-if="pfpEffectOn(portraitEffect(cueRow))">
+        <span class="pfp-glow" :style="pfpEffectStyle(portraitEffect(cueRow))" aria-hidden="true"></span>
       </template>
     </span>
     <!-- Three cues in one box, cross-fading. Which one is showing says what

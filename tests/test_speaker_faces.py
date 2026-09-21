@@ -199,6 +199,72 @@ def test_both_the_first_turn_and_a_retry_set_it():
     assert body.count('if (event.speaker) replySpeaker = event.speaker.id || "";') == 2
 
 
+# ------------------------------------------------------------------- the cue
+#
+# Reported live: "X is typing…" under Y's picture, and then no telling which
+# of the two was actually going to answer. The label had followed the real
+# speaker since roadmap 49; the face beside it had not, because the cue is
+# the one assistant row on screen with no message behind it to ask.
+
+
+def cue_row() -> str:
+    """The composing cue's own <article>, portrait slot included."""
+    start = INDEX.index('x-show="composing && !regenId"')
+    start = INDEX.rindex("<article", 0, start)
+    return INDEX[start : INDEX.index("</article>", start)]
+
+
+def test_the_cue_draws_the_face_of_whoever_is_about_to_answer():
+    markup = cue_row()
+    assert "portraitFor(cueRow)" in markup
+    assert 'x-if="portrait &&' not in markup, "that is the chat's nominal character"
+
+
+def test_the_cues_frame_and_colour_follow_the_same_speaker():
+    """Two members of one group can be framed and tinted differently, and the
+    cue has to wear the right one of each — not the chat character's."""
+    markup = cue_row()
+    assert "portraitShape(cueRow)" in markup
+    assert "portraitEffect(cueRow)" in markup
+    assert "character.pfp_effect" not in markup
+
+
+def test_the_cue_resolves_its_face_the_same_way_every_other_row_does():
+    """One implementation of "whose face is this", so the cue and the reply
+    that replaces it cannot disagree."""
+    body = method("cueRow")
+    assert 'role: "assistant"' in body
+    assert "speaker_id: this.composingSpeakerId" in body
+
+
+def test_the_speakers_id_is_tracked_wherever_their_name_is():
+    """A name is not something a portrait can be looked up by, and the two
+    going out of step is exactly the reported bug."""
+    body = method("runStream")
+    assert body.count("this.composingSpeaker = ") == body.count("this.composingSpeakerId = ")
+    assert re.search(r"^    composingSpeakerId: \"\",", APP_JS, re.MULTILINE)
+
+
+def test_every_speaker_of_a_turn_updates_the_cue_not_just_the_first():
+    """A turn can be answered by several characters in order (§ groups.plan),
+    and each of them gets the cue before their own bubble opens."""
+    body = method("runStream")
+    assert 'case "speaker_start":' in body
+    start = body.index('case "speaker_start":')
+    block = body[start : body.index("break;", start)]
+    assert "this.composingSpeaker = " in block
+    assert "this.composingSpeakerId = " in block
+
+
+def test_a_solo_chat_still_wears_its_expression():
+    """An empty speaker has to resolve the way it always did — the chat's own
+    character, with whatever face the expression pass last chose — or every
+    one-character chat loses its expressions on the cue."""
+    body = method("portraitFor")
+    assert "this._ownPortrait(message)" in body and "return this.portrait" in body
+    assert "return !message.speaker_id;" in method("_ownPortrait")
+
+
 # ------------------------------------------------------------- the composer bar
 
 CSS = (REPO / "static/styles.css").read_text()

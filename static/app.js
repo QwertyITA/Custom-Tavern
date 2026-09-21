@@ -1347,8 +1347,11 @@ function tavern() {
     composingLabel: "Typing…",
     // Who is answering, kept apart from the label so the same name can be put
     // in front of "is typing" and "is thinking" without parsing one back out
-    // of the other.
+    // of the other. The id as well as the name, because the cue draws a face
+    // too and a name is not something a portrait can be looked up by
+    // (§ cueRow).
     composingSpeaker: "",
+    composingSpeakerId: "",
     // Which message's portrait is currently blown up, and the picture filling
     // the screen if one is. Two states rather than one: enlarged is still part
     // of the conversation, full screen is not.
@@ -6829,6 +6832,18 @@ function tavern() {
 
     // ---- the composing cue ----
 
+    // The cue, as a message. It is the only assistant row on screen with no
+    // message behind it, which is how it came to resolve its own face from
+    // the chat's nominal character while the label beside it followed the
+    // real speaker — "Harrow is typing…" under Mira's portrait. Handing the
+    // three portrait lookups a stand-in row keeps one implementation of
+    // "whose face is this", so the cue and the reply that replaces it cannot
+    // disagree. An empty speaker resolves exactly as it always did: the
+    // chat's own character, wearing whatever expression the last pass chose.
+    get cueRow() {
+      return { id: "composing", role: "assistant", speaker_id: this.composingSpeakerId };
+    },
+
     // What the cue says. Two states, because they are two different things:
     // the dots mean the backend has not answered yet, and the thinking cue
     // means it has and the model is reasoning its way towards a reply. Both
@@ -6890,6 +6905,7 @@ function tavern() {
       this.composing = !swipeMessageId && gateOpen;
       this.composingKind = "typing";
       this.composingSpeaker = "";
+      this.composingSpeakerId = "";
       this.thinkChars = 0;
       this.composingLabel = this.cueLabel("typing");
       this.hudRuns = [];
@@ -7098,6 +7114,7 @@ function tavern() {
               if (event.speaker) replySpeaker = event.speaker.id || "";
               if (event.speaker && this.cast.length > 1) {
                 this.composingSpeaker = event.speaker.name;
+                this.composingSpeakerId = event.speaker.id || "";
                 this.composingLabel = this.cueLabel(this.composingKind);
               }
               this.messages.push(event.message);
@@ -7121,6 +7138,7 @@ function tavern() {
               if (event.speaker) replySpeaker = event.speaker.id || "";
               if (event.speaker && this.cast.length > 1) {
                 this.composingSpeaker = event.speaker.name;
+                this.composingSpeakerId = event.speaker.id || "";
                 this.composingLabel = this.cueLabel(this.composingKind);
               }
               this.scrollDown();
@@ -7146,6 +7164,7 @@ function tavern() {
               replySpeaker = event.speaker ? event.speaker.id || "" : "";
               this.turnQueueAt += 1;
               this.composingSpeaker = event.speaker ? event.speaker.name : "";
+              this.composingSpeakerId = event.speaker ? event.speaker.id || "" : "";
               this.composingKind = "typing";
               this.composingLabel = this.cueLabel("typing");
               this.composing = true;
