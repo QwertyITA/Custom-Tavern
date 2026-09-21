@@ -831,6 +831,10 @@ class PassScheduler:
         await self._run_music_pick(first)
 
         answered = 0
+        # Every speaker who actually got a reply out, so their background
+        # passes can be launched once the turn has stopped needing the
+        # backend for anything the person is waiting on.
+        answered_for: list[TurnContext] = []
         for index, character in enumerate(speakers):
             ctx = first if index == 0 else self._context_for(
                 chat, character, turn, user_text
@@ -880,9 +884,18 @@ class PassScheduler:
                 self._post_music_ask(chat_id, ctx.character.id, ctx.deferred_music_ask)
 
             # --- non-blocking passes: parallel, write-on-arrival (§5.5) ---
-            launched = self._launch_background(ctx, last=index == len(speakers) - 1)
-            if launched:
-                yield {"type": "background_queued", "passes": launched}
+            #
+            # Held until the turn's replies are all in, rather than launched
+            # here. They are background work by definition, and a turn with
+            # two speakers in it would otherwise have the first one's passes
+            # running against the backend while the second one's reply — a
+            # *blocking* generation, the one thing the person is actually
+            # waiting on — is queued behind them. On a phone that is the
+            # second model call of a turn competing with the fifth, and it is
+            # the reply that loses. Measured: one message went from 7 backend
+            # calls to 13 when a second speaker was added, four of them in
+            # flight at once.
+            answered_for.append(ctx)
             # A character imported while its backend was unreachable, or created
             # blank, gets another try at its reaction lines here — queued after
             # the reply has already gone out, same as the background passes
@@ -910,6 +923,18 @@ class PassScheduler:
 
         if not answered:
             return  # every reply failed; there is no turn to close
+
+        # Now that nothing is waiting on the backend, the per-speaker passes
+        # (§ above). Each one gets its own context, because state, toggles and
+        # memory all belong to a character rather than to the room (§15); the
+        # ones that describe the conversation run once, off the last speaker.
+        launched: list[str] = []
+        for index, ctx in enumerate(answered_for):
+            launched += self._launch_background(
+                ctx, last=index == len(answered_for) - 1
+            )
+        if launched:
+            yield {"type": "background_queued", "passes": launched}
 
         # A new title, if this chat has grown enough to be due one (§
         # _maybe_rename_chat below) — once per turn rather than once per

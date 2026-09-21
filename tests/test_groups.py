@@ -1001,3 +1001,48 @@ def test_carrying_on_is_refused_while_a_turn_is_running(client):
     from app.passes.scheduler import PassScheduler
 
     assert "_run_locked" in inspect.getsource(PassScheduler.run_proceed)
+
+
+def test_background_work_waits_until_nothing_is_waiting_on_the_backend(client):
+    """A turn with two speakers in it used to launch the first one's
+    background passes while the second one's reply — a blocking generation,
+    the one thing the person is actually sitting there waiting for — was
+    queued behind them. Measured against a stand-in Horde: one message went
+    from 7 backend calls to 13 when a second speaker was added, four of them
+    in flight at once. They are background work by definition, so they wait
+    for the turn's last reply."""
+    import json as _json
+
+    mira, chat_id = api_chat(client)
+    harrow = client.post("/api/characters", json={"name": "Harrow"}).json()["id"]
+    client.post(f"/api/chats/{chat_id}/members", json={"character_id": harrow})
+    client.put(f"/api/chats/{chat_id}/group", json={"replies_per_turn": 2})
+
+    order = []
+    with client.stream("POST", f"/api/chats/{chat_id}/send",
+                       json={"text": "Mira, Harrow — both of you."}) as response:
+        for line in response.iter_lines():
+            if not line.startswith("data:"):
+                continue
+            kind = _json.loads(line[5:])["type"]
+            if kind in ("reply", "background_queued"):
+                order.append(kind)
+
+    assert order.count("reply") == 2
+    queued = order.index("background_queued")
+    assert order[:queued] == ["reply", "reply"], order
+
+
+def test_each_speaker_still_gets_their_own_background_passes(client):
+    """Deferred, not dropped — and still one set each: state, expression and
+    memory all belong to a character rather than to the room (§15). The turn
+    writes a `state.vars` slice per speaker, namespaced to them, which is the
+    thing namespacing came before group chats for."""
+    from app.db import get_db
+    from app.state import SLICE_VARS, read_slice, slice_for
+
+    mira, harrow, chat_id, replies = a_two_reply_turn(client)
+    assert len(replies) == 2
+    db = get_db()
+    for who in (mira, harrow):
+        assert read_slice(db, chat_id, slice_for(SLICE_VARS, who)) is not None, who

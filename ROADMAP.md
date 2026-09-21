@@ -659,6 +659,34 @@ STscript (26).
       anybody may answer you; nobody spoke and the room is carrying on
       by itself, so whoever just finished sits out — which is where the
       rule was always earning its keep.
+- [x] **54. "The tavern's server is not answering."** Reported live,
+      after about a minute in a chat, with the reporter's own read
+      that something was slowing it down. The server was answering. It
+      was waiting for a worker.
+      `_stream` had no keepalive. The ambient bus has pinged every 20
+      seconds since it was written, with a comment saying it "keeps the
+      connection from idling out" — the *turn* stream, which idles far
+      longer because it is silent for the whole time the backend is
+      thinking (on the Horde, a queue wait in minutes), had none at
+      all. A phone drops an idle connection long before that; the fetch
+      then rejects with a bare TypeError, and `errorText` reports the
+      one thing that had not happened. Every stream pings at 15s now,
+      and closes the generator it was reading when the reader hangs up
+      — what was being awaited there is a whole turn.
+      Measured rather than guessed at, which is how the second half
+      turned up: a chat of 400 messages driven in a real browser for a
+      minute showed nothing at all (no long tasks, no leak, no failed
+      requests), so the cost had to be in a turn. Against a stand-in
+      Horde with a six-second worker, one message in a group of three
+      cost **7 backend calls with one speaker and 13 with two**, four
+      of them in flight at once — because 52 launched each speaker's
+      background passes as soon as their reply landed, so the first
+      speaker's passes were competing with the *second speaker's reply*
+      for the backend. That reply is the one thing the person is
+      actually sitting there waiting for. Background work is background
+      by definition: it waits for the turn's last reply now. Same
+      passes, same per-character split (§15), none of it dropped —
+      simply not in front of a blocking generation any more.
 
 ## Undecided — needs a call
 

@@ -94,15 +94,53 @@ def _sse(payload: dict[str, Any]) -> str:
     return f"data: {json.dumps(payload)}\n\n"
 
 
+# How long a stream may say nothing at all before it says something anyway.
+# The ambient bus has always had this (§ chat_events, PING_SECONDS) with the
+# note that it "keeps the connection from idling out"; the turn stream, which
+# idles for far longer, had none — and a turn stream is silent for the whole
+# time the backend is thinking, which on the Horde is a queue wait measured in
+# minutes. A phone drops an idle connection long before that: the fetch
+# rejects with a bare TypeError, and the app says the server is not answering
+# when the server is in fact waiting patiently for a worker. Reported live,
+# and made more likely by a turn that now holds several generations with
+# silences between them (§ groups.plan).
+STREAM_PING_SECONDS = 15
+
+
 async def _stream(generator) -> StreamingResponse:
     async def body():
+        events = generator.__aiter__()
+        pending: asyncio.Task | None = None
         try:
-            async for event in generator:
+            while True:
+                pending = asyncio.ensure_future(events.__anext__())
+                # Whichever comes first: the next event, or the deadline that
+                # says to prove the connection is still alive.
+                while True:
+                    done, _ = await asyncio.wait(
+                        {pending}, timeout=STREAM_PING_SECONDS
+                    )
+                    if done:
+                        break
+                    yield _sse({"type": "ping"})
+                try:
+                    event = pending.result()
+                except StopAsyncIteration:
+                    return
+                finally:
+                    pending = None
                 yield _sse(_lens(event))
         except asyncio.CancelledError:  # client navigated away mid-turn
             raise
         except Exception as exc:  # noqa: BLE001 — surface it to the client
             yield _sse({"type": "error", "error": repr(exc)})
+        finally:
+            # The client hung up while the backend was still thinking. Without
+            # this the __anext__ we were waiting on is left running with
+            # nobody to receive it — and it is a whole turn.
+            if pending is not None and not pending.done():
+                pending.cancel()
+            await generator.aclose()
 
     return StreamingResponse(
         body(),
