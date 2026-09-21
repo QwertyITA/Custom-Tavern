@@ -827,6 +827,19 @@ scheduler's `_answer` is a loop over speakers, with the per-message work (the
 search, the music pick) outside it and the per-character work (decay, nudges,
 state, the background passes) inside.
 
+**Whose prompt it is.** §7.1's cache rule is about turns; a group adds a
+second axis it does not cover. The prompt is rebuilt for whoever is speaking,
+so if it opens with the speaker's name, nothing behind that name survives a
+change of speaker — measured at 8 shared characters out of 9,114, which is
+the whole prompt re-prefilled on every reply. `cards: "join"` (SillyTavern's
+APPEND) is the fix: every member's description, scenario, examples and
+constant lore are concatenated in join order, the main instruction names
+nobody, and whose turn it is lives in the volatile band. The prefix is then
+identical for every member of the room, and so is the transcript, so only the
+volatile tail is re-read. `cards: "swap"` keeps the old arrangement for
+backends that hold no cache between requests, where a bigger prompt is a
+straight loss.
+
 **Who said what.** In a group, and only in a group, every message in the
 prompt is prefixed with its speaker's name, the user's own included. Without
 it a multi-character transcript reaches the model as one undivided `assistant`

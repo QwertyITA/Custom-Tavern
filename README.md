@@ -355,11 +355,29 @@ monologuing. Naming somebody gets them either way. This used to be a flat
 0.25 weight penalty, and a weight is not a rule — a group of three regularly
 read as one person talking to themselves.
 
-**What they know about each other** decides how much of the other members'
-cards goes into each speaker's prompt: just their names, a few lines each
-(default), or the whole card. Names alone is what this shipped with, and it is
-why characters wrote each other as whatever their names sounded like and then
-contradicted the card two lines later.
+**Whose card goes in the prompt** is the setting that decides whether your
+backend has to re-read everything each time somebody else speaks.
+
+*Everyone's, every time* (the default) puts every member's description,
+scenario, examples and always-on lore into one block, in the order they
+joined — so the prompt is identical whoever is about to answer, and the only
+thing naming the speaker is the last line of it. A backend that keeps a cache
+between turns can then reuse almost all of it. *Only whoever is speaking*
+sends just their card plus a summary of the others: a smaller prompt that has
+to be read from the first word again every time the speaker changes.
+
+Measured on a room of three with forty messages: 4,334 tokens with nothing
+shared, against 4,455 tokens with 4,088 of them shared. 121 more tokens in the
+prompt, and 4,332 fewer to re-read on a change of speaker. The exception is a
+backend with no memory between requests — the Horde sends each reply to a
+different worker — where the bigger prompt is simply bigger and *only whoever
+is speaking* is the better trade.
+
+**What they know about each other** only applies to *only whoever is
+speaking*, where the others are summarised rather than quoted in full: just
+their names, a few lines each (default), or the whole card. Names alone is
+what this shipped with, and it is why characters wrote each other as whatever
+their names sounded like and then contradicted the card two lines later.
 
 **Muting** keeps someone in the scene but silent. They still appear in every
 other character's prompt — someone standing there saying nothing is still in

@@ -326,8 +326,14 @@ def test_the_cast_can_be_switched_off_like_any_section(db, chat, character):
     from app.config import Settings
 
     a_group(db, chat, "Harrow")
+    # The cast note only exists in "swap" mode — a joined room describes
+    # everybody in the character section instead (§ groups.CARD_MODES).
+    repo.update_chat_settings(db, chat["id"], {"cards": "swap"})
     settings = Settings(prompt_sections=[{"id": "cast", "enabled": False}])
-    assert "Harrow" not in assembly.build_reply_context(db, chat, character, settings).system
+    built = assembly.build_reply_context(
+        db, repo.get_chat(db, chat["id"]), character, settings
+    )
+    assert "Harrow" not in built.system
 
 
 # ----------------------------------------------------------- through a turn

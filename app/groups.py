@@ -69,6 +69,41 @@ CAST_DETAIL = [
 ]
 CAST_DETAIL_IDS = tuple(detail["id"] for detail in CAST_DETAIL)
 DEFAULT_CAST_DETAIL = "brief"
+
+# How the room's cards reach the prompt. SillyTavern's `generation_mode`
+# (group-chats.js), and the reason it exists is the one nobody thinks of
+# until they watch a phone do it: the prompt is rebuilt for whoever is
+# speaking, and a prompt that changes at its *first* token cannot reuse a
+# single byte of the backend's KV cache.
+#
+# "swap" is the obvious arrangement and what this shipped with — the speaker's
+# own card at the top, everyone else summarised after it. Measured on a group
+# of two with a thirty-message history: the two prompts share **8 characters**
+# ("You are ") out of 9,114, so every speaker change re-reads the whole thing,
+# card, writing blocks, transcript and all. Two characters taking turns means
+# that happens on every single reply.
+#
+# "join" is SillyTavern's APPEND: every member's description, scenario and
+# examples are concatenated in join order, so the prompt is byte-identical
+# whoever is about to speak, and the only thing that says whose turn it is
+# lives at the very end (§ turn_note — the same job ST's trailing "Name:"
+# does). Same measurement: ~3,500 of 3,813 tokens shared.
+#
+# It is not free, and which way is better depends on the backend. Join sends
+# every card every turn, so on the Horde — where each job goes to a different
+# worker and no cache survives between them — it is simply a bigger prompt.
+# On anything with a KV cache that lives between turns (Ollama, llama.cpp, the
+# on-device tier) it is most of a turn's compute.
+CARD_MODES = [
+    {"id": "join", "label": "Everyone's, every time",
+     "note": "One prompt for the whole room, so the backend can reuse it "
+             "between speakers. Bigger, and cached."},
+    {"id": "swap", "label": "Only whoever is speaking",
+     "note": "Their card, and a summary of the others. Smaller, and re-read "
+             "from the first word on every change of speaker."},
+]
+CARD_MODE_IDS = tuple(mode["id"] for mode in CARD_MODES)
+DEFAULT_CARD_MODE = "join"
 # What "a few lines" is worth in characters. Cut at a paragraph or sentence
 # end inside this (§ _brief), never mid-word.
 BRIEF_CHARS = 420
@@ -94,6 +129,8 @@ def settings_for(chat: dict | None) -> dict[str, Any]:
         "replies_per_turn": max(1, min(replies, MAX_REPLIES_PER_TURN)),
         "self_responses": bool(raw.get("self_responses", False)),
         "cast_detail": detail if detail in CAST_DETAIL_IDS else DEFAULT_CAST_DETAIL,
+        "cards": cards if (cards := str(raw.get("cards") or "")) in CARD_MODE_IDS
+        else DEFAULT_CARD_MODE,
     }
 
 
@@ -574,6 +611,50 @@ def cast_note(
         + "\n".join(lines)
         + "\nThey are present and may be spoken to or about, but you write only "
         "your own words — never theirs."
+    )
+
+
+def joined_cards(entries: list[tuple[str, str]], heading: str) -> str:
+    """Every member's text for one field, in join order, under one heading.
+
+    SillyTavern's `collectField` (group-chats.js), with its join prefix and
+    suffix fixed here rather than exposed as two more text boxes — the shape
+    below is what its default templates produce anyway, and a room whose
+    members are told apart by a heading is the thing being bought.
+
+    Join order, not speaking order, and that is the whole point: the block has
+    to come out byte-identical whoever is about to speak, or the prompt
+    diverges again and the cache it was written to save is gone.
+    """
+    seen: list[str] = []
+    for name, text in entries:
+        body = (text or "").strip()
+        if not body:
+            continue
+        # A scenario shared by everybody in the room is one scenario, not
+        # three. SillyTavern repeats it; on a phone that is the same paragraph
+        # paid for once per member, every turn.
+        block = f"### {name}\n{body}"
+        if body in [b.split("\n", 1)[1] for b in seen]:
+            seen[-1] = f"{seen[-1].split(chr(10), 1)[0]}, {name}\n{body}"
+            continue
+        seen.append(block)
+    return f"## {heading}\n" + "\n\n".join(seen) if seen else ""
+
+
+def room_instruction(names: list[str]) -> str:
+    """The default main instruction for a joined room.
+
+    Names nobody, on purpose. This is the first thing in the prompt, and the
+    moment it says "You are Mira" the whole prefix belongs to Mira and nothing
+    behind it can be reused for Harrow. Who is speaking is the last thing the
+    model reads instead (§ turn_note), which is where SillyTavern puts it too.
+    """
+    room = ", ".join(names)
+    return (
+        f"This is a conversation between several characters: {room}. "
+        "You write one of them at a time — the one named at the end of this "
+        "prompt — and never the others. Stay in character, and reply in prose."
     )
 
 

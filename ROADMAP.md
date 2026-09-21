@@ -728,6 +728,44 @@ STscript (26).
       304) and are dominated by parsing the shell, not fetching it —
       which is the next thing to go at, and a different job.
 
+- [x] **57. One prompt for the room.** Asked live, and correctly:
+      "does the group chat change the prompt at the very beginning? I
+      feel like it re-caches everything then answers." It did.
+      §7.1's cache rule puts volatile content last so the stable prefix
+      survives between turns — but in a group the prefix is rebuilt for
+      whoever is speaking, and it opened with *You are Mira*. Measured
+      on a room of two with a thirty-message history: Mira's prompt and
+      Harrow's shared **8 characters out of 9,114**, so a backend whose
+      KV cache is a prefix match could reuse nothing, and two
+      characters taking turns re-read the card, all fourteen writing
+      blocks and the whole transcript on every single reply — about
+      3,800 tokens of prefill per turn, bought back for nothing.
+      SillyTavern's answer is its APPEND generation mode
+      (`getGroupCharacterCardsLazy`), and this is that: a per-chat
+      **Whose card goes in the prompt** setting. *Everyone's, every
+      time* joins every member's description, scenario, examples and
+      constant lore in join order, so the prompt comes out
+      byte-identical whoever is about to speak; the main instruction
+      names nobody, and the only thing saying whose turn it is stays in
+      the volatile band at the very end (§ turn_note — the same job
+      ST's trailing `Name:` does). *Only whoever is speaking* is the
+      old arrangement, kept because which one wins depends on the
+      backend: joining sends every card every turn, and on the Horde,
+      where each reply lands on a different worker and no cache
+      survives between them, that is simply a bigger prompt.
+      A room of three, forty messages: 4,334 tokens with 2 shared,
+      against 4,455 with **4,088 shared** — 121 more tokens in the
+      prompt to turn a 4,332-token re-read into a 367-token one.
+      Two things fell out of doing it properly. The cast note is gone
+      in a joined room, because everyone is already described in full
+      and it was the one block left that still differed per speaker.
+      And constant lorebook entries became the *room's* rather than the
+      speaker's — one member carrying a world entry and another not was
+      enough to split the prompt again a hundred tokens in, and ST
+      reads every group member's book in a group chat for the same
+      reason. A scenario shared by the whole room is also written once
+      rather than once per member, which ST does not do.
+
 ## Undecided — needs a call
 
 Answers stopped at 28, so these were never ruled in or out:

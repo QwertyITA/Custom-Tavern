@@ -1184,6 +1184,11 @@ function tavern() {
     selfResponses: false,
     castDetail: "brief",
     castDetails: [],
+    // Whether the room's cards are joined into one prompt or swapped per
+    // speaker (§ groups.CARD_MODES). The setting that decides whether the
+    // backend can reuse anything at all between two characters' replies.
+    cardMode: "join",
+    cardModes: [],
     maxReplies: 4,
     // The group sheet itself (§ index.html), opened by the header's people
     // button and by Story's own way in.
@@ -4193,6 +4198,7 @@ function tavern() {
         this.applyMembers(body);
         this.policies = body.policies;
         this.castDetails = body.cast_details || [];
+        this.cardModes = body.card_modes || [];
         this.maxReplies = body.max_replies_per_turn || 4;
         this.applyGroupSettings(body);
         // A choice made for a room that has since changed is not a choice.
@@ -4226,6 +4232,7 @@ function tavern() {
       if (body.replies_per_turn !== undefined) this.repliesPerTurn = body.replies_per_turn;
       if (body.self_responses !== undefined) this.selfResponses = body.self_responses;
       if (body.cast_detail !== undefined) this.castDetail = body.cast_detail;
+      if (body.cards !== undefined) this.cardMode = body.cards;
     },
 
     // The header's people button, and the Story panel's own way in. Opens
@@ -4297,6 +4304,16 @@ function tavern() {
 
     castDetailNote() {
       return (this.castDetails.find((d) => d.id === this.castDetail) || {}).note || "";
+    },
+
+    cardModeNote() {
+      return (this.cardModes.find((m) => m.id === this.cardMode) || {}).note || "";
+    },
+
+    async setCardMode(cards) {
+      const previous = { cards: this.cardMode };
+      this.cardMode = cards;
+      await this.saveGroup({ cards }, previous);
     },
 
     // Said in people, not in a number: "2" beside a slider is a quantity of

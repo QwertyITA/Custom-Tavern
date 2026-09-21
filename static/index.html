@@ -4667,14 +4667,39 @@
         somebody always gets them either way.
       </p>
 
-      <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-people"/></svg>What they know about each other</h3>
+      <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-people"/></svg>Whose card goes in the prompt</h3>
       <div class="preset-row">
-        <template x-for="d in castDetails" :key="d.id">
-          <button class="preset" :class="{ picked: castDetail === d.id }"
-                  @click="setCastDetail(d.id)" x-text="d.label"></button>
+        <template x-for="m in cardModes" :key="m.id">
+          <button class="preset" :class="{ picked: cardMode === m.id }"
+                  @click="setCardMode(m.id)" x-text="m.label"></button>
         </template>
       </div>
-      <p class="kind-note" x-text="castDetailNote()"></p>
+      <p class="kind-note" x-text="cardModeNote()"></p>
+      <p class="kind-note">
+        Sending everyone's card every turn sounds like the expensive option
+        and is usually the cheap one. The prompt is rebuilt for whoever is
+        speaking, so if it names them at the top, nothing behind it can be
+        reused — measured here, two characters taking turns re-read about
+        3,800 tokens each time, against 370 when the room shares one prompt.
+        The exception is a backend with no memory between requests, like the
+        Horde, where each reply lands on a different worker: there the bigger
+        prompt is simply bigger.
+      </p>
+
+      <!-- Only means anything when the speaker's card is the only one in the
+           prompt; a joined room already describes everybody in full. -->
+      <template x-if="cardMode === 'swap'">
+        <div>
+          <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-people"/></svg>What they know about each other</h3>
+          <div class="preset-row">
+            <template x-for="d in castDetails" :key="d.id">
+              <button class="preset" :class="{ picked: castDetail === d.id }"
+                      @click="setCastDetail(d.id)" x-text="d.label"></button>
+            </template>
+          </div>
+          <p class="kind-note" x-text="castDetailNote()"></p>
+        </div>
+      </template>
     </div>
     <div class="btn-row crop-actions">
       <button class="wide primary" @click="castOpen = false">Done</button>

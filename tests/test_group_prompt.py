@@ -110,12 +110,13 @@ def test_the_others_arrive_with_a_description_not_just_a_name(db, chat, characte
     whatever the name sounds like, and contradicts his card two lines later.
     SillyTavern's join-cards mode exists for this."""
     a_room(db, chat, "Harrow")
+    repo.update_chat_settings(db, chat["id"], {"cards": "swap"})
     assert "Harrow rows the ferry." in built(db, chat, character).system
 
 
 def test_just_their_names_is_still_an_option(db, chat, character):
     a_room(db, chat, "Harrow")
-    repo.update_chat_settings(db, chat["id"], {"cast_detail": "names"})
+    repo.update_chat_settings(db, chat["id"], {"cards": "swap", "cast_detail": "names"})
     system = built(db, chat, character).system
     assert "**Harrow**" in system
     assert "rows the ferry" not in system
@@ -143,6 +144,7 @@ def test_their_whole_card_is_an_option_too(db, chat, character):
 def test_a_muted_character_is_still_described(db, chat, character):
     """Someone standing there saying nothing is still in the scene."""
     harrow, = a_room(db, chat, "Harrow")
+    repo.update_chat_settings(db, chat["id"], {"cards": "swap"})
     groups.update_member(db, chat["id"], harrow.id, muted=True)
     assert "Harrow rows the ferry." in built(db, chat, character).system
 
@@ -258,3 +260,159 @@ def test_a_line_with_no_speaker_recorded_is_not_given_the_current_one(db, chat, 
     harrow, = a_room(db, chat, "Harrow")
     repo.add_message(db, chat["id"], "assistant", "From before the column existed.")
     assert said(built(db, chat, harrow)) == ["Mira: From before the column existed."]
+
+
+# ------------------------------------------------ the prompt's own first token
+#
+# Asked live, and correctly: "does the group chat change the prompt at the
+# very beginning? I feel like it re-caches everything then answers."
+#
+# It did. The prompt is rebuilt for whoever is speaking, and it opened with
+# "You are Mira" — so Mira's prompt and Harrow's prompt shared eight
+# characters out of nine thousand, and a backend whose KV cache is a prefix
+# match could reuse none of it. Two characters taking turns meant re-reading
+# the whole prompt, card, writing blocks and transcript, on every reply.
+#
+# SillyTavern's answer is its APPEND generation mode: every member's cards
+# are joined in member order, so the prompt comes out identical whoever is
+# about to speak, and the only thing naming the speaker is at the very end.
+
+
+def whole(assembled) -> str:
+    return assembled.system + "\n".join(m["content"] for m in assembled.messages)
+
+
+def shared_head(a: str, b: str) -> int:
+    for i, (x, y) in enumerate(zip(a, b)):
+        if x != y:
+            return i
+    return min(len(a), len(b))
+
+
+def a_room_with_history(db, chat, character):
+    harrow, = a_room(db, chat, "Harrow")
+    repo.add_message(db, chat["id"], "assistant", "You're late.", turn=0, speaker_id=character.id)
+    for i in range(1, 12):
+        repo.add_message(
+            db, chat["id"], "user" if i % 2 else "assistant", f"a line, number {i}. " * 6,
+            turn=i, speaker_id="" if i % 2 else character.id,
+        )
+    return harrow
+
+
+def test_a_joined_room_sends_the_same_prompt_whoever_speaks(db, chat, character):
+    harrow = a_room_with_history(db, chat, character)
+    mine, theirs = whole(built(db, chat, character)), whole(built(db, chat, harrow))
+    # Everything but the volatile tail, which is where whose turn it is lives.
+    assert shared_head(mine, theirs) > len(mine) * 0.85, (
+        f"only {shared_head(mine, theirs)} of {len(mine)} characters shared"
+    )
+
+
+def test_swapping_is_still_there_and_still_diverges_at_the_name(db, chat, character):
+    """Kept, because which way is better depends on the backend: a joined room
+    sends every card every turn, and on the Horde — where each reply lands on a
+    different worker and no cache survives — that is simply a bigger prompt."""
+    harrow = a_room_with_history(db, chat, character)
+    repo.update_chat_settings(db, chat["id"], {"cards": "swap"})
+    mine, theirs = whole(built(db, chat, character)), whole(built(db, chat, harrow))
+    assert shared_head(mine, theirs) < 100
+
+
+def test_the_joined_instruction_names_nobody(db, chat, character):
+    """It is the first thing in the prompt. The moment it says a name, every
+    token behind it belongs to that character."""
+    a_room_with_history(db, chat, character)
+    system = built(db, chat, character).system
+    opening = system[: system.index("##")] if "##" in system else system
+    assert "You are Mira" not in opening
+    assert "Mira" in system and "Harrow" in system
+
+
+def test_whose_turn_it_is_is_still_said_last(db, chat, character):
+    """Which is what makes naming nobody at the top safe — and is where
+    SillyTavern puts it too, as the trailing `Name:` that primes the reply."""
+    harrow = a_room_with_history(db, chat, character)
+    assert "You are Mira" in built(db, chat, character).volatile
+    assert "You are Harrow" in built(db, chat, harrow).volatile
+
+
+def test_a_joined_room_describes_everyone_including_the_speaker(db, chat, character):
+    a_room_with_history(db, chat, character)
+    system = built(db, chat, character).system
+    assert "### Mira" in system and "### Harrow" in system
+    assert "Harrow rows the ferry." in system
+
+
+def test_a_joined_room_has_no_second_list_of_who_else_is_here(db, chat, character):
+    """Everyone is described in full above, so a cast note would be the same
+    names twice — and the one block left in the prefix that still differed by
+    speaker."""
+    a_room_with_history(db, chat, character)
+    assert "## Also here" not in built(db, chat, character).system
+
+
+def test_the_join_order_is_the_room_not_the_speaker(db, chat, character):
+    """Join order, not speaking order: the block has to come out identical
+    whoever is about to speak, or the prefix diverges again."""
+    harrow = a_room_with_history(db, chat, character)
+    mine = built(db, chat, character).system
+    theirs = built(db, chat, harrow).system
+    assert mine[mine.index("### "):] .split("### ")[1][:5] == theirs[theirs.index("### "):].split("### ")[1][:5]
+
+
+def test_one_scenario_shared_by_the_room_is_not_paid_for_twice(db, chat, character):
+    """SillyTavern repeats it once per member; on a phone that is the same
+    paragraph in the prompt as many times as there are people in the room."""
+    for card in (character, repo.get_character(db, "harrow")):
+        pass
+    harrow = a_room_with_history(db, chat, character)
+    for who in (character.id, harrow.id):
+        card = repo.get_character(db, who)
+        card.scenario = "A tavern on the coast road."
+        repo.save_character(db, card)
+    system = built(db, chat, character).system
+    assert system.count("A tavern on the coast road.") == 1
+    assert "### Mira, Harrow" in system
+
+
+def test_a_solo_chat_joins_nothing(db, chat, character):
+    """A room of one has nothing to join, and its prompt was already stable
+    across turns — so it must come out exactly as it always did."""
+    repo.add_message(db, chat["id"], "user", "hello")
+    system = built(db, chat, character).system
+    assert system.startswith("You are Mira.")
+    assert "### Mira" not in system
+
+
+def test_the_world_belongs_to_the_room_not_to_the_speaker(db, chat, character):
+    """The last thing in the prefix still keyed to whoever was talking. One
+    member carrying a constant lorebook entry and another not was enough to
+    split the prompt in two again a hundred tokens in."""
+    from app.models import LorebookEntry
+
+    harrow = a_room_with_history(db, chat, character)
+    card = repo.get_character(db, harrow.id)
+    card.lorebook = [LorebookEntry(keys=["ferry"], content="The ferry runs at dawn.",
+                                   constant=True, enabled=True)]
+    repo.save_character(db, card)
+
+    mine = built(db, chat, character).system
+    theirs = built(db, chat, repo.get_character(db, harrow.id)).system
+    assert "The ferry runs at dawn." in mine, "the speaker never reads the room's world"
+    assert mine == theirs
+
+
+def test_a_swapped_room_keeps_the_speakers_own_world(db, chat, character):
+    from app.models import LorebookEntry
+
+    harrow = a_room_with_history(db, chat, character)
+    repo.update_chat_settings(db, chat["id"], {"cards": "swap"})
+    card = repo.get_character(db, harrow.id)
+    card.lorebook = [LorebookEntry(keys=["ferry"], content="The ferry runs at dawn.",
+                                   constant=True, enabled=True)]
+    repo.save_character(db, card)
+    # The freshly stored card, not the stale object a_room handed back.
+    harrow = repo.get_character(db, harrow.id)
+    assert "The ferry runs at dawn." not in built(db, chat, character).system
+    assert "The ferry runs at dawn." in built(db, chat, harrow).system

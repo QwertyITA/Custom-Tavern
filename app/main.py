@@ -1586,6 +1586,7 @@ async def chat_members(chat_id: str) -> dict:
         **groups.settings_for(chat),
         "policies": groups.POLICIES,
         "cast_details": groups.CAST_DETAIL,
+        "card_modes": groups.CARD_MODES,
         "max_replies_per_turn": groups.MAX_REPLIES_PER_TURN,
     }
 
@@ -1662,6 +1663,11 @@ async def set_group_settings(chat_id: str, payload: dict = Body(...)) -> dict:
         if policy not in groups.POLICY_IDS:
             raise HTTPException(400, f"unknown turn policy {policy!r}")
         settings["policy"] = policy
+    if "cards" in payload:
+        mode = str(payload.get("cards") or "")
+        if mode not in groups.CARD_MODE_IDS:
+            raise HTTPException(400, f"unknown card mode {mode!r}")
+        settings["cards"] = mode
     if "cast_detail" in payload:
         detail = str(payload.get("cast_detail") or "")
         if detail not in groups.CAST_DETAIL_IDS:

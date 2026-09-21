@@ -284,6 +284,52 @@ def scene_line(db: Database, chat_id: str) -> str:
     return " · ".join(parts)
 
 
+def _joined_room(
+    db: Database, members_here: list[dict], expand, group: dict
+) -> dict[str, str]:
+    """Every member's cards, joined once for the whole room.
+
+    SillyTavern's APPEND mode (§ groups.CARD_MODES), which exists for exactly
+    the reason a phone notices: the description, the scenario and the examples
+    stop being about whoever is speaking, so the top of the prompt stops
+    changing when the speaker does.
+
+    Empty in "swap" mode and in any room of one, where there is nothing to
+    join and the prompt is already stable across turns.
+    """
+    if group["cards"] != "join" or len(members_here) < 2:
+        return {}
+    cards = [
+        (member["name"], repo.get_character(db, member["character_id"]))
+        for member in members_here
+    ]
+    present = [(name, card) for name, card in cards if card is not None]
+    # Constant lore is the room's, not the speaker's. It was the last thing in
+    # the prefix still keyed to whoever was talking — one member carrying a
+    # world entry and another not was enough to split the prompt in two again,
+    # a hundred tokens in. SillyTavern reads every group member's book in a
+    # group chat for the same reason.
+    world: list = []
+    for _, card in present:
+        for entry in card.lorebook:
+            if entry.constant and entry.enabled and entry not in world:
+                world.append(entry)
+    return {
+        "world": "## World\n" + expand(render_lore(world)) if world else "",
+        "character": groups.joined_cards(
+            [(name, expand(card.persona)) for name, card in present], "The people here"
+        ),
+        "scenario": groups.joined_cards(
+            [(name, expand(card.scenario)) for name, card in present], "Scenario"
+        ),
+        "examples": groups.joined_cards(
+            [(name, expand(card.example_dialogue)) for name, card in present],
+            "Example dialogue",
+        ),
+        "names": [name for name, _ in present],
+    }
+
+
 def _profiles(
     db: Database, members_here: list[dict], speaking: str, group: dict
 ) -> dict[str, str]:
@@ -327,6 +373,7 @@ def _prefix_parts(
     default_instruction: str,
     persona: dict | None,
     cast: str,
+    joined: dict[str, str] | None = None,
 ) -> dict[str, str]:
     """The STRUCTURAL prefix slots a card fills, keyed by section id (§14).
 
@@ -335,23 +382,30 @@ def _prefix_parts(
     `build_reply_context` would, without a chat to build it inside.
     """
     constant_lore = [e for e in character.lorebook if e.constant and e.enabled]
+    # In a joined room these three describe *everyone*, built once by the
+    # caller and byte-identical whoever is speaking (§ groups.joined_cards).
+    # That is the whole feature: the moment one of them names the speaker,
+    # every token behind it belongs to that speaker and the next one cannot
+    # reuse any of it.
+    joined = joined or {}
     return {
         "instruction": expand(character.system_prompt).strip()
         if character.system_prompt
         else default_instruction,
-        "character": f"## {character.name}\n{expand(character.persona).strip()}"
-        if character.persona
-        else "",
-        "scenario": f"## Scenario\n{expand(character.scenario).strip()}"
-        if character.scenario
-        else "",
+        "character": joined.get("character")
+        or (f"## {character.name}\n{expand(character.persona).strip()}"
+            if character.persona else ""),
+        "scenario": joined.get("scenario")
+        or (f"## Scenario\n{expand(character.scenario).strip()}"
+            if character.scenario else ""),
         "user_persona": f"## {persona['name']}\n{expand(persona['description']).strip()}"
         if persona and (persona.get("description") or "").strip()
         else "",
-        "world": "## World\n" + expand(render_lore(constant_lore)) if constant_lore else "",
-        "examples": f"## Example dialogue\n{expand(character.example_dialogue).strip()}"
-        if character.example_dialogue
-        else "",
+        "world": joined.get("world")
+        or ("## World\n" + expand(render_lore(constant_lore)) if constant_lore else ""),
+        "examples": joined.get("examples")
+        or (f"## Example dialogue\n{expand(character.example_dialogue).strip()}"
+            if character.example_dialogue else ""),
         "cast": cast,
     }
 
@@ -394,6 +448,9 @@ def mandatory_cost(character: Character, settings: Settings) -> int:
         f"You are {character.name}. Stay in character and reply only as "
         f"{character.name}, in prose."
     )
+    # Resolved below, once the room is known: a joined room's instruction
+    # names nobody, because this is the first thing in the prompt and the
+    # moment it says a name the whole prefix belongs to that character.
     layout = prompt_layout.normalise(settings.prompt_sections)
 
     def block_text(section: dict) -> str:
@@ -508,11 +565,22 @@ def build_reply_context(
     in_group = len({
         person["character_id"] for person in [*members_here, *voices_here]
     }) > 1
-    cast = groups.cast_note(
-        members_here, character.id, profiles=_profiles(db, members_here, character.id, group)
-    )
+    joined = _joined_room(db, members_here, expand, group)
+    if joined:
+        # Everyone is described in full above, so a second list of who else is
+        # here is the same names twice — and it would be the one block in the
+        # prefix that still differed per speaker.
+        cast = ""
+        default_instruction = groups.room_instruction(joined.pop("names"))
+    else:
+        cast = groups.cast_note(
+            members_here, character.id,
+            profiles=_profiles(db, members_here, character.id, group),
+        )
 
-    prefix_parts = _prefix_parts(character, expand, default_instruction, persona, cast)
+    prefix_parts = _prefix_parts(
+        character, expand, default_instruction, persona, cast, joined
+    )
 
     prefix = [
         _part(
