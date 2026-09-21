@@ -1007,6 +1007,174 @@ function tavern() {
     // CONTRACT.md) — { messageId, url } for the single message it was
     // rendered for, or null. Never more than one at a time (§ liveVideoFor).
     liveAvatarVideo: null,
+
+    draft: "",
+    editing: null,
+    editText: "",
+    editHeight: 0,
+    editingEl: null,
+    regenId: null,
+    regenPrevious: "",
+    // How many of the streaming message's paragraphs are shown so far, while
+    // "Separate paragraphs" is on (§ runStream's own reveal loop) — Infinity
+    // once nothing is streaming, so visibleParagraphs never has to special-
+    // case "no stream in progress" separately from "caught up already".
+    streamingParagraphsShown: Infinity,
+    fadingId: null,
+    // Following the newest message. Cleared when the user scrolls up to read,
+    // restored when they come back down or ask for the newest message. Also
+    // what the scroll-to-bottom button's own visibility reads directly
+    // (`!stick`, § ISSUES-TRIAGE.md #4) rather than a second flag: a chat too
+    // short to scroll is trivially "at bottom" already, so nothing extra is
+    // needed to keep the button off a conversation that doesn't need it.
+    stick: true,
+    scrollPort: null,
+    // The header menu, and which of its destinations is open. One panel at a
+    // time — "" means the conversation is unobstructed.
+    menu: false,
+    // Whether the world-info pill (§ world-pill-inline/world-pill-float,
+    // index.html) has its refresh button open. Only meaningful once there is
+    // a scene to read — the empty pill has nothing else in it, so its
+    // refresh/"generate this" button stays visible outright rather than
+    // needing this to reveal it. Shared by both pills rather than one flag
+    // each: only one of the two ever renders at a time, so there is nothing
+    // to desync.
+    pillOpen: false,
+    // Two fields rather than one: `panel` says which body to render and
+    // `panelOpen` says whether the sheet is on screen. Clearing the name at
+    // the moment of closing would unmount the body through its own x-if, and
+    // the sheet would slide away empty.
+    panel: "",
+    panelOpen: false,
+    // The confirm sheet for leaving a dirty panel (§ runOrGuard), and the
+    // navigation it is holding open pending an answer. The three snapshots
+    // below start at "" rather than matching whatever loads first by
+    // accident: a real settings/character/persona object JSON.stringifies to
+    // something that can never equal "", so panelDirty() reads as dirty
+    // until the panel that owns each one has actually loaded once and taken
+    // its own snapshot — never the wrong way around, where a coincidental
+    // match waves through a real unsaved edit.
+    confirmDiscardOpen: false,
+    _pendingPanelAction: null,
+    _settingsSnapshot: "",
+    _characterSnapshot: "",
+    _personaSnapshot: "",
+    // Which of Brain's five categories is showing. Persists across closing
+    // and reopening the panel — the same way openBackend/openTier already do
+    // for what is folded open within one — rather than resetting to the
+    // first tab every time.
+    brainTab: "backends",
+    historyFor: "",
+    // Raised while a different chat's transcript is being fetched.
+    loadingChat: false,
+    // Variables whose band changed on the last update.
+    bandsMoved: [],
+    confirmChar: "",
+    confirmChat: "",
+    confirmMsg: "",
+    // Which message's emoji picker is open, "" when none (§ message
+    // reactions, openReactionPicker).
+    reactingTo: "",
+    // Exposed as a data property, not just the module-level const above —
+    // Alpine's template expressions (x-for etc.) evaluate against the
+    // component's own scope, not this script's outer closure, the same
+    // reason every other fixed list a template iterates (settings.*,
+    // this.chats, ...) lives on `this` rather than as a bare top-level name.
+    messageReactions: MESSAGE_REACTIONS,
+    // Which message's "Suggest edit" note box is open, "" when none (§
+    // openSuggestEdit), and the free-text note being typed into it. The
+    // presets live on `this` for the same reason messageReactions does.
+    suggestingFor: "",
+    suggestText: "",
+    suggestEditPresets: SUGGEST_EDIT_PRESETS,
+    // Which message is armed for select-to-copy, "" when none (§
+    // startSelectCopy) — the bubble's own swipe/hold pointer handling steps
+    // aside for this one message while it is set.
+    selectingText: "",
+    // The hold-to-delete modal for a character, null when closed. `state` is
+    // "idle" (modal up, nothing pressed), "holding" (timing a press) or
+    // "deleting" (the hold finished; the request is in flight).
+    killHold: null,
+    // A character's own line, shown as a speech bubble over its own row when
+    // starring/unstarring it. `reactionBubble` is the content ({ id, text })
+    // and outlives the visible window on purpose — reactionBubbleOpen alone
+    // gates x-show, so the leave transition fades the actual sentence rather
+    // than the text blanking out a frame before the fade even starts.
+    reactionBubble: null,
+    reactionBubbleOpen: false,
+    // Hold-to-open action wheel. `wheel` is null when closed; when open it
+    // carries the message, where it was opened, and which option the finger
+    // is currently over.
+    wheel: null,
+    wheelSettled: false,
+    wheelHint: "",
+    // How far the pull-up control is revealed, 0 to 1, and whether letting go
+    // now would fire it.
+    reveal: 0,
+    revealArmed: false,
+    revealSettling: false,
+    composerMenu: false,
+    // A press on the + button that has not been released yet: where it
+    // started, which pointer it is, and whether the menu was already open
+    // when the press began (that decides what a release over nothing does —
+    // see onPlusUp). Which item the finger is currently over lives in
+    // composerActive, kept separate so it can drive :class bindings on its
+    // own without the whole hold object being reactive.
+    plusHold: null,
+    composerActive: -1,
+    impersonating: false,
+    // The message currently playing the send animation. Held only long enough
+    // for the keyframes to run; a class left on would replay on every re-render.
+    sendingId: "",
+    // Live while a reply is streaming, so it can be called off.
+    streamAbort: null,
+    // Presence (roadmap 40). `lastTouch` is bumped by any real interaction;
+    // everything else is derived from it, so there is one thing to keep
+    // right. `afk` is only ever read by the UI — the beat checks the clock
+    // itself rather than trusting a flag some re-render might have missed.
+    lastTouch: Date.now(),
+    afk: false,
+    // When this visit started, and how many bells have already rung for it.
+    //
+    // A wall-clock mark rather than a counter of active ticks, and that is
+    // the whole difference: minimising the browser must not stop the bell
+    // (it is a "you have been at this a while" nudge, and a nudge that only
+    // counts foreground seconds never arrives). An accumulator could not
+    // have survived it either way — a backgrounded tab's timers are frozen
+    // on Android, so there is nothing to accumulate *with*. Read the clock
+    // instead and the gap simply closes itself on the way back.
+    //
+    // Counting rings rather than tracking a deadline means the same stretch
+    // can never ring twice, and a length changed mid-visit cannot strand a
+    // timer that was already running.
+    bellSince: Date.now(),
+    bellsRung: 0,
+    bellMsg: "",
+    uploadingBell: false,
+    draftCharacter: { id: "", name: "" },
+    // The alternates are a list on the card and a paragraph-separated textarea
+    // in the editor. Held separately so the textarea can be edited freely —
+    // splitting on every keystroke would renumber the list under the cursor.
+    altGreetings: "",
+    stopStrings: "",
+    previewFor: "",
+    previewText: "",
+    previewStop: "",
+    previewTimer: 0,
+    samplerBook: {},
+    advancedFor: "",
+    // Which passes' "More samplers" fold has been opened at least once this
+    // visit to the Passes tab — see the x-if beside .fold in index.html.
+    advancedSeen: {},
+    rulesOpen: false,
+    staged: [],
+    cast: [],
+    // Everyone who has a line in this chat, which is not the same list as
+    // `cast` — see voiceFor. Kept as both an array and an id-keyed index
+    // because the index is read once per rendered row and rebuilding a Map
+    // per binding is not free on a phone.
+    voices: [],
+    voiceIndex: {},
     policies: [],
     policy: "natural",
     // The rest of the group's own settings (§ groups.settings_for), kept
