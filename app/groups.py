@@ -343,6 +343,7 @@ def plan(
     replies: int = DEFAULT_REPLIES_PER_TURN,
     self_responses: bool = False,
     spoken_since_user: tuple[str, ...] = (),
+    is_user_input: bool = True,
     rng: Any = None,
 ) -> list[dict]:
     """Who answers this turn, in the order they speak. Possibly nobody.
@@ -358,12 +359,22 @@ def plan(
     muted. Asking a muted character to speak is a contradiction worth
     ignoring rather than honouring.
 
-    `self_responses` is the one rule that matters most and costs nothing: by
-    default the character who spoke last does not answer themselves while
-    somebody else could speak instead. The old 0.25 weight penalty let it
-    happen often enough that a group of three regularly read as one person
-    talking to themselves. Naming them explicitly still works — if you ask
-    the same character something twice, you meant them.
+    `self_responses` decides whether the character who spoke last may follow
+    their own line. Off by default — but *only when nothing was said to them
+    in between*, which is the whole of the rule and the half that is easy to
+    get wrong. Getting it wrong is worse than not having it: a blanket ban
+    in a room of two makes the pair take strict turns forever, which is the
+    round-robin mechanism this module's whole first paragraph is against, and
+    it means the obvious thing — saying hello and having them both answer —
+    cannot happen at all.
+
+    So the ban is `is_user_input`-gated, exactly as SillyTavern's is
+    (`!isUserInput && …`, activateNaturalOrder). You spoke, so everyone in
+    the room may answer you, including whoever spoke last. Nobody spoke and
+    the room is carrying on by itself (§ scheduler._run_proceed) — then the
+    one who just finished talking sits this one out, because otherwise
+    "carry on" is one character monologuing. Naming them lifts it either
+    way: if you ask the same character something twice, you meant them.
     """
     picker = rng if rng is not None else random
     available = [m for m in available if not m["muted"]]
@@ -381,9 +392,10 @@ def plan(
         return available[:1]
 
     room = max(1, min(int(replies or 1), MAX_REPLIES_PER_TURN))
-    # Nobody answers themselves while somebody else could. Lifted for an
-    # explicit mention below, and never applied when they are all there is.
-    banned = "" if self_responses else last_speaker
+    # Nobody follows their own line while somebody else could — but only when
+    # nothing was said to them in between (§ the docstring above). Lifted for
+    # an explicit mention below, and never applied when they are all there is.
+    banned = "" if (self_responses or is_user_input) else last_speaker
 
     if policy == "round_robin":
         names = [m["character_id"] for m in available]
@@ -440,9 +452,16 @@ def plan_turn(
     chat: dict | None = None,
     user_text: str = "",
     forced: str = "",
+    is_user_input: bool = True,
     seed: Any = None,
 ) -> list[dict]:
-    """`plan`, with everything it needs read off the chat (§ settings_for)."""
+    """`plan`, with everything it needs read off the chat (§ settings_for).
+
+    `is_user_input` is false for the one caller that answers nothing — the
+    room carrying on by itself (§ scheduler._run_proceed). It is not the same
+    question as "is `user_text` empty": a message can be an attachment with
+    no words in it and still be you speaking.
+    """
     config = settings_for(chat if chat is not None else {})
     return plan(
         members(db, chat_id),
@@ -453,6 +472,7 @@ def plan_turn(
         replies=config["replies_per_turn"],
         self_responses=config["self_responses"],
         spoken_since_user=spoken_since_user(db, chat_id),
+        is_user_input=is_user_input,
         rng=random.Random(seed) if seed is not None else random,
     )
 
@@ -479,6 +499,9 @@ def choose_speaker(
         last_speaker=last_speaker,
         forced=forced,
         replies=1,
+        # A caller asking for one name has a message in hand — this is the
+        # single-speaker shape of an ordinary turn, never of a continuation.
+        is_user_input=True,
         spoken_since_user=spoken_since_user(db, chat_id),
         rng=random.Random(seed) if seed is not None else random,
     )

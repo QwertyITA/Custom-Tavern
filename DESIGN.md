@@ -805,10 +805,18 @@ message naming two people has chosen both of them rather than neither. Under
 the default policy everyone named answers first, in the order they were
 named, then each remaining member rolls against their own talkativeness —
 SillyTavern's shape, where talkativeness is a *chance of speaking up* rather
-than a share of one contested slot. Whoever spoke last is excluded unless the
-chat says otherwise or the message names them; a weight there is not a rule,
-and the 0.25 penalty this shipped with had a group of three reading as one
-person talking to themselves. The list is capped by the chat's own
+than a share of one contested slot. Whoever spoke last is excluded **only when nobody said
+anything in between** — the `is_user_input` gate, which is the whole of that
+rule: a blanket ban makes a room of two alternate strictly for ever, which is
+the mechanism the default policy exists to avoid. The chat can lift it, and
+naming somebody always does. A weight there is not a rule, and the 0.25
+penalty this shipped with had a group of three reading as one person talking
+to themselves.
+
+A turn does not have to answer anything. `_run_proceed` plans with
+`is_user_input=False` and runs the same loop with no user message in front of
+it — which is where the ban above earns its keep, since a continuation whose
+speaker is whoever just spoke is one character monologuing. The list is capped by the chat's own
 `replies_per_turn`, because every extra reply is another whole generation and
 the deploy target is a phone talking to a queue.
 

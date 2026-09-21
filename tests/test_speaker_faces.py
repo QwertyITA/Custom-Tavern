@@ -28,6 +28,12 @@ INDEX = (REPO / "static/index.html").read_text()
 _METHOD = re.compile(r"^    (?:async )?(?:get )?([A-Za-z_$][\w$]*)\s*\(", re.MULTILINE)
 
 
+def composer_actions() -> list[str]:
+    """Each entry of composerActions(), split on its own `id:` line."""
+    body = method("composerActions")
+    return ["id:" + chunk for chunk in body.split("id:")[1:]]
+
+
 def method(name: str) -> str:
     marks = [(m.group(1), m.start()) for m in _METHOD.finditer(APP_JS)]
     for i, (found, start) in enumerate(marks):
@@ -134,11 +140,34 @@ def who_row() -> str:
     return INDEX[INDEX.rindex("<div", 0, start) : INDEX.index("</div>", start)]
 
 
-def test_the_speaker_pick_is_offered_under_every_policy():
-    row = who_row()
-    show = re.search(r'x-show="([^"]+)"', row).group(1)
-    assert show.strip() == "cast.length > 1", show
-    assert "manual" not in show, "it used to be bound to the one policy that requires it"
+def test_the_speaker_pick_is_reachable_under_every_policy():
+    """Roadmap 50: the server has always honoured a named speaker whatever the
+    policy, but the control for it was bound to "you choose", so using it once
+    meant switching the whole chat over. Still true now that the row hides
+    itself — under "you choose" it is always up because the pick is required
+    there, and under every other policy the + menu opens it."""
+    show = re.search(r'x-show="([^"]+)"', who_row()).group(1).strip()
+    assert show == "whoRowShown", show
+    shown = method("whoRowShown")
+    assert 'this.policy === "manual"' in shown and "this.whoRowOpen" in shown
+
+    door = next(a for a in composer_actions() if "whoRowOpen = true" in a)
+    assert 'this.policy === "manual"' in door, (
+        "under that one policy the row is already up, so the menu item would "
+        "open something that is not closed"
+    )
+    assert "cast.length <= 1" in door, "a solo chat has no question to answer"
+
+
+def test_the_row_is_out_of_the_way_until_it_is_asked_for():
+    """A row of names standing over the text box on every single turn reads as
+    a decision waiting to be made, which is not what a one-turn override is."""
+    assert re.search(r"^    whoRowOpen: false,", APP_JS, re.MULTILINE)
+
+
+def test_picking_somebody_puts_the_row_away_again():
+    body = method("pickNextSpeaker")
+    assert 'if (this.policy !== "manual") this.whoRowOpen = false;' in body
 
 
 def test_the_row_says_which_of_the_two_things_it_is():

@@ -630,6 +630,35 @@ STscript (26).
       beside the old. 48's door opened a panel and scrolled to a heading
       buried under the whole toggle list; this is the room, not a second
       door onto somewhere else.
+- [x] **53. An empty box, and a row that stays out of the way.** Two
+      reports about the same strip of screen. The *Next turn* row sat
+      over the text box permanently, which reads as a decision waiting
+      to be made on every single turn when it is really a one-turn
+      override — it is opened from **+ → Who answers next** now and
+      closes itself the moment somebody is picked, except under *You
+      choose*, where it is the policy rather than an override and
+      picking is required before a message can go at all. And an empty
+      message box in a group greyed the send button out, which is the
+      wrong answer to "I want to hear what they say to each other": the
+      button is a **let them carry on** in that state, running a turn
+      that answers nothing (`POST /api/chats/{id}/proceed`,
+      `scheduler._run_proceed`) with the same planner, the same
+      settings and the same per-chat lock as any other. Nothing of
+      yours is stored for it — the whole point is not having to put
+      words in the scene that were only ever there to ask for the next
+      line — so it takes a turn number of its own and its `turn_resume`
+      carries no message at all. Three states on one button, decided in
+      one place (`sendMode`), because the bug being fixed was its icon,
+      its label, its enabled state and its tap disagreeing.
+      Which turned up the real reason the reported example — *hello*
+      answered by two characters — could not happen: 52's self-response
+      ban was unconditional, where SillyTavern's is `!isUserInput &&`
+      (activateNaturalOrder). A blanket ban makes a room of two
+      alternate strictly for ever, which is the round-robin mechanism
+      the default policy exists to avoid. It is gated now: you spoke, so
+      anybody may answer you; nobody spoke and the room is carrying on
+      by itself, so whoever just finished sits out — which is where the
+      rule was always earning its keep.
 
 ## Undecided — needs a call
 

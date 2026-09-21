@@ -713,11 +713,62 @@ class PassScheduler:
             return "everyone here is muted"
         return "nobody was picked to answer — choose who replies"
 
+    async def run_proceed(
+        self, chat_id: str, speaker_id: str = ""
+    ) -> AsyncIterator[dict]:
+        """Serialized per chat, same as run_turn (§ _run_locked)."""
+        async for event in self._run_locked(chat_id, self._run_proceed(chat_id, speaker_id)):
+            yield event
+
+    async def _run_proceed(
+        self, chat_id: str, speaker_id: str = ""
+    ) -> AsyncIterator[dict]:
+        """Let the room carry on without you.
+
+        A group chat is a conversation between several people, and the person
+        reading it is not always one of them — two characters have things to
+        say to each other and the only way to hear them was to type something
+        first, which puts words in the scene that were only ever there to ask
+        for the next line.
+
+        Same planner as an ordinary turn with an empty message (§ groups.plan),
+        so everything it already knows still applies: whoever spoke last sits
+        this one out unless self-replies are on, the talkativeness rolls decide
+        who speaks up, and "how many answer" caps it. Nothing is stored for
+        you, and the reply is assembled against a transcript that is exactly
+        what is on screen — there is no invisible "continue" message in it.
+        """
+        awaited = await self.await_pending(chat_id)
+        if awaited:
+            yield {"type": "awaited_passes", "count": awaited}
+
+        chat = repo.get_chat(self.db, chat_id)
+        if chat is None:
+            yield {"type": "error", "error": "unknown chat"}
+            return
+        if not repo.list_messages(self.db, chat_id, include_dropped=False):
+            # Nothing to carry on from. A character's own greeting is the
+            # first thing in every chat, so reaching here means an empty one.
+            yield {"type": "error", "error": "nothing to carry on from yet"}
+            return
+
+        groups.ensure_member(self.db, chat_id, chat["character_id"])
+        planned = groups.plan_turn(
+            self.db, chat_id, chat=chat, forced=speaker_id, is_user_input=False
+        )
+        speakers = self._resolve(planned)
+        if not speakers:
+            yield {"type": "error", "error": self._nobody_reason(chat_id, planned)}
+            return
+
+        async for event in self._answer(chat, speakers, None, "", announce=False):
+            yield event
+
     async def _answer(
         self,
         chat: dict,
         speakers: list[Character],
-        user_message: dict,
+        user_message: dict | None,
         user_text: str,
         *,
         announce: bool = True,
@@ -743,15 +794,20 @@ class PassScheduler:
         run for each one who speaks.
         """
         chat_id = chat["id"]
-        turn = user_message["turn"]
+        # A turn nobody started (§ _run_proceed) has no message to take its
+        # number from, so it takes the next one. Everything downstream reads
+        # `turn` and never the message, which is what lets the same loop run
+        # a turn with a user message in front of it and one without.
+        turn = user_message["turn"] if user_message else repo.next_turn(self.db, chat_id)
 
         first = self._context_for(chat, speakers[0], turn, user_text)
         yield {
-            # A retry's message is already on screen, so it says so rather than
-            # asking the frontend to append a second copy of it.
+            # A retry's message is already on screen, and a continuation never
+            # had one, so both say so rather than asking the frontend to
+            # append a copy of something it has or of nothing at all.
             "type": "turn_start" if announce else "turn_resume",
             "turn": turn,
-            "message": user_message,
+            **({"message": user_message} if user_message else {}),
             # Who is about to answer, so the placeholder can carry their name
             # and portrait instead of the chat's nominal character.
             "speaker": {"id": speakers[0].id, "name": speakers[0].name},

@@ -301,10 +301,23 @@ answers, how many of them answer, and how much they know about each other.
 looking where it used to live.) A solo chat is a group of one, so nothing
 changes until you add somebody.
 
-**Next turn** sits above the message box whenever there is more than one
-person in the room: tap a name and that character answers this one message,
-whatever the policy says. The pick is spent as the message goes — it never
-quietly becomes a rule. Naming someone in the message itself still works too.
+**Next turn** hands one message to somebody in particular. It is out of the
+way until you want it: **+ → Who answers next** puts the row above the message
+box, tapping a name spends the pick as the message goes, and the row closes
+again — it never quietly becomes a rule. A row of names standing over the text
+box permanently reads as a decision waiting to be made on every turn, which is
+not what a one-turn override is. Under **You choose** it is the policy rather
+than an override, so there it stays up. Naming someone in the message itself
+still works too.
+
+**An empty message box is not a dead end.** With nothing typed, the send
+button becomes **let them carry on** — the next line, with nothing from you.
+Two characters with something to say to each other used to need a message
+first, which puts words in the scene that were only ever there to ask for the
+next line. Same planner, same settings; it simply answers nothing. Tap it
+again for the line after that. (Also in the **+** menu, and only in a room
+with somebody else in it — in a solo chat *Continue* and *Regenerate* already
+cover a second go at the last reply, better.)
 
 **Whose turn it is** picks the policy:
 
@@ -332,10 +345,15 @@ every extra reply is another whole generation, so two costs twice the wait.
 The cue above the composer says who is still to come — *Mira is typing… then
 Harrow* — so a second bubble is never a surprise.
 
-**Let someone follow their own line** is off, and off is the important half:
-whoever just spoke sits the next one out unless you name them. On, they can
-keep going. This used to be a weight rather than a rule, and a weight is not a
-rule — a group of three regularly read as one person talking to themselves.
+**Let someone follow their own line** is only about carrying on. When *you*
+say something, everybody in the room can answer it, whoever spoke last — that
+has to be true, or a room of two takes strict turns for ever and saying hello
+to two people can never get two answers. It is when nobody said anything in
+between that the rule bites: off (the default), the character who just
+finished talking sits out the next carry-on, so it does not become one of them
+monologuing. Naming somebody gets them either way. This used to be a flat
+0.25 weight penalty, and a weight is not a rule — a group of three regularly
+read as one person talking to themselves.
 
 **What they know about each other** decides how much of the other members'
 cards goes into each speaker's prompt: just their names, a few lines each

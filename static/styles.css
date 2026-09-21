@@ -3716,6 +3716,15 @@ body {
    colour change and the squeeze are what say it is a different verb now. */
 .send.stop { background: var(--error); }
 .send.stop .icon { animation: stop-pulse 1.4s var(--ease-in-out) infinite; }
+/* "Let them carry on" (§ sendMode, app.js). Quieter than a send on purpose:
+   the loud accent belongs to the thing you wrote, and this is the room
+   speaking without you. Outlined rather than filled, so the corner still
+   reads as one button changing its mind rather than as two. */
+.send.carryon {
+  background: transparent;
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
 @keyframes stop-pulse {
   0%, 100% { transform: scale(1); opacity: 1; }
   50% { transform: scale(.86); opacity: .75; }

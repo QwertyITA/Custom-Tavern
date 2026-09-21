@@ -155,24 +155,57 @@ def test_talkativeness_shifts_the_odds(db, chat, character):
     assert picked.count("Harrow") > picked.count(character.name) * 3
 
 
-def test_nobody_answers_themselves_while_somebody_else_could(db, chat, character):
+def test_nobody_follows_their_own_line_when_the_room_carries_on_alone(db, chat, character):
     """The old rule was a 0.25 weight penalty, and a weight is not a rule: a
-    group of three regularly read as one person talking to themselves. The one
-    who just spoke now sits the next one out — unless you name them, or unless
-    they are all there is."""
+    group of three regularly read as one person talking to themselves. Now the
+    one who just spoke sits out — but only when nobody said anything to them
+    in between (§ plan's `is_user_input`)."""
     harrow, = a_group(db, chat, "Harrow")
     picked = [
-        pick(db, chat, user_text="hello", last_speaker=harrow.id, seed=i)["name"]
+        groups.plan(
+            groups.members(db, chat["id"]), last_speaker=harrow.id,
+            is_user_input=False, replies=1, rng=random.Random(i),
+        )[0]["name"]
         for i in range(40)
     ]
     assert set(picked) == {character.name}
 
 
+def test_you_speaking_puts_everybody_back_in_the_running(db, chat, character):
+    """The ban has to be gated on that, or a room of two takes strict turns
+    for ever — which is the round-robin mechanism the default policy exists to
+    avoid — and saying hello to two people cannot get two answers. Same
+    condition SillyTavern's own activateNaturalOrder uses (`!isUserInput`)."""
+    harrow, = a_group(db, chat, "Harrow")
+    picked = {
+        groups.plan(
+            groups.members(db, chat["id"]), user_text="hello",
+            last_speaker=harrow.id, replies=1, rng=random.Random(i),
+        )[0]["name"]
+        for i in range(40)
+    }
+    assert picked == {character.name, "Harrow"}
+
+
+def test_saying_hello_to_two_people_can_get_two_answers(db, chat, character):
+    """The example this was reported with, end to end through the planner."""
+    harrow, = a_group(db, chat, "Harrow")
+    spoke = groups.plan(
+        groups.members(db, chat["id"]), user_text="hello",
+        last_speaker=character.id, replies=2, rng=random.Random(2),
+    )
+    assert {m["name"] for m in spoke} == {character.name, "Harrow"}
+
+
 def test_naming_the_one_who_just_spoke_still_gets_them(db, chat, character):
     """Asking the same character a second question means you want them, not
-    the person standing beside them."""
+    the person standing beside them — even where the ban would apply."""
     harrow, = a_group(db, chat, "Harrow")
-    assert pick(db, chat, user_text="Harrow, again?", last_speaker=harrow.id)["name"] == "Harrow"
+    spoke = groups.plan(
+        groups.members(db, chat["id"]), user_text="Harrow, again?",
+        last_speaker=harrow.id, is_user_input=False, replies=1,
+    )
+    assert spoke[0]["name"] == "Harrow"
 
 
 def test_they_can_follow_their_own_line_when_it_is_switched_on(db, chat, character):
@@ -849,3 +882,122 @@ def test_the_per_character_passes_do_run_for_each_speaker(client):
         "AND pass_id='basic' GROUP BY pass_id", (chat_id,)
     )
     assert runs and runs[0]["n"] == 2
+
+
+# ------------------------------------------- letting the room carry on alone
+#
+# A group chat is a conversation between several people, and the person
+# reading it is not always one of them. Before this, two characters with
+# something to say to each other needed a message from you first — which puts
+# words in the scene that were only ever there to ask for the next line.
+
+
+def proceed(client, chat_id: str, speaker: str = "") -> list[dict]:
+    import json as _json
+
+    events = []
+    with client.stream("POST", f"/api/chats/{chat_id}/proceed",
+                       json={"speaker_id": speaker} if speaker else {}) as response:
+        assert response.status_code == 200
+        for line in response.iter_lines():
+            if line.startswith("data:"):
+                events.append(_json.loads(line[5:]))
+    return events
+
+
+def test_carrying_on_adds_a_reply_and_nothing_of_yours(client):
+    mira, chat_id = api_chat(client)
+    harrow = client.post("/api/characters", json={"name": "Harrow"}).json()["id"]
+    client.post(f"/api/chats/{chat_id}/members", json={"character_id": harrow})
+    send(client, chat_id, "hello")
+
+    before = client.get(f"/api/chats/{chat_id}/messages").json()
+    proceed(client, chat_id)
+    after = client.get(f"/api/chats/{chat_id}/messages").json()
+
+    added = after[len(before):]
+    assert added, "nobody carried on"
+    assert all(m["role"] == "assistant" for m in added), "it invented a message from you"
+    assert [m for m in after if m["role"] == "user"] == [
+        m for m in before if m["role"] == "user"
+    ]
+
+
+def test_carrying_on_hands_the_line_to_somebody_else(client):
+    """Whoever spoke last sits it out — otherwise "carry on" is just the same
+    character talking to themselves, which Continue already does better."""
+    mira, chat_id = api_chat(client)
+    harrow = client.post("/api/characters", json={"name": "Harrow"}).json()["id"]
+    client.post(f"/api/chats/{chat_id}/members", json={"character_id": harrow})
+    client.put(f"/api/chats/{chat_id}/group", json={"replies_per_turn": 1})
+    send(client, chat_id, "Mira, hello")
+
+    spoke = [m for m in client.get(f"/api/chats/{chat_id}/messages").json()
+             if m["role"] == "assistant"][-1]["speaker_id"]
+    proceed(client, chat_id)
+    next_up = [m for m in client.get(f"/api/chats/{chat_id}/messages").json()
+               if m["role"] == "assistant"][-1]["speaker_id"]
+    assert next_up != spoke
+
+
+def test_carrying_on_can_be_handed_to_a_named_character(client):
+    mira, chat_id = api_chat(client)
+    harrow = client.post("/api/characters", json={"name": "Harrow"}).json()["id"]
+    client.post(f"/api/chats/{chat_id}/members", json={"character_id": harrow})
+    send(client, chat_id, "hello")
+
+    proceed(client, chat_id, speaker=harrow)
+    assert [m for m in client.get(f"/api/chats/{chat_id}/messages").json()
+            if m["role"] == "assistant"][-1]["speaker_id"] == harrow
+
+
+def test_carrying_on_announces_the_turn_without_a_message(client):
+    """The client appends nothing for this one — there is nothing of yours to
+    append — so the event must not carry a message it would push."""
+    mira, chat_id = api_chat(client)
+    harrow = client.post("/api/characters", json={"name": "Harrow"}).json()["id"]
+    client.post(f"/api/chats/{chat_id}/members", json={"character_id": harrow})
+    send(client, chat_id, "hello")
+
+    events = proceed(client, chat_id)
+    start = next(e for e in events if e["type"] in ("turn_start", "turn_resume"))
+    assert start["type"] == "turn_resume"
+    assert "message" not in start
+    assert start["speaker"]["id"]
+    assert any(e["type"] == "turn_end" for e in events)
+
+
+def test_carrying_on_takes_a_turn_of_its_own(client):
+    """It is a turn nobody started, not an extra reply appended to the last
+    one: the summary and memory passes count turns, and a turn that keeps
+    growing is one they can never finish covering."""
+    mira, chat_id = api_chat(client)
+    harrow = client.post("/api/characters", json={"name": "Harrow"}).json()["id"]
+    client.post(f"/api/chats/{chat_id}/members", json={"character_id": harrow})
+    send(client, chat_id, "hello")
+    was = max(m["turn"] for m in client.get(f"/api/chats/{chat_id}/messages").json())
+
+    proceed(client, chat_id)
+    now = max(m["turn"] for m in client.get(f"/api/chats/{chat_id}/messages").json())
+    assert now == was + 1
+
+
+def test_an_empty_chat_has_nothing_to_carry_on_from(client):
+    blank = client.post("/api/characters", json={"name": "Nobody"}).json()["id"]
+    chat_id = client.post("/api/chats", json={"character_id": blank}).json()["id"]
+    for message in client.get(f"/api/chats/{chat_id}/messages").json():
+        client.delete(f"/api/messages/{message['id']}")
+    assert client.get(f"/api/chats/{chat_id}/messages").json() == []
+
+    errors = [e["error"] for e in proceed(client, chat_id) if e["type"] == "error"]
+    assert errors == ["nothing to carry on from yet"], errors
+
+
+def test_carrying_on_is_refused_while_a_turn_is_running(client):
+    """Same per-chat lock as a send (§ _run_locked): two turns in one chat,
+    neither aware the other happened, is the one thing that must not happen."""
+    import inspect
+
+    from app.passes.scheduler import PassScheduler
+
+    assert "_run_locked" in inspect.getsource(PassScheduler.run_proceed)

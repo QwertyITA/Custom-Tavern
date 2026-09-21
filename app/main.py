@@ -1707,6 +1707,20 @@ async def send_message(chat_id: str, payload: SendMessageRequest):
     )
 
 
+@app.post("/api/chats/{chat_id}/proceed")
+async def proceed_chat(chat_id: str, payload: dict = Body(default={})):
+    """Let the room carry on without a message from you (§ _run_proceed).
+
+    The same stream a send produces, so the client follows it the same way —
+    it simply never carries a user message, because there wasn't one.
+    """
+    if repo.get_chat(get_db(), chat_id) is None:
+        raise HTTPException(404, "chat not found")
+    return await _stream(
+        scheduler().run_proceed(chat_id, str(payload.get("speaker_id") or ""))
+    )
+
+
 PING_SECONDS = 20
 
 

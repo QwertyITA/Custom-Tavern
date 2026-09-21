@@ -1496,16 +1496,17 @@
   </div>
   <!-- Whose turn the next one is, right where the message is being typed.
        Under "you choose" this is the policy itself and picking is required
-       (§ send, app.js, which refuses without one). Under every other policy
-       it is an override for this one turn: nothing picked means the policy
-       decides, as it always did, and a pick is spent the moment the message
-       goes — the server has always honoured a named speaker whatever the
-       policy (§ groups.choose_speaker's `forced`), there was simply nowhere
-       to say it from without switching the whole chat to manual first.
+       (§ send, app.js, which refuses without one), so there it is always up.
+       Under every other policy it is an override for this one turn, and it
+       stays out of the way until it is asked for: + → "Who answers next"
+       opens it, picking somebody spends the pick and closes it again
+       (§ whoRowShown). A row of names standing over the text box on every
+       single turn reads as a decision waiting to be made, which is not what
+       an override is.
 
        Muted members are not offered: asking someone silent to speak is a
        contradiction the server ignores anyway. -->
-  <div class="who-row" x-show="cast.length > 1" x-cloak>
+  <div class="who-row" x-show="whoRowShown" x-cloak>
     <span class="who-row-label"
           x-text="policy === 'manual' ? 'Who answers' : 'Next turn'"></span>
     <template x-for="m in cast.filter(c => !c.muted)" :key="m.character_id">
@@ -1540,16 +1541,18 @@
             :placeholder="nobodyYet ? 'Nobody to talk to yet' : 'Say something…'"
             @keydown.enter.prevent="if (!$event.shiftKey) send()"
             @input="autosize($event.target)" x-ref="input"></textarea>
-  <!-- The same button in two states, not two buttons: while a reply is coming
-       the only thing you can usefully do with that corner is call it off, and a
-       control that swaps its meaning under the thumb is easier to hit than one
-       that appears somewhere else. -->
-  <button class="send" :class="{ stop: streaming }"
+  <!-- The same button in three states, not three buttons: while a reply is
+       coming the only thing you can usefully do with that corner is call it
+       off; with nothing typed in a room of several people it hands the next
+       line to them instead of sitting there greyed out; otherwise it sends.
+       A control that swaps its meaning under the thumb is easier to hit than
+       one that appears somewhere else. -->
+  <button class="send" :class="{ stop: streaming, carryon: sendMode === 'proceed' }"
           @click="streaming ? stopGenerating() : send()"
-          :disabled="!streaming && (!draft.trim() || !chatId)"
-          :aria-label="streaming ? 'Stop generating' : 'Send'"
-          :title="streaming ? 'Stop generating' : 'Send'">
-    <svg class="icon" viewBox="0 0 24 24" x-show="!streaming"><use href="#i-send"/></svg>
+          :disabled="sendDisabled"
+          :aria-label="sendLabel()" :title="sendLabel()">
+    <svg class="icon" viewBox="0 0 24 24" x-show="sendMode === 'send'"><use href="#i-send"/></svg>
+    <svg class="icon" viewBox="0 0 24 24" x-show="sendMode === 'proceed'" x-cloak><use href="#i-continue"/></svg>
     <svg class="icon" viewBox="0 0 24 24" x-show="streaming" x-cloak><use href="#i-stop"/></svg>
   </button>
 </footer>
@@ -4657,9 +4660,11 @@
         </button>
       </label>
       <p class="kind-note" x-show="policy !== 'manual'">
-        Off, whoever just spoke sits the next one out unless you name them —
-        which is what stops a group of three reading as one person talking to
-        themselves. On, they can keep going.
+        Only about the room carrying on by itself — when you say something,
+        everybody here can answer it, whoever spoke last. Off, the one who
+        just finished talking sits out the next carry-on, so it does not
+        become one character monologuing. On, they can keep going. Naming
+        somebody always gets them either way.
       </p>
 
       <h3><svg class="icon-sm" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-people"/></svg>What they know about each other</h3>

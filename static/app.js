@@ -1188,6 +1188,12 @@ function tavern() {
     // The group sheet itself (§ index.html), opened by the header's people
     // button and by Story's own way in.
     castOpen: false,
+    // Whether the "Next turn" row above the composer is showing. Off by
+    // default: under every policy but "you choose" it is an override for one
+    // message, and a row of names standing over the text box at all times
+    // reads as a decision waiting to be made on every single turn. The +
+    // menu opens it, and picking somebody closes it again (§ whoRowShown).
+    whoRowOpen: false,
     // Everyone answering this turn, in order, and how far down that list the
     // stream has got. A turn can hold several replies now (§ groups.plan) and
     // this is what lets the cue say so before the second bubble appears.
@@ -4030,6 +4036,22 @@ function tavern() {
           run: () => this.continueReply(lastReply),
         },
         {
+          id: "whoanswers", label: "Who answers next", icon: "#i-people",
+          note: "Hand this one turn to somebody in particular",
+          // Hidden rather than disabled in a solo chat: there is no question
+          // to answer there, and a greyed-out row of one name is noise.
+          hidden: this.cast.length <= 1 || this.policy === "manual",
+          disabled: this.streaming,
+          run: () => { this.whoRowOpen = true; },
+        },
+        {
+          id: "proceed", label: "Let them carry on", icon: "#i-continue",
+          note: "The next line, with nothing from you",
+          hidden: !this.canProceed,
+          disabled: this.streaming,
+          run: () => this.proceed(),
+        },
+        {
           id: "impersonate", label: "Impersonate", icon: "#i-impersonate",
           note: "Write my next message for me",
           disabled: this.streaming || !this.chatId,
@@ -4058,7 +4080,12 @@ function tavern() {
           disabled: !this.chatId,
           run: () => this.openPanel("music"),
         },
-      ];
+      // `hidden` rather than `disabled` for the two that only exist in a
+      // group: a greyed-out row is a promise that it will work later, and in
+      // a solo chat neither of them ever will. Filtered here so the drag
+      // gesture's own index (§ onPlusMove) counts the same list the menu
+      // draws.
+      ].filter((a) => !a.hidden);
     },
 
     runComposerAction(action) {
@@ -4231,9 +4258,20 @@ function tavern() {
     // the policy and the confirmation would be noise on every single turn;
     // under the others it is an override worth saying out loud, because the
     // alternative reading of a highlighted name is "from now on".
+    // Whether the row is on screen. Under "you choose" it is not an override
+    // but the policy itself — send() refuses without a pick — so there it is
+    // always up and `whoRowOpen` has nothing to say.
+    get whoRowShown() {
+      return this.cast.length > 1 && (this.policy === "manual" || this.whoRowOpen);
+    },
+
     pickNextSpeaker(member) {
       const already = this.nextSpeaker === member.character_id;
       this.nextSpeaker = already ? "" : member.character_id;
+      // Asked for, answered, gone. Not under "you choose", where the row is
+      // the policy and closing it would leave nothing to change the answer
+      // with before the message goes.
+      if (this.policy !== "manual") this.whoRowOpen = false;
       if (this.policy === "manual") return;
       this.flashHint(already ? "Back to whoever would answer"
                              : `${member.name} answers next`);
@@ -6565,6 +6603,10 @@ function tavern() {
         return this.runSlashCommand(command);
       }
       const files = this.stagedIds();
+      // Nothing of your own to send, but a room that can carry on by itself
+      // (§ canProceed): the button is a "let them carry on" in that state,
+      // not a disabled send.
+      if (!text && !files.length && this.canProceed) return this.proceed();
       // "Look at this" with a picture and no words is a real message; only one
       // with neither is empty.
       if ((!text && !files.length) || this.streaming) return;
@@ -6602,6 +6644,63 @@ function tavern() {
         this.draft = text;
         this.nextSpeaker = speaker;
       }
+    },
+
+    // Which of the three jobs the corner button is doing right now: calling
+    // off a reply, handing the next line to the room, or sending what is
+    // typed. One place, because the icon, the label, the class and what the
+    // tap does all have to agree — and a disabled send that is really a
+    // working "carry on" is exactly the disagreement being fixed.
+    get sendMode() {
+      if (this.streaming) return "stop";
+      if (!this.draft.trim() && !this.staged.length && this.canProceed) return "proceed";
+      return "send";
+    },
+
+    // Enabled whenever the tap would do something. The send button used to
+    // read `!draft.trim()`, which is why an empty composer in a group looked
+    // broken rather than like an invitation — and why an empty one in a solo
+    // chat must still be dead, since there the tap really would do nothing.
+    get sendDisabled() {
+      if (this.streaming) return false;
+      if (!this.chatId) return true;
+      return this.sendMode === "send" && !this.draft.trim() && !this.staged.length;
+    },
+
+    sendLabel() {
+      if (this.sendMode === "stop") return "Stop generating";
+      if (this.sendMode === "proceed") return "Let them carry on";
+      return "Send";
+    },
+
+    // Whether an empty composer means "let them carry on" rather than
+    // nothing at all. Only in a room with someone else in it: a chat with one
+    // character has nobody for them to be talking to but you, so an empty
+    // send there would just be a second reply to your last message, which the
+    // Continue and Regenerate actions already cover better.
+    get canProceed() {
+      return !!this.chatId && !this.nobodyYet && this.cast.length > 1;
+    },
+
+    // Let the room carry on without you (§ _run_proceed, scheduler.py). Two
+    // characters with something to say to each other used to need a message
+    // from you first — which puts words in the scene that were only ever
+    // there to ask for the next line.
+    async proceed() {
+      if (this.streaming || !this.canProceed) return;
+      if (this.policy === "manual" && !this.nextSpeaker) {
+        return this.flashHint("Pick who speaks first");
+      }
+      this.menu = false;
+      this.error = "";
+      this.signalLost = false;
+      const speaker = this.nextSpeaker;
+      this.nextSpeaker = "";
+      const went = await this.runStream(
+        `/api/chats/${this.chatId}/proceed`, { speaker_id: speaker },
+        undefined, this.realisticPacingFor(""),
+      );
+      if (!went) this.nextSpeaker = speaker;
     },
 
     // Answer a message whose reply never came. Deliberately not "send it
