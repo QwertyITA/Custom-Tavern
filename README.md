@@ -457,6 +457,17 @@ so a chat left open on a locked phone, a killed tab, or Termux swapped out in
 the night all stop the clock where they stopped you. The totals lean slightly
 low for that reason. They will never lean high.
 
+**A glance is not a sitting.** The clock samples every 20 seconds, so a look
+shorter than that is a single sample: one instant, no length. Those are left
+out of the count and the average entirely, rather than counted as sittings
+that lasted no time — the difference matters most on the chats that predate
+this feature, which have no time saved at all, and opening a few of them to
+see what was in them used to add one sitting apiece and nothing to the total.
+An hour over two real sittings then reported as a few minutes. A chat you have
+only glanced at shows no time rather than "0s", which is the honest answer:
+there is no measurement, not a measurement of nothing. Stay past the next
+sample and the same sitting starts counting normally.
+
 Group chats count in full for everyone in them: an hour with three characters
 in the room is an hour with each of them, not twenty minutes apiece.
 

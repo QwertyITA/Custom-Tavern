@@ -1016,6 +1016,25 @@ def mark_active(db: Database, chat_id: str, at: float | None = None) -> None:
     db.write_sync(_mark)
 
 
+# A sitting is only a sitting once it has some length to it. The heartbeat
+# lands every 20 seconds (§ app.js PRESENCE_BEAT_MS) and a row is opened by
+# the first beat, so any visit shorter than one beat is stored as a row whose
+# started_at and last_seen_at are the same instant: zero seconds.
+#
+# Counting those as sittings is what made the average meaningless. A chat from
+# before this feature existed has no time saved at all, so opening a few of
+# them to look at what is in them — a few seconds each — added one to the
+# denominator apiece and nothing to the total, and an hour spread over two
+# real sittings reported as a handful of minutes. Reported live.
+#
+# Filtered when read rather than refused when written, for two reasons: the
+# row is what the next beat extends (§ mark_active reads the newest one to
+# decide whether this beat continues that sitting), and filtering here fixes
+# the databases that already have these rows in them without a migration.
+# Totals are unaffected either way — a zero-length row adds zero seconds.
+SITTING = "last_seen_at > started_at"
+
+
 def _stat(seconds: float, sessions: int) -> dict:
     """The same three numbers everywhere they are reported. `average` is per
     sitting rather than per day or per message: "how long do I usually stay"
@@ -1032,12 +1051,18 @@ def _stat(seconds: float, sessions: int) -> dict:
 def chat_time(db: Database) -> dict[str, dict]:
     """Time per chat, keyed by chat id. Chats nobody has sat in are absent
     rather than present with zeroes — the caller defaults them, and a roster
-    of untouched chats should not pay for rows that say nothing."""
+    of untouched chats should not pay for rows that say nothing.
+
+    A chat that has only ever been glanced at is absent for the same reason
+    (§ SITTING): a sitting too short to measure is not a shorter sitting, it
+    is no measurement, and reporting it as one is worse than reporting
+    nothing."""
     return {
         row["chat_id"]: _stat(row["seconds"], row["sessions"])
         for row in db.query(
             "SELECT chat_id, SUM(last_seen_at - started_at) AS seconds, "
-            "COUNT(*) AS sessions FROM chat_sessions GROUP BY chat_id"
+            f"COUNT(*) AS sessions FROM chat_sessions WHERE {SITTING} "
+            "GROUP BY chat_id"
         )
     }
 
@@ -1057,6 +1082,7 @@ def character_time(db: Database) -> dict[str, dict]:
             "       SUM(s.last_seen_at - s.started_at) AS seconds, "
             "       COUNT(*) AS sessions "
             "FROM chat_sessions s JOIN chat_members m ON m.chat_id = s.chat_id "
+            f"WHERE s.{SITTING} "
             "GROUP BY m.character_id"
         )
     }

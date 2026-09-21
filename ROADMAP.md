@@ -687,6 +687,24 @@ STscript (26).
       by definition: it waits for the turn's last reply now. Same
       passes, same per-character split (§15), none of it dropped —
       simply not in front of a blocking generation any more.
+- [x] **55. A glance is not a sitting.** Reported live: the average
+      sitting had collapsed. Every chat from before roadmap 40 has no
+      time saved, and the heartbeat samples every 20 seconds (§ app.js
+      PRESENCE_BEAT_MS) — so opening a few old chats to see what was in
+      them wrote one row apiece whose `started_at` and `last_seen_at`
+      were the same instant. Zero seconds, counted as a sitting: one
+      more in the denominator, nothing in the total. Eight glances
+      turned an hour over one real sitting into an average of three
+      minutes. Zero-length rows are now left out of the count and the
+      average, which leaves the totals untouched (a zero-length row
+      adds zero seconds) and makes a glanced chat absent rather than
+      present with a zero — "0s over 4 sittings" is two wrong numbers
+      where nothing at all is the honest answer. Filtered when read
+      rather than refused when written, for two reasons: the row is
+      what the next beat extends (§ mark_active), so a glance that
+      turns into a real visit still counts from where it started; and
+      filtering at read time fixes the databases that already have
+      these rows without a migration.
 
 ## Undecided — needs a call
 

@@ -47,9 +47,13 @@ def test_one_sitting_is_worth_its_first_beat_to_its_last(db, solo):
 def test_a_single_beat_is_worth_nothing_yet(db, solo):
     """Deliberately not "one interval": all that is known is that someone was
     there at one instant. Under-counting the tail of a sitting is the right
-    way round for a number whose whole job is not to be inflated."""
+    way round for a number whose whole job is not to be inflated.
+
+    And it is not a sitting either, so the chat is absent rather than present
+    with a zero (§ SITTING) — a visit too short to measure is no measurement,
+    not a short one."""
     repo.mark_active(db, solo["id"], T0)
-    assert repo.chat_time(db)[solo["id"]]["seconds"] == 0.0
+    assert solo["id"] not in repo.chat_time(db)
 
 
 def test_a_gap_wider_than_the_window_is_never_inside_a_sitting(db, solo):
@@ -77,7 +81,12 @@ def test_the_window_boundary_belongs_to_the_same_sitting(db, solo):
     repo.mark_active(db, solo["id"], T0)
     repo.mark_active(db, solo["id"], T0 + SESSION_GAP)
     assert repo.chat_time(db)[solo["id"]]["sessions"] == 1
+    # A beat past the window opens a second sitting, which stays uncounted
+    # until it has some length of its own (§ SITTING) — so the beat after it
+    # is what makes the split visible, not the split itself.
     repo.mark_active(db, solo["id"], T0 + SESSION_GAP * 2 + 1)
+    assert repo.chat_time(db)[solo["id"]]["sessions"] == 1
+    repo.mark_active(db, solo["id"], T0 + SESSION_GAP * 2 + 1 + BEAT)
     assert repo.chat_time(db)[solo["id"]]["sessions"] == 2
 
 
@@ -459,3 +468,68 @@ def test_the_clock_starts_even_on_an_install_with_no_characters_yet():
     assert boot.index("this.startPresence();") < boot.index("return;"), (
         "startPresence must come before boot's first early return"
     )
+
+
+# ------------------------------------------- what a glance must not do to it
+#
+# Reported live: the average sitting had collapsed to a few minutes. Every
+# chat from before this feature existed has no time saved, and opening a few
+# of them to see what was in them wrote one zero-length row apiece — one more
+# sitting in the denominator, nothing in the total.
+
+
+def test_a_glance_is_not_a_sitting(db, solo):
+    """Under one beat of the heartbeat, so started_at and last_seen_at are
+    the same instant."""
+    repo.mark_active(db, solo["id"], T0)
+    assert solo["id"] not in repo.chat_time(db)
+
+
+def test_glances_cannot_drag_the_average_down(db, character, chat):
+    """The shape of the report: real time in one chat, then a look at several
+    old ones. The average is what someone usually stays for, and glancing at
+    a chat is not staying."""
+    groups.ensure_member(db, chat["id"], character.id)
+    beats(db, chat["id"], T0, 91)  # one solid half-hour sitting
+    real = repo.character_time(db)[character.id]
+    assert real["sessions"] == 1
+    assert real["average"] == 1800.0
+
+    for i in range(8):
+        old = repo.create_chat(db, character.id, f"old {i}")
+        groups.ensure_member(db, old["id"], character.id)
+        repo.mark_active(db, old["id"], T0 + 10_000 + i)
+
+    after = repo.character_time(db)[character.id]
+    assert after["sessions"] == 1, "a glance counted as a sitting"
+    assert after["average"] == 1800.0
+    assert after["seconds"] == real["seconds"], "the total was never the problem"
+
+
+def test_a_glance_that_turns_into_a_visit_counts(db, solo):
+    """Excluded until it has length, not excluded for ever — the same row is
+    what the next beat extends."""
+    repo.mark_active(db, solo["id"], T0)
+    assert solo["id"] not in repo.chat_time(db)
+    repo.mark_active(db, solo["id"], T0 + BEAT)
+    stat = repo.chat_time(db)[solo["id"]]
+    assert stat["sessions"] == 1
+    assert stat["seconds"] == BEAT
+
+
+def test_a_chat_of_nothing_but_glances_reports_nothing_at_all(db, solo):
+    """Rather than "0s over 4 sittings", which is a claim about four visits
+    that says they were each of no length — two wrong numbers instead of an
+    honest absence."""
+    for i in range(4):
+        repo.mark_active(db, solo["id"], T0 + i * (SESSION_GAP * 2))
+    assert solo["id"] not in repo.chat_time(db)
+
+
+def test_the_roster_still_defaults_a_glanced_chat_to_zeroes(db, character, chat):
+    """Absent from the query is not absent from the list — list_characters
+    fills it in, so a row never has to ask whether the key is there."""
+    groups.ensure_member(db, chat["id"], character.id)
+    repo.mark_active(db, chat["id"], T0)
+    row = next(c for c in repo.list_characters(db) if c["id"] == character.id)
+    assert row["time"] == {"seconds": 0.0, "sessions": 0, "average": 0.0}
