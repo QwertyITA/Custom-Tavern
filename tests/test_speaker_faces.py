@@ -294,6 +294,59 @@ def test_a_solo_chat_still_wears_its_expression():
     assert "return !message.speaker_id;" in method("_ownPortrait")
 
 
+def test_the_cues_face_can_be_tapped_like_every_other_one():
+    """Reported live. This was the one assistant row whose portrait did
+    nothing — invisible while it was drawing the chat's nominal character,
+    obvious the moment it started carrying whoever is about to answer, because
+    then it looks exactly like the faces above it."""
+    markup = cue_row()
+    assert "togglePfp(cueRow)" in markup
+    assert 'role="button"' in markup
+    assert "tappable: !!portraitFor(cueRow)" in markup
+
+
+def test_it_answers_a_keyboard_too():
+    markup = cue_row()
+    assert "@keydown.enter.prevent=\"togglePfp(cueRow)\"" in markup
+    assert "@keydown.space.prevent=\"togglePfp(cueRow)\"" in markup
+    assert ":tabindex=" in markup and ":aria-expanded=" in markup
+
+
+def test_a_face_with_no_picture_behind_it_is_not_offered():
+    """Same condition togglePfp itself refuses on, so the row never says it
+    can be tapped when tapping would do nothing."""
+    markup = cue_row()
+    assert "tappable: !!portraitFor(cueRow)" in markup
+    assert "if (!message || !this.portraitFor(message)) return;" in method("togglePfp")
+
+
+def test_the_enlarged_cue_can_still_fill_the_screen():
+    markup = cue_row()
+    assert "openPfpFull(portraitFor(cueRow)" in markup
+    assert "portraitShape(cueRow), portraitEffect(cueRow)" in markup
+
+
+def test_the_cue_holds_its_own_id_for_the_enlargement():
+    """`bigPfp` keys off a message id, and the cue's stand-in row carries a
+    stable one of its own (§ cueRow) — without it the enlargement would key
+    off whatever the speaker happened to be."""
+    assert 'id: "composing"' in method("cueRow")
+    assert markup_has(cue_row(), "bigPfp === 'composing'")
+
+
+def test_an_enlarged_cue_does_not_outlive_the_cue():
+    """A face blown up for Mira is not an instruction about Harrow, and a new
+    turn must not open with a portrait already filling the column."""
+    body = method("runStream")
+    assert body.count('if (this.bigPfp === "composing") this.bigPfp = "";') == 2, (
+        "cleared at the top of a turn and again for each later speaker of it"
+    )
+
+
+def markup_has(markup: str, needle: str) -> bool:
+    return needle in markup
+
+
 # ------------------------------------------------------------- the composer bar
 
 CSS = (REPO / "static/styles.css").read_text()

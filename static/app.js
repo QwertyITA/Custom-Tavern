@@ -7022,6 +7022,10 @@ function tavern() {
       this.composingKind = "typing";
       this.composingSpeaker = "";
       this.composingSpeakerId = "";
+      // An enlarged cue portrait belongs to the cue that was open when it
+      // was tapped. Left set, the next turn's cue would arrive already
+      // blown up, which reads as the app having decided something.
+      if (this.bigPfp === "composing") this.bigPfp = "";
       this.thinkChars = 0;
       this.composingLabel = this.cueLabel("typing");
       this.hudRuns = [];
@@ -7279,6 +7283,9 @@ function tavern() {
               pendingKind = "typing";
               replySpeaker = event.speaker ? event.speaker.id || "" : "";
               this.turnQueueAt += 1;
+              // Same for the next speaker of the same turn: a face enlarged
+              // for Mira is not an instruction about Harrow.
+              if (this.bigPfp === "composing") this.bigPfp = "";
               this.composingSpeaker = event.speaker ? event.speaker.name : "";
               this.composingSpeakerId = event.speaker ? event.speaker.id || "" : "";
               this.composingKind = "typing";

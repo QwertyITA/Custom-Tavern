@@ -766,6 +766,23 @@ STscript (26).
       reason. A scenario shared by the whole room is also written once
       rather than once per member, which ST does not do.
 
+- [x] **58. The typing cue's face answers a tap.** Reported live: with
+      the cue on screen its portrait could not be opened. It never
+      could — it was the one assistant row in the app whose face was
+      decoration, with no handler, no role and no keys. That was
+      invisible for as long as it drew the chat's nominal character and
+      obvious the moment 53 made it carry whoever is actually about to
+      answer, because then it looks exactly like the faces above it and
+      behaved differently. Same handlers, same keys, same enlargement
+      and same fill-the-screen button as any row in the transcript, off
+      the stand-in row `cueRow` already has. The enlargement clears
+      when the cue moves on — at the top of a turn and again for each
+      later speaker of one — since a face blown up for Mira is not an
+      instruction about Harrow, and a new turn should not open with a
+      portrait already filling the column. Checked in a real browser at
+      phone width: 34px to 148px, the right speaker's picture, and the
+      second tap puts it back.
+
 ## Undecided — needs a call
 
 Answers stopped at 28, so these were never ruled in or out:

@@ -1108,7 +1108,22 @@
          under Mira's face and there was no telling who was coming. The same
          mistake roadmap 49 found three times over, in the one row that has no
          message of its own to ask. Now it has one. -->
-    <span class="pfp-slot" :class="'shape-' + portraitShape(cueRow)">
+    <!-- Tappable, like every other face in the column. Reported live: this
+         was the one assistant row whose portrait did nothing, which nobody
+         noticed while it was drawing the chat's nominal character and
+         everybody noticed once it started carrying whoever is actually about
+         to answer — it looks exactly like the faces above it now, so it has
+         to behave like them. Same handlers, same keys, same fill-the-screen
+         button; `cueRow` carries a stable id of its own for `bigPfp` to hold
+         on to (§ cueRow in app.js). -->
+    <span class="pfp-slot"
+          :class="{ ['shape-' + portraitShape(cueRow)]: true, big: bigPfp === 'composing',
+                    tappable: !!portraitFor(cueRow) }"
+          role="button" :tabindex="portraitFor(cueRow) ? 0 : -1"
+          :aria-label="bigPfp === 'composing' ? 'Shrink the portrait' : 'Enlarge the portrait'"
+          :aria-expanded="bigPfp === 'composing'"
+          @click="togglePfp(cueRow)" @keydown.enter.prevent="togglePfp(cueRow)"
+          @keydown.space.prevent="togglePfp(cueRow)">
       <span class="pfp pfp-blank" aria-hidden="true">
         <svg viewBox="0 0 24 24"><use href="#i-person"/></svg>
       </span>
@@ -1118,6 +1133,11 @@
       <template x-if="pfpEffectOn(portraitEffect(cueRow))">
         <span class="pfp-glow" :style="pfpEffectStyle(portraitEffect(cueRow))" aria-hidden="true"></span>
       </template>
+      <button class="pfp-full" x-show="bigPfp === 'composing' && portraitFor(cueRow)" x-cloak
+              @click.stop="openPfpFull(portraitFor(cueRow), portraitShape(cueRow), portraitEffect(cueRow))"
+              aria-label="Fill the screen with this picture">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-expand"/></svg>
+      </button>
     </span>
     <!-- Three cues in one box, cross-fading. Which one is showing says what
          is actually happening: the dots mean the backend has not answered
