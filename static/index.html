@@ -777,10 +777,14 @@
              been permanently marked broken, and stayed blank after one was
              added while newer rows showed it. And a picture that will not load
              now falls back to the placeholder by simply going away. -->
+        <!-- Not tappable while this message is being edited (§ togglePfp,
+             startEdit): enlarging it here would narrow the very bubble
+             editing has pinned to a fixed width, and the edit box ran off
+             the edge of the screen the one time that happened. -->
         <span class="pfp-slot"
               :class="{ ['shape-' + portraitShape(m)]: true, big: bigPfp === m.id,
-                        tappable: !!portraitFor(m) }"
-              role="button" :tabindex="portraitFor(m) ? 0 : -1"
+                        tappable: !!portraitFor(m) && editing !== m.id }"
+              role="button" :tabindex="portraitFor(m) && editing !== m.id ? 0 : -1"
               :aria-label="bigPfp === m.id ? 'Shrink the portrait' : 'Enlarge the portrait'"
               :aria-expanded="bigPfp === m.id"
               @click="togglePfp(m)" @keydown.enter.prevent="togglePfp(m)"

@@ -1969,9 +1969,22 @@ function tavern() {
 
     // Tap to look at it, tap again to put it back. The bubble beside it gives
     // up the width, which is the point: at 34px a portrait is punctuation, and
-    // this is for when you actually want to see who you are talking to.
+    // this is for when you actually want to see room to look at the person.
+    //
+    // Not for the message being edited. Reported live: enlarging a portrait
+    // mid-edit left the edit box cut off past the edge of the screen. The
+    // enlarged portrait narrows its row's bubble by CSS
+    // (`.msg:has(.pfp-slot.big) .bubble`), but startEdit has already pinned
+    // that same bubble to an explicit, wider `min-width` so the box it swaps
+    // in does not collapse (§ startEdit) — and a `min-width` wider than the
+    // portrait's new `max-width` wins outright, so the bubble refuses to
+    // narrow. Portrait (148px) plus the now-too-wide bubble together no
+    // longer fit the row, and the overflow was measured landing 38px past a
+    // 412px screen, clipped rather than scrolled to. Editing has the room
+    // instead; the picture is one tap away once you are done.
     togglePfp(message) {
       if (!message || !this.portraitFor(message)) return;
+      if (this.editing === message.id) return;
       this.bigPfp = this.bigPfp === message.id ? "" : message.id;
       buzz(4);
     },
@@ -7485,19 +7498,70 @@ function tavern() {
     // rendered text had, and only grows from there.
     startEdit(message, fromEl) {
       const bubble = fromEl && fromEl.closest(".bubble");
-      // `:not(.regen)` matters: every bubble holds two `.body` elements and the
-      // first is the hidden regeneration cue, which has no box. Measuring that
-      // one gave every edit box a height of zero, so it fell back to its 2.5em
-      // floor — two lines to edit six paragraphs in.
-      const body = bubble && bubble.querySelector(".body:not(.regen)");
-      if (bubble && body) {
-        const rect = body.getBoundingClientRect();
-        bubble.style.minWidth = `${Math.ceil(bubble.getBoundingClientRect().width)}px`;
-        this.editHeight = Math.ceil(rect.height);
+      // The other half of togglePfp's own guard: an already-enlarged
+      // portrait has already narrowed this bubble by CSS
+      // (`.msg:has(.pfp-slot.big) .bubble`), and measuring it as-is would
+      // pin the edit box to that narrowed width for the whole edit. Shrunk
+      // first — editing needs the room the picture was borrowing, not a
+      // souvenir of how wide the bubble happened to be with it open.
+      //
+      // The shrink is a CSS transition, not instant, so both the bubble's
+      // own `max-width` (§ .msg:has(.pfp-slot.big) .bubble) and the
+      // portrait's `width` keep animating for a few hundred ms after the
+      // class comes off — measuring right away pins the box to whatever
+      // half-finished layout the row was passing through, and it is the
+      // *portrait's* animation that matters most: the row is a flex line,
+      // so the bubble's available space depends on how much the picture has
+      // actually given back at that instant, not on the bubble's own
+      // max-width alone. Turning both transitions off for the one frame
+      // this takes, the same trick the reordering rows below use
+      // (§ flipRules), gets the settled width instead: `$nextTick` waits
+      // for Alpine to actually remove the class, then the forced reflow
+      // (`bubble.offsetHeight`) makes the browser apply the untransitioned
+      // layout before anything reads a rect off it.
+      const row = bubble && bubble.closest(".msg");
+      const slot = row && row.querySelector(".pfp-slot");
+      const wasBig = bubble && this.bigPfp === message.id;
+      if (wasBig) this.bigPfp = "";
+
+      const measureAndBegin = () => {
+        // `:not(.regen)` matters: every bubble holds two `.body` elements and
+        // the first is the hidden regeneration cue, which has no box.
+        // Measuring that one gave every edit box a height of zero, so it fell
+        // back to its 2.5em floor — two lines to edit six paragraphs in.
+        const body = bubble && bubble.querySelector(".body:not(.regen)");
+        if (bubble && body) {
+          const rect = body.getBoundingClientRect();
+          bubble.style.minWidth = `${Math.ceil(bubble.getBoundingClientRect().width)}px`;
+          this.editHeight = Math.ceil(rect.height);
+        }
+        this.editingEl = bubble || null;
+        this.editing = message.id;
+        this.editText = message.text;
+        this.beginEditFocus();
+      };
+
+      if (wasBig) {
+        this.$nextTick(() => {
+          bubble.style.transition = "none";
+          if (slot) slot.style.transition = "none";
+          void bubble.offsetHeight; // force the untransitioned layout to land
+          measureAndBegin();
+          // Only after the pin above has read the settled width — restoring
+          // it any earlier would let the reflow above happen *with* the
+          // transitions still armed.
+          bubble.style.transition = "";
+          if (slot) slot.style.transition = "";
+        });
+      } else {
+        measureAndBegin();
       }
-      this.editingEl = bubble || null;
-      this.editing = message.id;
-      this.editText = message.text;
+    },
+
+    // The focus-and-autosize half of startEdit, split out so the
+    // already-enlarged-portrait path above can run it after its own
+    // measurement instead of duplicating it.
+    beginEditFocus() {
       // Fit the box to the text now rather than on the first keystroke: the
       // measurement above is the *rendered* height, and markup renders shorter
       // than the raw text it came from — asterisks and quotes are characters

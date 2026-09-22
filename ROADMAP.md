@@ -814,6 +814,36 @@ STscript (26).
       log, and driven directly it hung. Cancelling the call already
       stops the turn; that is the whole of it.
 
+- [x] **60. Editing a message and enlarging its portrait, together.**
+      Reported live: "even when editing a message and the pfp is
+      expanded, things get a bit messed up." Measured in a real
+      browser: tapping a portrait to enlarge it *while* that message
+      was being edited left the edit box rendered past the edge of the
+      screen — 438px on a 412px viewport, clipped rather than scrolled
+      to. Two features were pinning the same bubble to two different
+      widths at once. `startEdit` reads the bubble's rendered width and
+      pins it there with an inline `min-width`, so the edit box
+      (`width: 100%`) does not collapse when it replaces the message
+      body. An enlarged portrait narrows that same bubble by CSS. A
+      `min-width` wider than a narrower `max-width` wins outright, so
+      the bubble refused to narrow, and the portrait's 148px plus the
+      still-full-width bubble no longer fit the row between them.
+      The two states are exclusive for one row now: enlarging a
+      portrait is refused for whichever message is being edited (and
+      stops presenting as tappable, so the row doesn't lie about what a
+      tap will do), and starting to edit a message whose portrait is
+      already enlarged shrinks it first. The shrink took two more finds
+      to get right, both from measuring real rows rather than trusting
+      the CSS: it is a transition, not instant, so reading the width
+      right away pinned the box to a mid-animation value — and it
+      turned out to be *two* transitions, the bubble's own narrowing
+      and the portrait's own width, both needing to be turned off for
+      the one frame the reflow takes, because the row is a flex line
+      and the bubble's available space depends on how much room the
+      picture has actually given back, not on the bubble's own
+      max-width in isolation. Missing the second one alone left the box
+      pinned at 236px instead of the 350px it should have settled at.
+
 ## Undecided — needs a call
 
 Answers stopped at 28, so these were never ruled in or out:
