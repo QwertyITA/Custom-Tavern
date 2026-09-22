@@ -896,6 +896,38 @@ STscript (26).
       every fix above depends on — `.msg.editing` now joins the existing
       exemption list.
 
+- [x] **62. "Server not answering" for minutes at a time, and battery drained
+      by a server that outlived the session.** Reported live from a
+      screenshot: the red "server not answering" banner on opening the app,
+      sitting there until the phone was noticed and Termux reopened by hand.
+      Diagnosed over several rounds rather than assumed: the server process
+      itself was never actually dead — a fresh `bash start.sh` always found
+      a live session already there, `exit`ing Termux entirely didn't stop
+      it either — which ruled out both the phantom process killer and a
+      Termux-app-level kill. What was left, matching a Samsung S24 Ultra and
+      a delay measured in minutes rather than seconds, is One UI's own
+      Adaptive Battery/App Standby freezing the process's CPU without
+      killing it, on a schedule Android decides, independent of the
+      standard per-app "Unrestricted" battery toggle (which only exempts an
+      app from Doze, not from that separate system).
+      That freeze is outside this app's control, but two things inside it
+      were fixable. `boot()`'s dead-server banner used to just sit there:
+      `retryBoot` now chases a connectivity failure (never a real 4xx/5xx —
+      that still needs a look, not a blind retry) with a doubling backoff
+      capped at 20s, quiet on every attempt but the last, so a multi-minute
+      freeze thaws into a working app on its own instead of needing a
+      manual reload once someone notices. And the server surviving `exit`
+      turned out to be the wrong default for how the phone is actually
+      used: `start.sh` used to leave it running until Android or a reboot
+      took it, which on a S24 Ultra could mean days between actual use.
+      `install_exit_hook` now installs a `.bashrc` trap (idempotent,
+      self-healing, guarded to interactive shells so it never fires from
+      the server's own detached session or a stray script) that stops the
+      server the moment a Termux session is deliberately closed — leaving
+      the one distinction that matters intact: backgrounding Termux to
+      actually use the app from the browser never triggers it, only typing
+      `exit` does.
+
 ## Undecided — needs a call
 
 Answers stopped at 28, so these were never ruled in or out:

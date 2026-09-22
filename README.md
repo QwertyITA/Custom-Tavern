@@ -72,6 +72,15 @@ things need doing by hand, once:
    adb shell settings put global settings_enable_monitor_phantom_procs false
    ```
 
+All of that keeps the server up *while Termux is backgrounded* — locking the
+screen, switching to the browser to actually use the app, swiping the
+Termux task away, none of it should stop it. Deliberately typing `exit` in a
+Termux session is different: `start.sh` installs a trap for it (once, into
+`.bashrc`, self-healing if that file is ever reset) that stops the server
+the moment you do. Closing Termux that way is the one signal that means
+"I'm done" — the app is unreachable until the next `start.sh`, same as the
+"server not answering" screen already describes.
+
 ### Install as an app
 
 In Chrome, open `http://localhost:8787` → menu → **Install app**. It installs

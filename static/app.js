@@ -828,6 +828,17 @@ const ONE_LINE = 1.6;
 const EDIT_BOX_BOTTOM_MARGIN = 10;
 const EDIT_BOX_TOP_MARGIN = 8;
 
+// boot()'s own retry (§ retryBoot) when the first load finds nobody home.
+// Reported live: Android froze the server process for minutes at a time
+// rather than killing it — the process was still there the whole while, tmux
+// and all, it just did not answer — so doubling the wait between tries
+// rather than polling at a fixed interval is what keeps a multi-minute wake
+// from meaning a hundred wasted requests. Capped rather than left to grow
+// unbounded: the phone is what wakes the server up, not this loop, and a
+// once-every-20-seconds check is cheap enough to just leave running.
+const BOOT_RETRY_START_MS = 2000;
+const BOOT_RETRY_MAX_MS = 20000;
+
 // Pull-up-past-the-end, which reveals the impersonate control.
 // 2.5x what it was. At 96px an ordinary flick at the end of the chat armed it,
 // which meant a gesture aimed at the last message opened the composer instead.
@@ -1486,10 +1497,54 @@ function tavern() {
         this.loadHomeToggles();
       } catch (e) {
         this.error = errorText(e);
+        // A connectivity failure — not the server answering badly, but not
+        // answering at all — is the one kind worth chasing without being
+        // asked (§ retryBoot, BOOT_RETRY_START_MS): the server on the other
+        // end of this fetch does not go away on its own account, and Android
+        // freezing the process rather than killing it can take minutes to
+        // undo, with nothing left for the app to do but wait and ask again.
+        if (e && (e.name === "TypeError" || e.name === "NetworkError")) {
+          this.retryBoot();
+        }
       }
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register("/sw.js").catch(() => {});
       }
+    },
+
+    // Repeats exactly what boot()'s own try block just failed at, doubling
+    // the wait between attempts up to BOOT_RETRY_MAX_MS, until either it
+    // works or the server answers with something other than silence. Quiet
+    // on every attempt but the last: the banner boot() already raised says
+    // what happened once, and re-raising the same sentence every few seconds
+    // would turn one slow wake-up into what reads as repeated failures.
+    async retryBoot() {
+      if (this._bootRetrying) return;
+      this._bootRetrying = true;
+      let delay = BOOT_RETRY_START_MS;
+      while (this._bootRetrying) {
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        try {
+          await this.loadCharacters();
+          if (this.characters.length) {
+            this.characterId = this.characters[0].id;
+            this.chats = await api.get("/api/chats");
+            this.loadHomeToggles();
+          }
+          this.error = "";
+          break;
+        } catch (e) {
+          if (!(e && (e.name === "TypeError" || e.name === "NetworkError"))) {
+            // The server is back, just saying no to something specific —
+            // that is a real error worth seeing, not one this loop can fix
+            // by asking again.
+            this.error = errorText(e);
+            break;
+          }
+          delay = Math.min(delay * 2, BOOT_RETRY_MAX_MS);
+        }
+      }
+      this._bootRetrying = false;
     },
 
     // ---- presence: time actually spent here (roadmap 40) ----

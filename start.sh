@@ -72,6 +72,40 @@ enable_hooks() {
   fi
 }
 
+# Requested live: the server was surviving `exit` on purpose (tmux, same as
+# always) and that was the wrong default for how this phone is actually
+# used — "closing Termux" was meant to mean "I'm done", and a server left
+# running unattended for days at a time is battery it never needed to spend.
+# The distinction that still has to hold: backgrounding Termux to go use the
+# app in the browser must not stop it — only a deliberate `exit` should. A
+# trap in .bashrc is the one hook that sees that keystroke and nothing else;
+# closing the app by swiping it away, locking the screen, or switching apps
+# never runs it, exactly as before.
+#
+# Installed idempotently on every launch, the same as enable_hooks above —
+# self-healing if .bashrc is ever reset or reinstalled, rather than a
+# one-time setup step someone has to remember exists. Guarded to interactive
+# shells only (`$-` containing `i`): the tavern's own detached session runs
+# `bash run.sh foreground` as a script argument, which never sources .bashrc
+# in the first place, but a stray non-interactive script elsewhere still
+# shouldn't inherit a trap meant for a human closing their terminal.
+install_exit_hook() {
+  local rc="$HOME/.bashrc"
+  local marker="# Personal Tavern: stop the server when this Termux session ends (installed by start.sh)"
+  if [ "$(basename "${SHELL:-bash}")" != "bash" ]; then
+    return 0  # only bash is wired up; Termux's own default is bash
+  fi
+  [ -f "$rc" ] && grep -qF "$marker" "$rc" 2>/dev/null && return 0
+  cat >> "$rc" <<HOOK
+
+$marker
+if [[ \$- == *i* ]]; then
+  trap 'bash "$HERE/start.sh" stop >/dev/null 2>&1' EXIT
+fi
+HOOK
+  bold "Installed: closing this Termux session now stops the server too."
+}
+
 # ------------------------------------------------------------------ update
 
 # This install may have been cloned back when the repo's line of development
@@ -267,10 +301,12 @@ case "${1:-start}" in
   -b|--background|background|detach)
     MODE=background
     enable_hooks
+    install_exit_hook
     update
     ;;
   -f|--foreground|foreground|start|"")
     enable_hooks
+    install_exit_hook
     update
     ;;
   *)
