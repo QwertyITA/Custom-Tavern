@@ -1820,27 +1820,90 @@ body {
 .variants .glyph-btn { min-width: 26px; padding: 3px 2px; }
 .edited { opacity: .45; font-size: 12px; padding-left: 4px; }
 
+/* The textarea and its live-preview backdrop, stacked to the pixel (§ the
+   markup below). `position: relative` with no size of its own: the textarea
+   stays a normal in-flow box and establishes the wrapper's size the way it
+   always did, and the backdrop (`position: absolute; inset: 0`) simply
+   matches whatever that turns out to be — one box measured instead of two
+   kept in sync by hand, which is also why a manual drag on the resize
+   handle below needs nothing extra to keep the backdrop the same size. */
+.edit-wrap { position: relative; }
+
+/* The visible layer: background, border, the styled text itself
+   (`Markup.schedule`, same call the read-only bubble makes — the same
+   tokenizer parity §CLAUDE.md already requires between the Python and JS
+   sides means this can never disagree with what the message renders as
+   once you stop editing it). Deliberately opaque and un-glassed —
+   `background: var(--panel)`, not `--surface`, and no `backdrop-filter`:
+   reported live as hard to read, and the one busy background it sat over
+   was the tavern photo bleeding through a translucent panel under Glass.
+   Text you are actively typing into is the one surface where legibility
+   has to win outright over the atmosphere (§CLAUDE.md's own "the one
+   place this hurts").
+   `pointer-events: none` hands every tap straight through to the
+   textarea sitting on top of it — the backdrop is decoration, never the
+   thing focus or a drag lands on. */
+.edit-backdrop {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  color: var(--c-default);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+}
+
 .edit-box {
   width: 100%;
+  /* A `<textarea>` defaults to `display: inline-block`, which sits it on a
+     text baseline and leaves a few pixels of descender space below it —
+     invisible on its own, and exactly the gap that put `.edit-wrap`'s
+     auto-height (driven by this, its only in-flow child) a few pixels
+     taller than the box's own rendered height once something else
+     (`.edit-backdrop`, sized to match the wrapper) started depending on
+     the two agreeing. Measured: a 221px box under a 228px wrapper, and the
+     backdrop scrolling 7px short of the text underneath it because its own
+     scrollable area was that much taller than it needed to be. */
+  display: block;
   /* min-height comes from the rendered text, so entering edit mode never
      shrinks the bubble — it only ever grows downward as you type. */
   min-height: 2.5em;
-  /* Long messages are the ones most worth editing, so the box has to be able
-     to show them: it grows to fit up to a little over half the screen and
-     scrolls beyond that. `hidden` here meant the rest of a long reply could
-     not be reached at all. */
-  max-height: 55vh;
+  /* The real cap is set from JS, sized to whatever room is actually left
+     below the row once it's pinned clear of the header and the floating
+     world-pill (§ editBoxRoom, startEdit, app.js) — not a flat fraction of
+     the screen, which was either too little on a tall phone or, with the
+     keyboard open, taller than what the phone could actually still show.
+     This is only the floor that applies before any of that has run. */
+  max-height: 70vh;
   resize: vertical;
   overflow-y: auto;
   /* The chat scroller must not take a drag that starts inside the box. */
   touch-action: pan-y;
   overscroll-behavior: contain;
-  background: var(--panel);
-  color: var(--text);
-  border: 1px solid var(--line);
+  /* Everything the backdrop behind it draws (§ .edit-backdrop) shows
+     through except the caret and the native selection highlight — the
+     backdrop is what is actually read, this is what is actually typed
+     into. Same padding/border/radius/font as the backdrop, so the two
+     wrap identically and every line lands on the same pixel in both. */
+  background: transparent;
+  color: transparent;
+  caret-color: var(--text);
+  border: 1px solid transparent;
   border-radius: 8px;
   padding: 8px;
   font: inherit;
+}
+/* Selecting still has to be legible — without this the selected run stayed
+   exactly as invisible as the rest of the (transparent) textarea text,
+   just with a highlight-coloured bar where it should have been. */
+.edit-box::selection {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .composing { display: flex; align-items: center; gap: 8px; color: var(--muted); }
@@ -3924,6 +3987,7 @@ body {
 .msg.collapsing,
 .msg.animating,
 .msg.streaming,
+.msg.editing,
 .msg:has(.pfp-glow),
 .msg:has(.bubble.leaving),
 .msg:has(.bubble.clipping),

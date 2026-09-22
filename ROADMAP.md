@@ -844,6 +844,58 @@ STscript (26).
       max-width in isolation. Missing the second one alone left the box
       pinned at 236px instead of the 350px it should have settled at.
 
+- [x] **61. The edit box: hard to read, unformatted, taller than the
+      screen.** Reported live, from a screenshot: the floating world-info
+      pill sitting on top of the first two lines of the box, the raw
+      `*asterisk*`/`"quote"` markup showing as literal characters instead
+      of what the finished message renders as, and a box that scrolled
+      internally past what the phone could show — reaching its own first
+      line meant a second, separate scroll of the chat underneath it.
+      Three fixes. A `.edit-backdrop` layer sits behind a now-transparent
+      textarea and draws the exact same `Markup.schedule` call the
+      read-only body makes, so the preview can never disagree with how the
+      message actually renders — tokenizer parity between `app/markup.py`
+      and `static/markup.js` is already a hard requirement, and reusing
+      the call inherits it instead of risking a second implementation.
+      `pinEditingRow` scrolls the row being edited clear of the header
+      and the pill before the box is even focused; `editBoxRoom` then
+      caps the box's height at whatever room is actually left below that
+      pinned row, recomputed on every `visualViewport` resize so the
+      keyboard opening or closing re-adapts the box rather than leaving
+      it too tall or stuck small.
+      The pin alone was not enough for the case that matters most —
+      editing the newest message. It has nothing below it to scroll past,
+      so `scrollTop` clamped at `scrollHeight - clientHeight` well short
+      of where the row needed to land, measured live sitting exactly at
+      that maximum on a 40-message chat. The fix manufactures the missing
+      room by growing `.chat-inner`'s own bottom padding by the shortfall
+      before the scroll lands, and gives it back in `endEdit`.
+      Two more finds, both from watching a real page rather than trusting
+      the CSS. First: focusing a textarea that then grows taller is
+      exactly the shape Chrome's own "keep the focused control in view"
+      heuristic reacts to — it scrolled a further ~490px past the pin on
+      a tall message, on top of anything this code asked for, so the row
+      is pinned a second time after the box reaches its real height, not
+      just once before. Second: that second pin can legitimately land the
+      scroller exactly at its (spacer-extended) bottom, which used to
+      re-arm the transcript's own "follow the newest message" behaviour —
+      the very next layout tick then snapped the view to the *true*
+      bottom instead of the pinned one, undoing the pin it had just set.
+      Re-arming that behaviour from a scroll position is now suppressed
+      for the duration of an edit, the same way starting one already
+      suppresses it outright.
+      Two smaller bugs surfaced along the way. A `<textarea>` is
+      `display: inline-block` by default, which leaves an invisible
+      descender gap below it that inflated the wrapper's auto-computed
+      height without showing up in the box's own `offsetHeight` —
+      measured as a 221px box under a 228px wrapper, and the backdrop
+      scrolling 7px short of the text underneath it. And `.msg`'s
+      `content-visibility: auto` was skipping layout entirely for a row
+      being edited far enough down a scrolled chat to sit outside the
+      currently-rendered window, which is exactly the row whose geometry
+      every fix above depends on — `.msg.editing` now joins the existing
+      exemption list.
+
 ## Undecided — needs a call
 
 Answers stopped at 28, so these were never ruled in or out:

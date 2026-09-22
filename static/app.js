@@ -822,6 +822,11 @@ const STREAM_FOLLOW_LINES = 6;
 // "this reply has wrapped", which is the only case that needs the bubble
 // pinned to its full width (§ .msg.streaming.wrapped, styles.css).
 const ONE_LINE = 1.6;
+// How much air to leave below the edit box (§ editBoxRoom) so its own
+// bottom edge is never flush against the composer, and below the floating
+// world-pill (§ pinEditingRow) so the row does not start touching it either.
+const EDIT_BOX_BOTTOM_MARGIN = 10;
+const EDIT_BOX_TOP_MARGIN = 8;
 
 // Pull-up-past-the-end, which reveals the impersonate control.
 // 2.5x what it was. At 96px an ordinary flick at the end of the chat armed it,
@@ -7494,9 +7499,95 @@ function tavern() {
 
     // ---- editing & variants ----
 
+    // How much vertical room is actually left for the edit box, from
+    // wherever its own top currently sits down to just above the composer —
+    // not a flat fraction of the screen, which was either too little on a
+    // tall phone or, with the keyboard open, taller than what was actually
+    // still visible. Meaningful once `pinEditingRow` has put the box's top
+    // somewhere known; before that it is still a reasonable answer, just to
+    // "wherever the box happens to be".
+    editBoxRoom(el) {
+      if (!this.scrollPort) return viewportHeight() * 0.55; // no scroller yet
+      const bottom = this.scrollPort.getBoundingClientRect().bottom;
+      const top = el.getBoundingClientRect().top;
+      return Math.max(120, Math.round(bottom - top - EDIT_BOX_BOTTOM_MARGIN));
+    },
+
+    // Scrolls the row being edited so its top sits just clear of the header
+    // and the floating world-info pill (§ .world-pill-float, styles.css) —
+    // which sits on top of `.chat` by design, fine for a passing glance at
+    // the transcript, not for a box you are meant to read start to finish.
+    // Reported live: the pill sitting over the first two lines of the box,
+    // and the box running taller than the screen with no way to reach its
+    // own top without a second, separate scroll of the chat underneath it.
+    // Once the row is here, `editBoxRoom` can safely fill everything below
+    // it — nothing above the box needs the chat scrolled a second time to
+    // reach, and the box's own `overflow-y: auto` is the only scrolling
+    // left to do.
+    pinEditingRow(box) {
+      const port = this.scrollPort;
+      const row = box && box.closest(".msg");
+      if (!port || !row) return;
+      const portTop = port.getBoundingClientRect().top;
+      const pill = document.querySelector(".world-pill-float");
+      const pillBottom = pill && getComputedStyle(pill).display !== "none"
+        ? pill.getBoundingClientRect().bottom + EDIT_BOX_TOP_MARGIN
+        : portTop;
+      const target = Math.max(portTop, pillBottom);
+      const delta = row.getBoundingClientRect().top - target;
+      if (Math.abs(delta) <= 1) return;
+      const wanted = port.scrollTop + delta;
+      // The common case this exists for: editing the newest message. It has
+      // nothing below it, so `scrollTop` clamps at `scrollHeight -
+      // clientHeight` well short of `wanted` — confirmed live on a 40-message
+      // chat, `scrollTop` sitting exactly at that maximum and going no
+      // further. Growing `.chat-inner`'s own bottom padding by the shortfall
+      // manufactures the room the layout doesn't have, the same way the
+      // composer already reserves space at the bottom of the page; removed
+      // again in `endEdit` once the row no longer needs to be up there.
+      const shortfall = wanted - (port.scrollHeight - port.clientHeight);
+      if (shortfall > 0) {
+        const inner = port.querySelector(".chat-inner");
+        if (inner) {
+          this._editSpacerEl = inner;
+          inner.style.paddingBottom = `${Math.ceil(shortfall)}px`;
+        }
+      }
+      port.scrollTop = wanted;
+    },
+
+    // Grows the edit box to fit what has been typed, capped by whatever room
+    // is actually left (§ editBoxRoom) rather than a flat fraction of the
+    // screen — and keeps the preview backdrop under it in step, since typing
+    // is the one thing that can also make the box scroll internally.
+    autosizeEditBox(el) {
+      el.style.height = "auto";
+      el.style.height = Math.min(el.scrollHeight, this.editBoxRoom(el)) + "px";
+      this.syncEditBackdrop(el);
+    },
+
+    // The backdrop (§ .edit-backdrop, styles.css) is what is actually read;
+    // the textarea is what is actually typed into, and only it can scroll on
+    // its own — a drag on its native scrollbar, a paste, the caret moving
+    // past what is visible. Without this the preview stayed put while the
+    // real text scrolled on underneath the transparent box drawn over it.
+    syncEditBackdrop(el) {
+      const backdrop = el.closest(".edit-wrap")?.querySelector(".edit-backdrop");
+      if (backdrop) backdrop.scrollTop = el.scrollTop;
+    },
+
     // Editing must not make the bubble jump: it keeps the width and height the
     // rendered text had, and only grows from there.
     startEdit(message, fromEl) {
+      // Whether the transcript was following the newest message before this
+      // (§ initScroll's own `stick`). Growing the box as you type must not
+      // drag the row you are reading back down to the bottom the moment it
+      // needs one more line — that undid `pinEditingRow` on the very next
+      // keystroke the one time this went untested. Restored in `endEdit`,
+      // the same way `scrollDown` already resumes following after any other
+      // deliberate action.
+      this._stickBeforeEdit = this.stick;
+      this.stick = false;
       const bubble = fromEl && fromEl.closest(".bubble");
       // The other half of togglePfp's own guard: an already-enlarged
       // portrait has already narrowed this bubble by CSS
@@ -7569,32 +7660,47 @@ function tavern() {
       this.$nextTick(() => {
         const box = this.editingEl?.querySelector(".edit-box");
         if (!box) return;
+        // Before focus, not after: focusing is what opens the keyboard, and
+        // scrolling the row into place while that animates on top of it read
+        // as two separate jumps instead of one settled move.
+        this.pinEditingRow(box);
         box.focus();
-        // Never taller than a little over half the screen, whatever the
-        // rendered text measured: the bubble it came from can be the whole
-        // screen, and a text box that tall has nowhere to put the keyboard.
-        // viewportHeight(), not window.innerHeight — see that function's own
-        // note. Without it this cap was computed against the keyboard-less
-        // full screen, so a box already at the cap could still end up taller
-        // than the room actually left once the keyboard focus() just
-        // triggered finished opening underneath it.
+        // Capped by the room actually left below the row now that it is
+        // pinned (§ editBoxRoom), not a flat fraction of the screen: the
+        // bubble it came from can be the whole screen, and a text box that
+        // tall has nowhere to put the keyboard.
         if (this.editHeight) {
-          box.style.minHeight = `${Math.min(this.editHeight, viewportHeight() * 0.55)}px`;
+          box.style.minHeight = `${Math.min(this.editHeight, this.editBoxRoom(box))}px`;
         }
         // A frame after the tick, not in it: `x-model` writes the value during
         // the same flush, and a box measured before its text is in it reports
         // the height of an empty one — which is how a six-paragraph reply got
         // three lines to be edited in.
-        requestAnimationFrame(() => this.autosize(box, 0.55));
+        // Re-pinned once more after the box reaches its real height, not
+        // just once before: focusing a textarea that then grows taller is
+        // exactly the shape Chrome's own "keep the focused control in view"
+        // heuristic reacts to, and it does — measured scrolling a further
+        // ~490px past the pin on a tall message, on top of what this code
+        // ever asked for. The first pin (above) is still needed, since it is
+        // what `editBoxRoom` reads to size the box in the first place; this
+        // second one is the one nothing but the browser can be trusted to
+        // leave alone.
+        requestAnimationFrame(() => {
+          this.autosizeEditBox(box);
+          this.pinEditingRow(box);
+        });
         // The keyboard can still be mid-animation at this point — focus()
         // starts it, it does not wait for it — so the cap above may yet be
-        // measured against a viewport that has not finished shrinking.
-        // visualViewport fires its own resize as the keyboard settles (and
-        // again if it is dismissed, or the phone rotates), so re-running the
-        // same cap then is what actually keeps the box inside the screen
-        // rather than just inside the screen at the instant editing opened.
+        // measured against a viewport that has not finished shrinking. Only
+        // the *height* needs recomputing here, not the pin: the keyboard
+        // moves the composer up from the bottom, it does not move the row's
+        // own top. visualViewport fires its own resize as the keyboard
+        // settles (and again if it is dismissed, or the phone rotates), so
+        // re-running the cap then is what actually keeps the box inside the
+        // screen rather than just inside the screen at the instant editing
+        // opened.
         if (window.visualViewport) {
-          this._editViewportResize = () => this.autosize(box, 0.55);
+          this._editViewportResize = () => this.autosizeEditBox(box);
           window.visualViewport.addEventListener("resize", this._editViewportResize);
         }
       });
@@ -7606,6 +7712,11 @@ function tavern() {
         const box = this.editingEl.querySelector(".edit-box");
         if (box) { box.style.minHeight = ""; box.style.height = ""; }
       }
+      // Give back the room `pinEditingRow` manufactured (§ pinEditingRow) —
+      // it was only ever there to make the newest row reachable, not a real
+      // part of the transcript's layout.
+      if (this._editSpacerEl) { this._editSpacerEl.style.paddingBottom = ""; }
+      this._editSpacerEl = null;
       if (this._editViewportResize && window.visualViewport) {
         window.visualViewport.removeEventListener("resize", this._editViewportResize);
       }
@@ -7613,6 +7724,13 @@ function tavern() {
       this.editingEl = null;
       this.editHeight = 0;
       this.editing = null;
+      // Resume following the bottom if that is what editing interrupted
+      // (§ startEdit) — the same "a deliberate action resumes it" rule
+      // scrollDown already applies everywhere else. Left alone (not forced
+      // false, not forced true) when it was already false: editing did not
+      // change that choice, so ending it should not either.
+      if (this._stickBeforeEdit) this.scrollDown();
+      this._stickBeforeEdit = false;
     },
 
     cancelEdit() {
@@ -9183,8 +9301,17 @@ function tavern() {
       }
 
       port.addEventListener("scroll", () => {
-        // Back at the bottom, however we got there: follow again.
-        if (this.nearBottom()) { this.stick = true; return; }
+        // Back at the bottom, however we got there: follow again. Not while
+        // editing (§ startEdit/pinEditingRow): editing already turned stick
+        // off on purpose, and its own pin can legitimately land exactly at
+        // the bottom — the newest message has nothing below it, so the
+        // spacer it manufactures gives it just enough room to reach the
+        // target and no more. Re-arming stick there fed the very next
+        // ResizeObserver tick (the box finishing its own growth) straight
+        // into pinBottom, which jumped to the true bottom instead of the
+        // pinned one — a ~490px overshoot past the row, measured on the
+        // case this exists for.
+        if (!this.editing && this.nearBottom()) { this.stick = true; return; }
         if (performance.now() - gestureAt < GESTURE_WINDOW_MS) this.stick = false;
       }, { passive: true });
 

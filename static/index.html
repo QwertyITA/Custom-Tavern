@@ -760,7 +760,14 @@
   </div>
 
   <template x-for="m in messages" :key="m.id">
-    <article class="msg" :class="[m.role, sendingId === m.id ? 'sending' : '']">
+    <!-- `editing` joins the content-visibility exemption list (§ .msg,
+         styles.css): content-visibility holds a skipped row's whole subtree
+         at zero — style and layout both — not only its paint, so every
+         measurement startEdit/pinEditingRow takes (the bubble's rendered
+         width, the row's own top, the room left below it) read as zero for
+         a message far enough down a long chat to have been skipped. Never
+         reached in a short chat, which is exactly why it went untested. -->
+    <article class="msg" :class="[m.role, sendingId === m.id ? 'sending' : '', editing === m.id ? 'editing' : '']">
       <!-- x-if for the same reason as the rows below, and one worse: an empty
            `src` is not "no image", it is the current page, which the browser
            re-fetches once per bubble. -->
@@ -991,12 +998,23 @@
           </div>
         </div>
 
-        <!-- No `:style` binding here on purpose. Alpine writes the whole
-             style attribute for one, which wiped the height `autosize` had
-             just measured — the box stayed at its floor however long the
-             message was. Both numbers are set from `startEdit` instead. -->
-        <textarea class="edit-box" x-show="editing === m.id" x-model="editText"
-                  @input="autosize($event.target, 0.55)" x-cloak></textarea>
+        <!-- A live preview underneath the plain textarea (§ .edit-backdrop,
+             styles.css): the same Markup.schedule call the read-only body
+             makes, so an edit can never render *differently* styled from
+             how the message will actually look once you stop editing it.
+             `aria-hidden` — it draws nothing a screen reader should read;
+             the textarea underneath already carries the real text. -->
+        <div class="edit-wrap" x-show="editing === m.id" x-cloak>
+          <div class="edit-backdrop" aria-hidden="true"
+               x-effect="Markup.schedule($el, editText)"></div>
+          <!-- No `:style` binding here on purpose. Alpine writes the whole
+               style attribute for one, which wiped the height `autosize` had
+               just measured — the box stayed at its floor however long the
+               message was. Both numbers are set from `startEdit` instead. -->
+          <textarea class="edit-box" x-model="editText"
+                    @input="autosizeEditBox($event.target)"
+                    @scroll="syncEditBackdrop($event.target)"></textarea>
+        </div>
 
         <!-- Both roles get tools now. There is no regenerate button: the
              right-arrow and the swipe gesture already do exactly that, and a

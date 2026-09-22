@@ -58,8 +58,10 @@ def test_the_view_lets_go_once_the_reply_runs_on():
 def test_letting_go_is_the_same_state_as_scrolling_up():
     """Not a third mode. `stick` false is what the scroll-to-bottom button
     reads, and coming back to the bottom resumes following, as it always
-    did — so the way back is one that already existed."""
-    assert "if (this.nearBottom()) { this.stick = true; return; }" in APP_JS
+    did — so the way back is one that already existed. Suppressed while
+    editing (§ tests/test_edit_box_readability.py) — that is `startEdit`'s
+    own, deliberate suppression, not a case of scrolling up."""
+    assert "if (!this.editing && this.nearBottom()) { this.stick = true; return; }" in APP_JS
 
 
 def test_the_budget_is_how_far_this_reply_pushed_the_bottom_down():
