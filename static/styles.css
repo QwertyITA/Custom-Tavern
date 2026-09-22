@@ -4730,8 +4730,29 @@ input.mono {
 
    Inline min-width from the regeneration pin wins over this, which is correct:
    a swipe grows out of the cue at its own pace. */
-.msg.streaming .bubble:not([style*="min-width"]) {
-  min-width: var(--bubble-max);
+/* Two conditions on one short rule, and each fixes a way the bubble was the
+   wrong size while a reply arrived.
+
+   `.wrapped` is added the first time the reply actually needs a second line
+   (§ markFlowing, app.js). Before that there is one line, and a single line
+   getting longer re-wraps nothing — it only extends to the right. Without
+   that condition every reply was pinned to the full width of the column from
+   its first token: measured at 368px for an answer that settles at 284px, so
+   a short reply streamed in a bubble a third too big and snapped shut the
+   moment it landed.
+
+   And `flex-grow`, not `min-width: var(--bubble-max)`, which is what this
+   was. The row is a flex line holding the portrait, the gap and the bubble,
+   so the bubble's share is 350px of a 392px row — but a *percentage*
+   min-width resolves against the row, not against the space left on the
+   line, so 94% asked for 368px and the bubble overflowed its own row by
+   18px, then shrank back at the end. Growing into the line asks for exactly
+   what is there, which is also exactly where a wrapped bubble settles.
+
+   The regeneration pin's inline min-width still opts out: a swipe grows out
+   of the cue at its own pace and must not be stretched. */
+.msg.streaming.wrapped .bubble:not([style*="min-width"]) {
+  flex-grow: 1;
 }
 
 .msg.streaming .body:not(.regen)::after {

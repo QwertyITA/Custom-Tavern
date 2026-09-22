@@ -136,12 +136,23 @@ async def _stream(generator) -> StreamingResponse:
         except Exception as exc:  # noqa: BLE001 — surface it to the client
             yield _sse({"type": "error", "error": repr(exc)})
         finally:
-            # The client hung up while the backend was still thinking. Without
-            # this the __anext__ we were waiting on is left running with
-            # nobody to receive it — and it is a whole turn.
+            # The client hung up while the backend was still thinking. The
+            # call we were waiting on is a whole turn, and nobody is left to
+            # receive it, so it has to be stopped.
             if pending is not None and not pending.done():
+                # Cancelling the in-flight __anext__ *is* stopping it: the
+                # CancelledError lands inside the turn at its own await
+                # point, where the reply pass already catches it and keeps
+                # whatever had arrived (§ _run_reply). And it is why aclose()
+                # must not also be called here — an async generator refuses
+                # to close while one of its own __anext__ calls is still in
+                # flight ("aclose(): asynchronous generator is already
+                # running"), which on the real server path came out of the
+                # teardown as a RuntimeError in the log and, driven directly,
+                # hung waiting for a close that could never happen.
                 pending.cancel()
-            await generator.aclose()
+            else:
+                await generator.aclose()
 
     return StreamingResponse(
         body(),

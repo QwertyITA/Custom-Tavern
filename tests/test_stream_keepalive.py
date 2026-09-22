@@ -101,6 +101,53 @@ def test_a_failure_still_reaches_the_client_as_an_error(monkeypatch):
     sync(case())
 
 
+def test_hanging_up_mid_turn_is_not_itself_an_error(monkeypatch):
+    """Starlette iterates the body in a task and cancels that task when the
+    client goes away — mid-__anext__, which is where a turn spends nearly all
+    of its time. Closing the generator *there* is what an async generator
+    refuses to do ("aclose(): asynchronous generator is already running"), so
+    the first version of this teardown turned every phone that walked away
+    mid-reply into a RuntimeError in the log, and hung outright when driven
+    directly. Cancelling the call already stops the turn; that is the whole
+    of it."""
+    async def case():
+        monkeypatch.setattr(main, "STREAM_PING_SECONDS", 0.05)
+        torn_down = asyncio.Event()
+
+        async def long():
+            try:
+                yield {"type": "turn_start", "turn": 1}
+                await asyncio.sleep(30)
+                yield {"type": "turn_end", "turn": 1}
+            finally:
+                torn_down.set()
+
+        response = await main._stream(long())
+        blew_up = []
+
+        async def drain():
+            try:
+                async for _ in response.body_iterator:
+                    pass
+            except asyncio.CancelledError:
+                raise
+            except BaseException as exc:
+                blew_up.append(exc)
+
+        task = asyncio.ensure_future(drain())
+        await asyncio.sleep(0.25)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        # The turn really stopped, and nothing came out of the teardown.
+        await asyncio.wait_for(torn_down.wait(), 2)
+        assert not blew_up, blew_up
+
+    sync(case())
+
+
 def test_hanging_up_mid_turn_does_not_leave_the_turn_running(monkeypatch):
     """Whatever was being awaited when the reader went away is a whole turn,
     and nobody is left to receive it."""

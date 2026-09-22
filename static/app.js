@@ -810,6 +810,18 @@ const BOTTOM_SLACK = 48;
 // has to outlast one frame; kept short so a later layout shift is never
 // mistaken for the tail of a gesture.
 const GESTURE_WINDOW_MS = 250;
+// How much of a streamed reply the view follows before it lets go of the
+// bottom. A long reply used to drag the reader down a line at a time for the
+// whole generation, so the only thing on screen was the last line and the
+// cursor — you could not read the reply until it had stopped being written.
+// Past this, the message keeps its top where the eye already is and grows
+// downward off the fold, which is what reading is. Coming back to the bottom
+// (or the button that does it) resumes following, as it always did.
+const STREAM_FOLLOW_LINES = 6;
+// One line, with room for a descender and a rounding error — the test for
+// "this reply has wrapped", which is the only case that needs the bubble
+// pinned to its full width (§ .msg.streaming.wrapped, styles.css).
+const ONE_LINE = 1.6;
 
 // Pull-up-past-the-end, which reveals the impersonate control.
 // 2.5x what it was. At 96px an ordinary flick at the end of the chat armed it,
@@ -7738,9 +7750,15 @@ function tavern() {
         ? this.bubbleFor(messageId)?.closest(".msg") || null
         : null;
       if (row === this._streamRow) return;
-      this._streamRow?.classList.remove("animating", "streaming", "flowing");
+      this._streamRow?.classList.remove("animating", "streaming", "flowing", "wrapped");
       row?.classList.add("animating", "streaming");
       this._streamRow = row;
+      // What the row was before anything streamed into it, so the follow
+      // budget below measures how far this *reply* has pushed the bottom
+      // down rather than how tall the row happens to be — which is not the
+      // same thing when a regeneration streams into a bubble that is already
+      // several lines tall.
+      this._streamFrom = row ? row.offsetHeight : 0;
       if (!row) {
         clearTimeout(this._flowTimer);
         this._flowTimer = 0;
@@ -7755,6 +7773,16 @@ function tavern() {
     markFlowing() {
       const row = this._streamRow;
       if (!row) return;
+      // Once, and never taken back for the rest of the stream: the bubble is
+      // held at full width only from the moment the reply actually wraps
+      // (§ .msg.streaming.wrapped). Before that there is one line, and a
+      // single line getting longer does not re-wrap anything — it was being
+      // drawn at the full width of the column for its whole life, so every
+      // short reply streamed in a bubble far bigger than the words in it and
+      // then snapped shut when it landed.
+      if (!row.classList.contains("wrapped") && this.hasWrapped(row)) {
+        row.classList.add("wrapped");
+      }
       row.classList.add("flowing");
       clearTimeout(this._flowTimer);
       this._flowTimer = setTimeout(() => row.classList.remove("flowing"), 420);
@@ -9223,6 +9251,29 @@ function tavern() {
       }
     },
 
+    // Whether the text in this row has gone past its first line.
+    //
+    // `.body:not(.regen)` because every bubble holds two bodies and the first
+    // is the hidden regeneration cue, which has no box (§CLAUDE.md). In
+    // "separate paragraphs" there is one body per paragraph, so a second one
+    // existing is itself the answer.
+    hasWrapped(row) {
+      const bodies = row.querySelectorAll(".body:not(.regen)");
+      if (!bodies.length) return false;
+      if (bodies.length > 1) return true;
+      const line = parseFloat(getComputedStyle(bodies[0]).lineHeight) || 20;
+      return bodies[0].offsetHeight > line * ONE_LINE;
+    },
+
+    // Whether the reply being streamed has outgrown the few lines the view
+    // follows it for (§ STREAM_FOLLOW_LINES).
+    outgrownTheFollow() {
+      const row = this._streamRow;
+      if (!row) return false;
+      const line = parseFloat(getComputedStyle(row).lineHeight) || 20;
+      return row.offsetHeight - (this._streamFrom || 0) > line * STREAM_FOLLOW_LINES;
+    },
+
     // Follow the bottom, but only while the user has not scrolled away.
     //
     // Coalesced to one write per frame. The observer fires on every token, and
@@ -9231,6 +9282,14 @@ function tavern() {
     // only be seen once per frame.
     pinBottom() {
       if (!this.scrollPort || !this.stick || this._pinQueued) return;
+      // The reply has run on past what the view follows. Let go of the bottom
+      // the same way a scroll up does — which is the point: from here it is
+      // being read, not watched, and the scroll-to-bottom button (`!stick`)
+      // is already the way back to the end of it.
+      if (this.outgrownTheFollow()) {
+        this.stick = false;
+        return;
+      }
       this._pinQueued = true;
       requestAnimationFrame(() => {
         this._pinQueued = false;

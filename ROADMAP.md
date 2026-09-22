@@ -782,6 +782,37 @@ STscript (26).
       portrait already filling the column. Checked in a real browser at
       phone width: 34px to 148px, the right speaker's picture, and the
       second tap puts it back.
+- [x] **59. What the screen does while a reply arrives.** Two
+      reports, both about being shown the wrong thing during a stream.
+      **The view followed the bottom for the whole generation**, so a
+      long reply dragged the reader down a line at a time and the only
+      thing on screen was the last line and the cursor — you could not
+      read the reply until it had stopped being written. It follows for
+      the first six lines now and then lets go, into exactly the state
+      scrolling up already produces (`stick` false), so the
+      scroll-to-bottom button is the way back and nothing new had to be
+      invented. The budget is how far *this reply* pushed the bottom
+      down rather than how tall the row is, because a regeneration
+      streams into a bubble that is already several lines tall.
+      **And the bubble was the wrong width, twice over.** It was pinned
+      to the full column from its first token, so a short answer
+      streamed in a box a third too big and snapped shut when it landed
+      — 368px while streaming against 284px after, measured on real
+      rows in a browser. The pin only goes on once the reply actually
+      needs a second line now; before that there is one line, and a
+      single line getting longer re-wraps nothing. The pin itself was
+      also wrong: `min-width: var(--bubble-max)` is a percentage of the
+      *row*, while the bubble only gets the part of the flex line the
+      portrait and the gap leave — so a wrapped reply asked for 368px
+      of a 350px space, overflowed its own row and shrank back at the
+      end. It grows into the line instead, which is exactly where a
+      wrapped bubble settles: 350px throughout, no snap at all.
+      Fixed along the way: the keepalive teardown from 54 called
+      `aclose()` on a generator whose own `__anext__` was still in
+      flight, which is the one thing an async generator refuses to do.
+      Every phone that walked away mid-reply left a RuntimeError in the
+      log, and driven directly it hung. Cancelling the call already
+      stops the turn; that is the whole of it.
 
 ## Undecided — needs a call
 
